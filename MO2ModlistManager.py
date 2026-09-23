@@ -1,4 +1,4 @@
-"""MO2 Modlist Order Generator - a Mod Organizer 2 plugin that generates the order of the left pane and the right.
+"""MO2 Modlist Manager - a Mod Organizer 2 plugin that generates the order of the left pane and the right.
 
 The owner, 2026-09-22: "a new plugin for mo2 that generates separators and their names and puts all the mods in the
 right order and separator", after the tier-and-guess sorter on Nexus scattered a hand-built pane.
@@ -296,7 +296,7 @@ def fetch_categories(mod_ids, cache_path, domain="skyrimspecialedition", progres
         query = "{ " + " ".join(f"m{i}: mod(modId: {i}, gameId: {game}) {{ modCategory {{ name }} }}" for i in chunk) + " }"
         try:
             req = urllib.request.Request(GRAPHQL, data=json.dumps({"query": query}).encode("utf-8"),
-                                         headers={"Content-Type": "application/json", "User-Agent": "MO2ModlistOrderGenerator/" + __version__})
+                                         headers={"Content-Type": "application/json", "User-Agent": "MO2ModlistManager/" + __version__})
             with urllib.request.urlopen(req, timeout=30) as fh:
                 reply = json.loads(fh.read().decode("utf-8"))
         except (urllib.error.URLError, OSError, ValueError) as exc:
@@ -1091,7 +1091,7 @@ if mobase is not None:
             super().__init__(parent)
             self._p = plugin
             self._result = None
-            self.setWindowTitle("MO2 Modlist Order Generator")
+            self.setWindowTitle("MO2 Modlist Manager")
             self.resize(1100, 720)
             root = QVBoxLayout(self)
             self.summary = QLabel("Reading the list and asking Nexus for categories...")
@@ -1328,7 +1328,7 @@ if mobase is not None:
                 self._p._log(f"apply failed: {exc!r}")
                 self.status.setText(f"Failed: {exc}")
 
-    class MO2ModlistOrderGenerator(mobase.IPluginTool):
+    class MO2ModlistManager(mobase.IPluginTool):
         def __init__(self):
             super().__init__()
             self._organizer = None
@@ -1372,7 +1372,7 @@ if mobase is not None:
                     self._toolbar_timer.setInterval(2000)      # in place: just keep an eye on it
                     return
                 act = QAction(self.icon(), self.displayName(), window)
-                act.setObjectName("MO2ModlistOrderGeneratorAction")
+                act.setObjectName("MO2ModlistManagerAction")
                 act.setToolTip(self.tooltip())
                 act.triggered.connect(self.display)
                 anchor = None
@@ -1387,7 +1387,7 @@ if mobase is not None:
                     tb.addAction(act)
                 btn = tb.widgetForAction(act)
                 if isinstance(btn, QToolButton):
-                    btn.setObjectName("MO2ModlistOrderGeneratorBtn")
+                    btn.setObjectName("MO2ModlistManagerBtn")
                     btn.setAutoRaise(True)
                     btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
                     btn.setIconSize(tb.iconSize())
@@ -1397,7 +1397,7 @@ if mobase is not None:
                 self._log(f"toolbar button: {exc!r}")
 
         def name(self):
-            return "MO2 Modlist Order Generator"
+            return "MO2 Modlist Manager"
 
         def author(self):
             return "ApocryphaRealm"
@@ -1416,20 +1416,20 @@ if mobase is not None:
             return []
 
         def displayName(self):
-            return "MO2 Modlist Order Generator"
+            return "MO2 Modlist Manager"
 
         def tooltip(self):
             return "Generate separators and place every mod in order"
 
         def icon(self):
-            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MO2ModlistOrderGenerator.png")
+            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MO2ModlistManager.png")
             return QIcon(p) if os.path.isfile(p) else QIcon()
 
         def setParentWidget(self, widget):
             self._parent = widget
 
         def _cache_dir(self):
-            return os.path.join(self._organizer.basePath(), "plugins", "data", "MO2ModlistOrderGenerator")
+            return os.path.join(self._organizer.basePath(), "plugins", "data", "MO2ModlistManager")
 
         def _log(self, msg):
             try:
@@ -1522,14 +1522,14 @@ if mobase is not None:
                 self._log(f"display failed: {exc!r}")
 
     def createPlugin():
-        return MO2ModlistOrderGenerator()
+        return MO2ModlistManager()
 
 
-if __name__ == "__main__" and mobase is None:       # offline dry run: python MO2ModlistOrderGenerator.py <instance> <profile> <cache dir>
+if __name__ == "__main__" and mobase is None:       # offline dry run: python MO2ModlistManager.py <instance> <profile> <cache dir>
     # (MO2 executes a plugin file with __name__ == "__main__" too - the mobase check keeps this block out of its way)
     import sys
     if len(sys.argv) < 4:
-        raise SystemExit("usage: MO2ModlistOrderGenerator.py <instance dir> <profile> <cache dir> [spine|blocks]")
+        raise SystemExit("usage: MO2ModlistManager.py <instance dir> <profile> <cache dir> [spine|blocks]")
     inst, prof, cache = sys.argv[1], sys.argv[2], sys.argv[3]
     mode = sys.argv[4] if len(sys.argv) > 4 else "index"
     res = run(inst, prof, cache, log=print, mode=mode)
