@@ -80,11 +80,15 @@ TIERS = {
         "Cities, Towns, Villages, and Hamlets", "Dungeons", "Locations - New", "Locations - Vanilla",
         "Magic - Spells & Enchantments", "Crafting", "Shouts", "Cheats and God items"),
     5: ("Patches",),
-    6: ("Generated Outputs", "Test Builds"),
+    6: ("Test Builds",),
+    7: ("Generated Outputs",),
 }
 TIER_HEADERS = {0: "--- 0 ENGINE, FIXES & FRAMEWORKS ---", 1: "--- 1 INTERFACE ---", 2: "--- 2 BODIES & ANIMATION ---",
                 3: "--- 3 WORLD, TEXTURES & SYSTEMS ---", 4: "--- 4 ITEMS, PLACES & PEOPLE ---", 5: "--- 5 PATCHES ---",
-                6: "--- 6 GENERATED OUTPUTS ---"}
+                6: "--- 6 TEST BUILDS ---", 7: "--- 7 GENERATED OUTPUTS ---"}
+# blocks that stand on their own: never merged into a neighbour, never take a neighbour's mods (the owner, 2026-09-22:
+# the outputs had been folded into Test Builds, and Test Builds must hold every "test "-prefixed mod and nothing else)
+FIXED_BLOCKS = ("base game", "test builds", "generated outputs", "[nodelete]")
 INDEX_TIER = {norm_key: t for t, names in TIERS.items() for norm_key in (re.sub(r"\s+", " ", n).strip().lower() for n in names)}
 
 
@@ -97,7 +101,7 @@ def index_tier(category, mod=None):
     under Buildings, which SMIM and the PBR packs then override)."""
     k = re.sub(r"\s+", " ", category or "").strip().lower()
     if k == NODELETE_SEP.lower():
-        return 7
+        return 8
     t = INDEX_TIER.get(k, 3)
     if t == 4 and mod is not None and not mod.plugins and mod.files:
         exts = {os.path.splitext(f)[1] for f in mod.files}
@@ -330,8 +334,8 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
         if n in pins:
             m.category, m.why = pins[n], "pinned by a rule"
             continue
-        if n in under_nodelete or TAG_NODELETE.match(n):
-            m.category, m.why = NODELETE_SEP, "carries [NoDelete] / sits under the NoDelete separator - left where it is"
+        if TAG_NODELETE.match(n):
+            m.category, m.why = NODELETE_SEP, "carries the [NoDelete] tag - stays in the NoDelete block"
             continue
         low = n.lower()
         if low.startswith("test "):
@@ -660,10 +664,14 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             else:
                 runs.append([m.category, [m]])
         def same_tier(a, b):
-            return mode != "index" or a is None or b is None or index_tier(a[0], a[1][0]) == index_tier(b[0], b[1][0])
+            if a is None or b is None:
+                return True
+            if norm(a[0]) in FIXED_BLOCKS or norm(b[0]) in FIXED_BLOCKS:
+                return False
+            return mode != "index" or index_tier(a[0], a[1][0]) == index_tier(b[0], b[1][0])
         while len(runs) > 1:
-            i = min(range(len(runs)), key=lambda j: (10**6 if len(runs[j]) > 2 else len(runs[j][1]), j))
-            if len(runs[i][1]) >= min_run or len(runs[i]) > 2:
+            i = min(range(len(runs)), key=lambda j: (10**6 if (len(runs[j]) > 2 or norm(runs[j][0]) in FIXED_BLOCKS) else len(runs[j][1]), j))
+            if len(runs[i][1]) >= min_run or len(runs[i]) > 2 or norm(runs[i][0]) in FIXED_BLOCKS:
                 break
             left = runs[i - 1] if i > 0 and same_tier(runs[i - 1], runs[i]) else None
             right = runs[i + 1] if i + 1 < len(runs) and same_tier(runs[i], runs[i + 1]) else None
@@ -736,12 +744,19 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                 written_headers.add(header)
             cur_header = header
         if norm(m.category) != norm(cur_cat or ""):
-            rows.append((sep_name(m.category), False))
+            if k == NODELETE_SEP.lower():
+                existing = [x.name for x in mods if is_sep(x.name) and re.sub(r"[\s\[\]\-_.]", "", x.name[:-len("_separator")]).lower() == "nodelete"]
+                rows.append((existing[0] if existing else sep_name(NODELETE_SEP), False))
+            else:
+                rows.append((sep_name(m.category), False))
             cur_cat = m.category
         rows.append((m.name, m.enabled))
     for m in mods:
         if "missing" in m.flags:
             rows.append((m.name, m.enabled))
+    old_nodelete = [m.name for m in mods if is_sep(m.name) and re.sub(r"[\s\[\]\-_.]", "", m.name[:-len("_separator")]).lower() == "nodelete"]
+    if old_nodelete and not any(is_sep(nm) and nm == old_nodelete[0] for nm, _ in rows):
+        rows.append((old_nodelete[0], False))       # the NoDelete home stays, empty, at the bottom
     new_pos = {nm: i for i, (nm, _) in enumerate(rows)}
     flips = []
     for (l, w), n in winners.items():
