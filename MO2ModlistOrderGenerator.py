@@ -663,12 +663,18 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                 runs[-1][1].append(m)
             else:
                 runs.append([m.category, [m]])
+        # a run's tier is the tier its mods were ORDERED by (rank), not the tier of its label re-derived from its first
+        # mod: an asset-only 'Weapons' mod ranks as tier 3 while the label says 4, and comparing labels left small
+        # same-tier runs unmerged ('Armour' with 5 mods between two 'Weapons' runs)
+        for m in real:
+            m.group = rank(m)[0]
+
         def same_tier(a, b):
             if a is None or b is None:
                 return True
             if norm(a[0]) in FIXED_BLOCKS or norm(b[0]) in FIXED_BLOCKS:
                 return False
-            return mode != "index" or index_tier(a[0], a[1][0]) == index_tier(b[0], b[1][0])
+            return mode != "index" or a[1][0].group == b[1][0].group
         while len(runs) > 1:
             i = min(range(len(runs)), key=lambda j: (10**6 if (len(runs[j]) > 2 or norm(runs[j][0]) in FIXED_BLOCKS) else len(runs[j][1]), j))
             if len(runs[i][1]) >= min_run or len(runs[i]) > 2 or norm(runs[i][0]) in FIXED_BLOCKS:
