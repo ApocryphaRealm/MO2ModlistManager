@@ -1309,7 +1309,7 @@ if mobase is not None:
             QApplication.processEvents()
             done = apply_mo2_category_updates(ups, self._p._log)
             try:
-                self._p._organizer.refresh(True)
+                self._p._organizer.refresh(False)     # re-read the meta.ini files just written; never save over them
             except Exception:  # noqa: BLE001
                 pass
             self.status.setText(f"MO2 categories written for {done} of {len(ups)} mod(s) from their Nexus category; MO2 refreshed.")
