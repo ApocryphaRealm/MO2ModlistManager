@@ -578,6 +578,49 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
         if m.enabled:
             for f in m.files:
                 owners.setdefault(f, []).append(m)
+    # SETTINGS LOADERS (the owner, 2026-09-23: "the settings loaders are higher than their target mod"). A loader
+    # ships MCM\Config\<mod>\settings.ini beside the mod's own MCM script and translations; it only does its job
+    # when it WINS those files, so it sits below every enabled mod it shares a file with - whatever the tiers say
+    # (its Nexus category is usually User Interface, tier 1, which had put it above a tier-3 target). The
+    # displacement pass then lists it under the target's block.
+    loader_re = re.compile(r"(^|/)mcm/config/[^/]+/settings\.ini$")
+    loader_only_re = re.compile(r"^(mcm/config/|interface/translations/|scripts/)")
+    name_re = re.compile(r"settings loader", re.I)
+
+    def is_settings_loader(m):
+        # by name, or by shape: nothing but MCM config, translations and the MCM script, with a settings.ini. A mod
+        # that ships its OWN MCM/Config/<mod>/settings.ini beside meshes or a DLL (True Directional Movement, TrueHUD,
+        # Photo Mode) is not a loader - reading it as one put it under Norden UI and made a cycle (2026-09-23)
+        if name_re.search(m.name):
+            return True
+        return any(loader_re.search(f) for f in m.files) and all(loader_only_re.search(f) for f in m.files)
+    loaders = 0
+    loader_pairs = set()          # (loader, target): the loader rule decides these pairs, not today's winner
+    for a_mod in real:
+        if not a_mod.enabled or not a_mod.files:
+            continue
+        if not is_settings_loader(a_mod):
+            continue
+        shared = {}
+        for f in a_mod.files:
+            for b_mod in owners.get(f, []):
+                if b_mod is not a_mod and b_mod.enabled and not name_re.search(b_mod.name):
+                    shared[b_mod.name] = shared.get(b_mod.name, 0) + 1
+        for b_name, n in shared.items():
+            edge(by_name[b_name], a_mod, f"settings loader: must win {n} file(s) of {b_name}")
+        # no shared file (the target ships its MCM under other names): the loader's own name says whose it is
+        base = re.sub(r"\s*-\s*settings loader.*$", "", a_mod.name, flags=re.I).strip()
+        # the target may carry a suffix of its own ("Farmhouse Chimneys SE (main)"): the shortest enabled mod named
+        # base, "base (...)" or "base - ..." that is not itself a loader or a patch
+        cands = [m for m in real if m.enabled and m is not a_mod and not name_re.search(m.name) and not TAG_PATCH.match(m.name)
+                 and (norm(m.name) == norm(base) or m.name.lower().startswith(base.lower() + " (") or m.name.lower().startswith(base.lower() + " - "))]
+        target = min(cands, key=lambda m: len(m.name)) if cands else None
+        if target is not None and target.name not in shared:
+            edge(target, a_mod, f"settings loader for {target.name} (by name)")
+            shared[target.name] = 0
+        loader_pairs.update((a_mod.name, b) for b in shared)
+        if shared:
+            loaders += 1
     pairs = {}
     for f, ms in owners.items():
         if len(ms) < 2 or len(ms) > 40:
@@ -591,6 +634,8 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     for (a, b), n in pairs.items():
         loser, winner = (a, b) if by_name[a].index < by_name[b].index else (b, a)
         winners[(loser, winner)] = n
+        if (loser, winner) in loader_pairs or (winner, loser) in loader_pairs:
+            continue                  # a settings loader's pair is settled by the loader rule above
         if keep_winners and (mode != "index" or index_tier(by_name[loser].category, by_name[loser]) == index_tier(by_name[winner].category, by_name[winner])):
             # in index mode only SAME-tier winners are kept: a cross-tier flip is the hierarchy doing its job
             edge(by_name[loser], by_name[winner], f"keeps winning {n} shared file(s) over {loser}")
@@ -666,6 +711,8 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             if indeg[c] == 0:
                 heapq.heappush(ready, (key(by_name[c]), c))
     cycles = [m for m in real if m.name not in {x.name for x in ordered}]
+    cycle_names = {m.name for m in cycles}
+    cycle_edges = [(x, y, reason.get((x, y), "")) for y in cycle_names for x in above.get(y, ()) if x in cycle_names]
     ordered += sorted(cycles, key=key)          # a cycle among edges: those mods keep today's relative order
 
     # --- displaced mods take the category they land in (blocks mode) ------------------------------------------------
@@ -822,7 +869,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     new_seps = {nm for nm, _ in rows if is_sep(nm)}
     old_seps = {m.name for m in mods if is_sep(m.name)}
     return rows, {"fixes": fixes, "rule_moves": rule_moves, "flips": flips, "conflict_pairs": len(pairs),
-                  "displaced": displaced, "absorbed": absorbed, "advice": advice, "mode": mode, "cycles": [m.name for m in cycles],
+                  "displaced": displaced, "absorbed": absorbed, "advice": advice, "mode": mode, "cycles": [m.name for m in cycles], "cycle_edges": cycle_edges,
                   "category_order": seq, "category_moves": moved_cats, "contradicted_files": best,
                   "created": sorted(new_seps - old_seps), "retired": sorted(old_seps - new_seps)}
 
