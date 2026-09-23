@@ -573,6 +573,22 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             for m in real:
                 if m is not o and m.enabled and norm(m.category) not in (norm("Generated Outputs"), norm("Test Builds"), NODELETE_SEP.lower()):
                     edge(m, o, "generated output loads last")
+    def would_cycle(x, y):
+        """True when y is already (transitively) above x, so 'x above y' would close a loop. Rules are the only edges
+        that can be inconsistent with the structural ones (masters, outputs last, settings loaders, kept winners), so
+        each rule is checked against everything before it and skipped - and reported - rather than obeyed: 527
+        review rules written under an old order made 9 cycles that froze the pane (2026-09-23)."""
+        stack, seen = [x], set()
+        while stack:
+            n = stack.pop()
+            if n == y:
+                return True
+            if n in seen:
+                continue
+            seen.add(n)
+            stack.extend(above.get(n, ()))
+        return False
+
     owners = {}
     for m in real:
         if m.enabled:
@@ -631,23 +647,40 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                 k = (a.name, b.name) if a.name < b.name else (b.name, a.name)
                 pairs[k] = pairs.get(k, 0) + 1
     winners = {}
+    winners_yielded = []
     for (a, b), n in pairs.items():
         loser, winner = (a, b) if by_name[a].index < by_name[b].index else (b, a)
         winners[(loser, winner)] = n
         if (loser, winner) in loader_pairs or (winner, loser) in loader_pairs:
             continue                  # a settings loader's pair is settled by the loader rule above
         if keep_winners and (mode != "index" or index_tier(by_name[loser].category, by_name[loser]) == index_tier(by_name[winner].category, by_name[winner])):
-            # in index mode only SAME-tier winners are kept: a cross-tier flip is the hierarchy doing its job
+            # in index mode only SAME-tier winners are kept: a cross-tier flip is the hierarchy doing its job.
+            # A winner that would loop against a master or loader edge yields to it (JS Knapsacks won 36 files over
+            # Wet and Cold today while its own patch plugin needs WetandCold.esp as a master - 2026-09-23)
+            if would_cycle(loser, winner):
+                winners_yielded.append((winner, loser, n, reason.get((winner, loser), "a master or loader edge says the opposite")))
+                continue
             edge(by_name[loser], by_name[winner], f"keeps winning {n} shared file(s) over {loser}")
     rule_moves = []
+    rules_ignored = []
+
     for r in rules:
         a, b, kind = by_name.get(r.get("mod", "")), by_name.get(r.get("target", "")), r.get("type", "")
         if a is None or not r.get("enabled", True):
             continue
+        # a rule that says the opposite of a structural edge is ignored and reported, never obeyed: 527 review rules
+        # written under the old order pinned settings loaders ABOVE their targets and mods after generated outputs,
+        # and every one of them became a cycle that froze the pane (2026-09-23)
         if kind == "after" and b is not None:
+            if would_cycle(b.name, a.name):
+                rules_ignored.append((a.name, f"after {b.name}", reason.get((a.name, b.name), "would loop through other edges")))
+                continue
             edge(b, a, f"rule: after {b.name}")
             rule_moves.append((a.name, f"after {b.name}"))
         elif kind == "before" and b is not None:
+            if would_cycle(a.name, b.name):
+                rules_ignored.append((a.name, f"before {b.name}", reason.get((b.name, a.name), "would loop through other edges")))
+                continue
             edge(a, b, f"rule: before {b.name}")
             rule_moves.append((a.name, f"before {b.name}"))
     firsts = {r.get("mod") for r in rules if r.get("type") == "first" and r.get("enabled", True)}
@@ -764,6 +797,22 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             from collections import Counter
             return Counter(m.group for m in r[1]).most_common(1)[0][0]
 
+        # a category with at least min_run mods in its tier keeps its own block even when kept winners split it into
+        # short runs - the owner, 2026-09-23: "pelt cloaks should be in clothing": all eight Clothing and Accessories
+        # mods had been absorbed into Weapons blocks because no single run of them reached eight. Only a category
+        # that is genuinely tiny in its tier is folded into a neighbour as a minority.
+        cat_total = {}
+        for r in runs:
+            cat_total[norm(r[0])] = cat_total.get(norm(r[0]), 0) + len(r[1])
+        largest = {}                       # (tier, category) -> the biggest run of it: the one that keeps its separator
+        for r in runs:
+            key_ = (run_tier(r), norm(r[0]))
+            if key_ not in largest or len(r[1]) > len(largest[key_][1]):
+                largest[key_] = r
+        for key_, r in largest.items():
+            if len(r) == 2 and norm(r[0]) not in FIXED_BLOCKS and cat_total.get(norm(r[0]), 0) >= min_run and len(r[1]) < min_run:
+                r.append("keep")       # the category's home block; its splinters elsewhere are absorbed as minorities
+
         def same_tier(a, b):
             if a is None or b is None:
                 return True
@@ -869,7 +918,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     new_seps = {nm for nm, _ in rows if is_sep(nm)}
     old_seps = {m.name for m in mods if is_sep(m.name)}
     return rows, {"fixes": fixes, "rule_moves": rule_moves, "flips": flips, "conflict_pairs": len(pairs),
-                  "displaced": displaced, "absorbed": absorbed, "advice": advice, "mode": mode, "cycles": [m.name for m in cycles], "cycle_edges": cycle_edges,
+                  "displaced": displaced, "absorbed": absorbed, "advice": advice, "mode": mode, "cycles": [m.name for m in cycles], "cycle_edges": cycle_edges, "rules_ignored": rules_ignored, "winners_yielded": winners_yielded,
                   "category_order": seq, "category_moves": moved_cats, "contradicted_files": best,
                   "created": sorted(new_seps - old_seps), "retired": sorted(old_seps - new_seps)}
 
@@ -1070,6 +1119,14 @@ def load_rules(profile_dir):
     ours.setdefault("rules", [])
     ours.setdefault("plugin_rules", [])
     ours.setdefault("pins", {})
+    for key_ in ("rules", "plugin_rules"):          # an older build let "Keep" write the same rule twice
+        seen, kept = set(), []
+        for r in ours[key_]:
+            sig = json.dumps({k: v for k, v in r.items() if k != "comment"}, sort_keys=True)
+            if sig not in seen:
+                seen.add(sig)
+                kept.append(r)
+        ours[key_] = kept
     return ours, ours["plugin_rules"]
 
 
