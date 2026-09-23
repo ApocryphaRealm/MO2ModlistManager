@@ -33,28 +33,6 @@ import urllib.error
 import urllib.request
 
 # --- the taxonomy: group header -> the Nexus category names under it, in load order ----------------------------------
-OTHER_GROUP_HEADER = "--- OTHER ---"   # a category the table does not know sits here, under its own name
-GROUPS = [
-    # "Uncategorised" sits FIRST on purpose: a mod nothing can place is put where the edges pull it - it is displaced
-    # down to wherever its override winners are and relabelled there - whereas a late "unknown" group would drag every
-    # mod that wins over an unknown one down to the tail (2026-09-22: 331 mods followed one unplaced patch).
-    ("--- CORE ---", ["Base Game", "Uncategorised", "Utilities", "Bug Fixes", "Modders Resources", "Save Games", "VR"]),
-    ("--- USER INTERFACE ---", ["User Interface"]),
-    ("--- AUDIO ---", ["Audio"]),
-    ("--- VISUALS ---", ["Models and Textures", "Visuals and Graphics", "Environmental", "Presets - ENB and ReShade"]),
-    ("--- CHARACTER ---", ["Body, Face, and Hair", "Races, Classes, and Birthsigns", "Animation"]),
-    ("--- NPCS & CREATURES ---", ["NPC", "Followers & Companions", "Followers & Companions - Creatures", "Creatures and Mounts"]),
-    ("--- GAMEPLAY ---", ["Gameplay", "Overhauls", "Immersion", "Combat", "Stealth", "Skills and Leveling", "Magic - Gameplay",
-                          "Magic - Spells & Enchantments", "Shouts", "Alchemy", "Crafting", "Guilds/Factions", "Cheats and God items"]),
-    ("--- ITEMS & EQUIPMENT ---", ["Clothing and Accessories", "Weapons and Armour", "Armour", "Armour - Shields", "Weapons", "Shape",
-                                   "Items and Objects - Player", "Items and Objects - World", "Collectables, Treasure Hunts, and Puzzles"]),
-    ("--- WORLD & CONTENT ---", ["Cities, Towns, Villages, and Hamlets", "Buildings", "Player homes", "Dungeons", "Locations - New",
-                                 "Locations - Vanilla", "Quests and Adventures", "Miscellaneous"]),
-    (OTHER_GROUP_HEADER, []),                 # categories the table does not know (the owner's own MO2 categories)
-    ("--- PATCHES ---", ["Patches"]),
-    ("--- OUTPUTS ---", ["Generated Outputs"]),
-    ("--- LOCAL ---", ["Test Builds"]),
-]
 NODELETE_SEP = "[NoDelete]"            # kept as the last separator with its contents untouched (Wabbajack's convention)
 TAG_NODELETE = re.compile(r"^\s*\[nodelete\]", re.I)
 TAG_PATCH = re.compile(r"(^|\s)\[patch\](\s|$)", re.I)      # a prefix (older names) or a suffix (MO2 Keyword Tagger 1.0.2)
@@ -62,39 +40,78 @@ BASE_MASTERS = {"skyrim.esm", "update.esm", "dawnguard.esm", "hearthfires.esm", 
 PLUGIN_EXT = (".esp", ".esm", ".esl")
 OUTPUT_TOOLS = re.compile(r"\b(dyndolod|texgen|xlodgen|occlusion|pgpatcher|parallaxgen|nemesis|pandora|synthesis|bodyslide)\b.*\boutput\b"
                           r"|\bsynthesis\.esp\b|\bbashed patch\b|\bsmashed patch\b", re.I)
-# THE SIX-TIER INDEX (Auto Sort's override hierarchy, kept; measured against a 2,300-mod tested list it agrees on
-# 77% of cross-tier file conflicts and its misses are Nexus labels, not the hierarchy). A tier is assigned from the
-# Nexus category, or from what a mod ships when Nexus cannot place it - never from words in its name.
-#   0 engine, fixes, frameworks   1 interface   2 bodies, skeletons, animation   3 world, textures, systems
-#   4 items, places, people       5 patches     6 generated outputs (and test builds)
-TIERS = {
-    0: ("Base Game", "Utilities", "Bug Fixes", "Modders Resources", "VR", "Uncategorised"),
-    1: ("User Interface", "Save Games"),
-    2: ("Body, Face, and Hair", "Animation", "Races, Classes, and Birthsigns"),
-    3: ("Models and Textures", "Visuals and Graphics", "Environmental", "Audio", "Overhauls", "Gameplay", "Immersion",
-        "Skills and Leveling", "Magic - Gameplay", "Combat", "Stealth", "Guilds/Factions", "Alchemy", "Miscellaneous",
-        "Presets - ENB and ReShade"),
-    # magic systems first: Artificer, Thaumaturgy, Mysticism are what enchanted-equipment addons take as masters
-    # (Armory of the Dragon Cult's Artificer plugin), so the equipment blocks come after them (2026-09-23)
-    4: ("Magic - Spells & Enchantments", "Shouts", "Clothing and Accessories", "Armour", "Armour - Shields", "Weapons",
-        "Weapons and Armour", "Shape", "Items and Objects - Player",
-        "Items and Objects - World", "Creatures and Mounts", "NPC", "Followers & Companions", "Followers & Companions - Creatures",
-        "Quests and Adventures", "Collectables, Treasure Hunts, and Puzzles", "Player homes", "Buildings",
-        "Cities, Towns, Villages, and Hamlets", "Dungeons", "Locations - New", "Locations - Vanilla",
-        "Crafting", "Cheats and God items"),
-    5: ("Patches",),
-    6: ("Test Builds",),
-    7: ("Generated Outputs",),
+# THE TAXONOMY (the owner, 2026-09-23). Tiers load top to bottom; a main with subs is an EMPTY separator followed by
+# "Main - Sub" blocks. The distinctions Nexus lacks are his: new vs edited equipment, environment (textures IN the world,
+# split by target) vs models and textures (inventory-scope items, clutter, furniture, interiors), engine fixes vs
+# frameworks vs utilities, controls (action) vs interface (visual), camera, dialogue, physics, performance, lighting
+# and effects, animation by subject, NPC / creature / player sub-blocks, alchemy / crafting / enchanting as headers.
+TAXONOMY = [
+    (0, "--- 0 BASE & ENGINE ---", [
+        ("Base Game", None), ("Unofficial Patches", None), ("Essential Engine Fixes", None), ("Frameworks", None),
+        ("Utilities", None), ("Bug Fixes", None), ("Performance Optimization", None), ("Uncategorised", None)]),
+    (1, "--- 1 INTERFACE & INTERACTION ---", [
+        ("User Interface", None), ("UI Overhaul", None), ("Improved Controls", None), ("Camera", None),
+        ("Dialogue", None), ("Alternate Start", None), ("Save Games", None)]),
+    (2, "--- 2 CHARACTERS & ANIMATION ---", [
+        ("Physics", None), ("Body", None), ("Face", None), ("Hair", None), ("Races, Classes, and Birthsigns", None),
+        ("Animation", ["General", "Player", "NPC", "Enemy", "Creature"])]),
+    (3, "--- 3 WORLD, VISUALS & SYSTEMS ---", [
+        ("Lighting", None), ("Visual Effects", None), ("Presets - ENB and ReShade", None),
+        ("Environment", ["Landscape", "Grass", "Trees", "Plants", "Water", "Weather", "Seasons", "Architecture", "Roads"]),
+        ("Models and Textures", ["General", "Items", "Clutter", "Furniture", "Interiors"]),
+        ("PBR Textures", None), ("Audio", None),
+        ("Gameplay", ["General", "Combat", "Stealth", "Economy"]), ("Immersion", None),
+        ("Alchemy", ["Potions", "Ingredients"]), ("Crafting", ["General", "Armour", "Weapons"]),
+        ("Enchanting", ["General", "Enchantments"]), ("Overhauls", None), ("Miscellaneous", None)]),
+    (4, "--- 4 CONTENT ---", [
+        ("Magic - Spells & Enchantments", None), ("Class, Perks, Powers and Blessings", None), ("Shouts", None),
+        ("Clothing and Accessories", None), ("New Clothing", None), ("Armour", None), ("New Armour", None),
+        ("Armour - Shields", None), ("Weapons", None), ("New Weapons", None), ("Weapons and Armour", None),
+        ("New Weapons and Armour", None), ("Shape", None), ("Items and Objects - World", None),
+        ("Collectables, Treasure Hunts, and Puzzles", None),
+        ("Creatures", ["Appearance", "Behaviour", "Mounts", "New Creatures"]),
+        ("NPC", ["Appearance", "AI and Behaviour", "Followers", "Other"]), ("Player", ["Appearance", "Other"]),
+        ("Quests and Adventures", None), ("Player homes", None), ("Buildings", None),
+        ("Cities, Towns, Villages, and Hamlets", None), ("Dungeons", None), ("Locations - New", None),
+        ("Locations - Vanilla", None), ("Guilds/Factions", None), ("Cheats and God items", None)]),
+    (5, "--- 5 PATCHES ---", [("Patches", None)]),
+    (6, "--- 6 TEST BUILDS ---", [("Test Builds", None)]),
+    (7, "--- 7 GENERATED OUTPUTS ---", [("Generated Outputs", None)]),
+]
+LEAVES, MAIN_OF, TIERS, TIER_HEADERS, GROUPS = [], {}, {}, {}, []
+for _t, _h, _mains in TAXONOMY:
+    _names = []
+    for _main, _subs in _mains:
+        if _subs:
+            for _sub in _subs:
+                _leaf = f"{_main} - {_sub}"
+                _names.append(_leaf)
+                MAIN_OF[_leaf.lower()] = _main
+        else:
+            _names.append(_main)
+    LEAVES.extend(_names)
+    TIERS[_t] = tuple(_names)
+    TIER_HEADERS[_t] = _h
+    GROUPS.append((_h, list(_names)))
+OTHER_GROUP_HEADER = "--- OTHER ---"           # an MO2 category of the user's that the tree does not know: tier 3, last
+INDEX_TIER = {n.strip().lower(): t for t, names in TIERS.items() for n in names}
+FIXED_BLOCKS = ("base game", "unofficial patches", "test builds", "generated outputs", "[nodelete]", "shape")
+# a Nexus category's DEFAULT leaf; the signals below refine it (Body -> Face / Hair, Models and Textures -> a sub...)
+NEXUS_TO_LEAF = {
+    "utilities": "Utilities", "bug fixes": "Bug Fixes", "modders resources": "Utilities", "vr": "Utilities",
+    "uncategorised": "Uncategorised", "user interface": "User Interface", "save games": "Save Games",
+    "body, face, and hair": "Body", "animation": "Animation - General", "models and textures": "Models and Textures - General",
+    "visuals and graphics": "Visual Effects", "environmental": "Environment - Landscape", "audio": "Audio",
+    "overhauls": "Overhauls", "gameplay": "Gameplay - General", "immersion": "Immersion", "combat": "Gameplay - Combat",
+    "stealth": "Gameplay - Stealth", "skills and leveling": "Class, Perks, Powers and Blessings",
+    "magic - gameplay": "Magic - Spells & Enchantments", "alchemy": "Alchemy - Potions", "crafting": "Crafting - General",
+    "items and objects - player": "Items and Objects - World", "npc": "NPC - Appearance",
+    "followers & companions": "NPC - Followers", "followers & companions - creatures": "NPC - Followers",
+    "creatures and mounts": "Creatures - New Creatures",
 }
-TIER_HEADERS = {0: "--- 0 ENGINE, FIXES & FRAMEWORKS ---", 1: "--- 1 INTERFACE ---", 2: "--- 2 BODIES & ANIMATION ---",
-                3: "--- 3 WORLD, TEXTURES & SYSTEMS ---", 4: "--- 4 ITEMS, PLACES & PEOPLE ---", 5: "--- 5 PATCHES ---",
-                6: "--- 6 TEST BUILDS ---", 7: "--- 7 GENERATED OUTPUTS ---"}
-# blocks that stand on their own: never merged into a neighbour, never take a neighbour's mods (the owner, 2026-09-22:
-# the outputs had been folded into Test Builds, and Test Builds must hold every "test "-prefixed mod and nothing else)
-FIXED_BLOCKS = ("base game", "test builds", "generated outputs", "[nodelete]", "shape")
-INDEX_TIER = {norm_key: t for t, names in TIERS.items() for norm_key in (re.sub(r"\s+", " ", n).strip().lower() for n in names)}
-
-
+LEAF_TO_NEXUS = {}
+for _k, _v in NEXUS_TO_LEAF.items():
+    LEAF_TO_NEXUS.setdefault(_v.lower(), _k)
 # --- CONFLICT RESOLVER (the owner, 2026-09-23: "refine this plugin to the point that there's no need to have keep
 # winners ... and it will still work properly"). Two mods sharing files are ordered by EVIDENCE about the two mods,
 # never by where they happen to sit today. Read in this order, first hit decides:
@@ -180,7 +197,8 @@ def resolve_conflict(a, b, shared, files_of):
 SHAPE_CAT = "Shape"
 SHAPE_WORDS = re.compile(r"\b(himbo|cbbe|unp|uunp|bhunp|3ba|3bbb|tbd|bodyslides?|body slides?|outfit studio|refits?|conversions?)\b", re.I)
 SHAPE_REFIT_WORDS = re.compile(r"\b(bodyslides?|body slides?|outfit studio|refits?|conversions?)\b", re.I)
-EQUIPMENT_CATS = {"armour", "armour - shields", "weapons", "weapons and armour", "clothing and accessories"}
+EQUIPMENT_CATS = {"armour", "armour - shields", "weapons", "weapons and armour", "clothing and accessories",
+                  "new armour", "new weapons", "new weapons and armour", "new clothing"}
 
 
 def shape_reason(m, nexus_cat):
@@ -246,12 +264,11 @@ TIER_NAMES = {gi: h.strip("- ").title() for gi, (h, _c) in enumerate(GROUPS)}
 
 
 def tier_of(category):
-    """The override tier of a category = its group's index (Auto Sort's tier idea, decided by the category)."""
-    order, headers = category_order()
+    """The tier of a category (its place in TAXONOMY); an unknown one is tier 3."""
     k = norm(category)
     if k == NODELETE_SEP.lower():
         return len(GROUPS) + 1
-    return order[k][0] if k in order else headers.index(OTHER_GROUP_HEADER)
+    return INDEX_TIER.get(k, 3)
 
 
 # --- evidence ---------------------------------------------------------------------------------------------------------
@@ -353,66 +370,161 @@ def plugin_new_records(path, n_masters):
 # about itself (its name, plugin descriptions, readme, FOMOD info, the Nexus description MO2 cached), the [Patch] tag
 # and the structure of its masters. Nothing here is a mode: a new signal is a new source of votes, a new placement is a
 # rule over the votes.
-W_NEXUS, W_MO2_USER, W_RECORDS_STRONG, W_RECORDS_WEAK, W_FILES, W_TAG = 3.0, 6.0, 3.5, 1.2, 1.5, 1.0
+W_NEXUS, W_MO2_USER, W_RECORDS_STRONG, W_RECORDS_WEAK, W_FILES, W_TAG = 3.0, 3.5, 3.5, 1.2, 1.5, 1.0
+W_NAME_DEFINED = 6.0     # a leaf the owner defined by its name, hit in the mod's NAME: decisive over a label plus its files
+NAME_DEFINED = {"camera", "dialogue", "improved controls", "physics", "performance optimization", "alternate start",
+                "pbr textures", "environment - seasons", "lighting", "unofficial patches", "ui overhaul",
+                "essential engine fixes", "frameworks", "models and textures - interiors", "models and textures - clutter",
+                "models and textures - furniture", "environment - architecture", "player homes", "gameplay - general"}
 TEXT_NAME_HIT, TEXT_DOC_HIT, TEXT_CAP = 1.0, 0.4, 2.5
 
-# (pattern, category, weight multiplier) - the words a mod uses about itself. Tune here.
+# (pattern, leaf, weight multiplier) - the words a mod uses about itself. A multiplier of DEFINITIVE (3.6) means one hit
+# in the NAME outweighs a Nexus label on its own: those are the words the owner named as decisive (camera, dialogue,
+# physics, performance, controls, alternate start, lighting, seasons, pbr, snazzy...). Tune here.
+DEFINITIVE = 3.6
 TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
-    (r"\b(followers?|companions?|hirelings?)\b", "Followers & Companions", 1.0),
-    (r"\b(player ?homes?|homes?|houses?|manor|cabin|estate|abode|hideout|residence|cottage|lodge|sanctuary)\b", "Player homes", 1.0),
-    (r"\b(quests?|adventures?|questline|storyline|campaign)\b", "Quests and Adventures", 1.0),
-    (r"\b(re-?textures?|textures?|[1248]k|pbr|parallax|meshes?|hd|uhd|remesh|remodel|models?)\b", "Models and Textures", 1.0),
-    (r"\b(weather|weathers|climate|lod|grass|trees?|flora|landscapes?|water|seasons?|snow|fog|clouds?)\b", "Environmental", 1.0),
+    # tier 0
+    (r"\b(skse64?|address library|engine fixes|ssedisplaytweaks|display tweaks|crash logger|backported extended esl|bees|sse fixes|scrambled bugs|skyrim priority|net script framework)\b", "Essential Engine Fixes", DEFINITIVE),
+    (r"\b(mcm helper|skyui|papyrusutil|papyrus extender|powerofthree|po3|base object swapper|spell perk item distributor|spid|keyword item distributor|kid|open animation replacer|oar|dynamic animation replacer|dar|jcontainers|consoleutil|community shaders|dynamic string distributor|sound record distributor|payload interpreter|racemenu|nemesis|pandora|xpmsse|xp32|uiextensions|behavior data injector|scaleform translation|inventory injector|framework|distributor|injector|extender|loader|sdk|api|hooks?)\b", "Frameworks", DEFINITIVE),
+    (r"\b(resources?|modder'?s? resource|texture set|assets? pack|tools?|tool ?kit|utilit(y|ies)|library|generator|xedit|lodgen|texgen|dyndolod resources)\b", "Utilities", 1.0),
+    (r"\b(fix(es|ed|er)?|bug ?fix(es|er)?|corrections?|navmesh|hotfix)\b", "Bug Fixes", 1.0),
+    (r"\b(efps|optimi[sz](ation|ed|er)|performance|insignificant object remover|lightened skyrim|occlusion|fps|shadow boost|object remover|culling)\b", "Performance Optimization", DEFINITIVE),
+    (r"\b(unofficial .*patch|ussep|usmp)\b", "Unofficial Patches", DEFINITIVE),
+    # tier 1
+    (r"\b(ui|hud|menus?|interface|widgets?|fonts?|map markers?|compass|minimap|mcm|cursor|loading screens?|main menu|bestiary|character menu|follower stats|stats? menu|journal|inventory ?(menu|ui)|icons?)\b", "User Interface", 1.0),
+    (r"\b(ui overhaul|nordic ui|untarnished ui|norden ui|dear diary|edge ui|skyhud|interface overhaul|reskin|smooth ui|dragonbreaker|dwemer ui)\b", "UI Overhaul", DEFINITIVE),
+    (r"\b(read or take|better grabbing|btps|better third person selection|step up|quick ?loot|controls?|controller|gamepad|hotkeys?|keybinds?|keybinding|grab|activate|activation|interaction|pick ?up|take all|jump|sprint|whistle|auto ?(equip|unequip|loot|sort)|unbind|bindings?|wheeler|wheel menu|back pocket|item explorer)\b", "Improved Controls", DEFINITIVE),
+    (r"\b(cam|camera|cameras|smoothcam|fov|field of view|headtracking|head tracking)\b", "Camera", DEFINITIVE),
+    (r"\b(dialogue|dialog|persuasion|conversations?|talk|speech|voice ?lines?|subtitles?)\b", "Dialogue", DEFINITIVE),
+    (r"\b(alternate start|alternate perspective|realm of lorkhan|live another life|skyrim unbound|new game start|character creation start)\b", "Alternate Start", DEFINITIVE),
+    (r"\b(saves?|autosaves?|save ?games?|save system)\b", "Save Games", 1.0),
+    # tier 2
+    (r"\b(smp|hdt|cbpc|fsmp|physics|collision|jiggle|bounce|cloth physics)\b", "Physics", DEFINITIVE),
+    (r"\b(bod(y|ies)|skins?|cbbe|himbo|unp|3ba|bhunp|tbd|muscle|nipple|feet|hands|complexion|bodypaint|tattoos?|texture ?set)\b", "Body", 1.0),
+    (r"\b(faces?|heads?|eyes?|brows?|eyebrows?|teeth|mouth|freckles?|scars?|warpaints?|makeup|tint|high poly head|expressions?|lips)\b", "Face", 1.0),
+    (r"\b(hairs?|hairdos?|hairstyles?|beards?|khisartan|ks hairdos|apachii|salt and wind|hairline)\b", "Hair", 1.5),
+    (r"\b(races?|khajiit|argonians?|orcs?|orsimer|dunmer|altmer|bosmer|nords?|imperials?|bretons?|redguards?|birthsigns?|racial)\b", "Races, Classes, and Birthsigns", 1.0),
+    (r"\b(animations?|animated|idles?|mco|bfco|skysa|adxp|locomotion|movement|dodge|tk dodge|true directional|tdm|diving|dive|swim|sprint animation|attack animations?|combos?|behaviou?rs?)\b", "Animation - General", 1.0),
+    (r"\b(player animations?|first person animations?|pca)\b", "Animation - Player", 2.0),
+    (r"\b(npc animations?|idle animations?|gesture|conversation animations?|citizen animations?)\b", "Animation - NPC", 2.0),
+    (r"\b(enemy animations?|bandit animations?|draugr animations?|boss animations?)\b", "Animation - Enemy", 2.0),
+    (r"\b(creature animations?|animal animations?|horse animations?|dragon animations?|wolf animations?|bear animations?)\b", "Animation - Creature", 2.0),
+    # tier 3
+    (r"\b(lights?|lighting|lux|elfx|luminosity|window shadows|torch(es)?|lanterns?|candles?|illumination|shadows?|relighting|enb light)\b", "Lighting", DEFINITIVE),
+    (r"\b(effects?|vfx|fx|particles?|blood|fire|smoke|spell effects?|impacts?|embers|lens|flares?|glow|magic effects?|mist|fog|explosions?|footprints|splash(es)?|sparks)\b", "Visual Effects", 1.5),
     (r"\b(enb|reshade)\b", "Presets - ENB and ReShade", 1.5),
-    (r"\b(lighting|lights?|shadows?|volumetric|bloom|lut|colou?r ?grading|hdr|shaders?|community shaders|ambient)\b", "Visuals and Graphics", 1.0),
-    (r"\b(animations?|animated|dar|oar|behaviou?rs?|idles?|mco|bfco|skysa|adxp|nemesis|pandora|locomotion|jump|dodge ?animations?)\b", "Animation", 1.0),
+    (r"\b(landscapes?|terrain|ground|rocks?|mountains?|cliffs?|dirt|complex parallax|parallax|tundra|mud|gravel|stones?)\b", "Environment - Landscape", 1.0),
+    (r"\b(grass|grasses|folkvangr|veydosebrom|cathedral grass|landscape fixes for grass)\b", "Environment - Grass", 2.0),
+    (r"\b(trees?|forests?|pines?|aspens?|birch(es)?|bark|happy little trees|nature of the wild lands|dead trees)\b", "Environment - Trees", 2.0),
+    (r"\b(plants?|flora|flowers?|mushrooms?|shrubs?|bush(es)?|ferns?|ivy|moss|lichen|nirnroot|saplings?|blooms?|thickets?)\b", "Environment - Plants", 2.0),
+    (r"\b(water|rivers?|waterfalls?|ocean|lakes?|realistic water|water for enb|shores?|foam|puddles)\b", "Environment - Water", 2.0),
+    (r"\b(weathers?|sky|skies|clouds?|aurora|storms?|rain|climate|obsidian|cathedral weathers|azurite|nat|vivid weathers|wind)\b", "Environment - Weather", 2.0),
+    (r"\b(seasons?|seasonal|turn of the seasons|winter|summer|autumn|spring|snowy)\b", "Environment - Seasons", DEFINITIVE),
+    (r"\b(architecture|farmhouses?|chimneys?|exteriors?|rooftops|thatch|stonework|windmills?)\b", "Environment - Architecture", DEFINITIVE),
+    (r"\b(roofs?|brick|city walls|fences?|docks|bridges?|wells?|signs?|signposts?|market stalls?)\b", "Environment - Architecture", 1.5),
+    (r"\b(roads?|northern roads|pathways?|cobblestone|trails?|paths?)\b", "Environment - Roads", 2.0),
+    (r"\b(re-?textures?|textures?|[1248]k|meshes?|hd|uhd|remesh|remodel|models?|retex)\b", "Models and Textures - General", 1.0),
+    (r"\b(items?|potions? (models?|meshes|textures)|food|ingots?|gems?|soul ?gems?|scrolls? (models?|textures)|books? (models?|textures|covers?)|coins?|septims?|gold|weapon (models?|meshes)|armou?r (models?|meshes))\b", "Models and Textures - Items", 1.0),
+    (r"\b(clutter|knapsacks?|sacks?|barrels?|crates?|baskets?|pottery|tankards?|junk|hay|firewood|buckets?|coins? of interesting nature)\b", "Models and Textures - Clutter", DEFINITIVE),
+    (r"\b(bottles?|cups?|plates?|ropes?|jars?|bowls?|goblets?|candlesticks?|lamps?)\b", "Models and Textures - Clutter", 1.5),
+    (r"\b(furniture|thrones?|chairs?|beds?|bench(es)?|shel(f|ves)|cabinets?|dressers?|wardrobes?|nightstands?|stools?)\b", "Models and Textures - Furniture", DEFINITIVE),
+    (r"\b(tables?|desks?|counters?|bookcases?)\b", "Models and Textures - Furniture", 1.5),
+    (r"\b(interiors?|snazzy|inn interiors?|tavern|shop|trader|store|rooms?|indoors?)\b", "Models and Textures - Interiors", DEFINITIVE),
+    (r"\b(pbr|rmaos|parallax ?gen|pgpatcher|complex material)\b", "PBR Textures", DEFINITIVE),
+    (r"\b(sounds?|audio|music|voices?|voiced|soundtrack|ambience|footsteps?|sfx)\b", "Audio", 1.0),
+    (r"\b(gameplay|mechanics?|systems?|balance|difficulty|encounters?|leveled lists?|survival|needs|hunger|thirst|frostfall|camping|campfire)\b", "Gameplay - General", 1.0),
+    (r"\bpress \w+ to\b", "Gameplay - General", DEFINITIVE),
+    (r"\b(combat|parry|block(ing)?|stagger|killmoves?|poise|stamina ?regen|hit ?stop|melee|archery|damage|localized damage|localised damage|resistances?|weakness(es)?|armou?r rating|enemies|enemy)\b", "Gameplay - Combat", 1.5),
+    (r"\b(stealth|sneak(ing)?|thie(f|ves)|pickpocket(ing)?|lockpick(ing)?|detection)\b", "Gameplay - Stealth", 1.5),
+    (r"\b(economy|trade|trading|merchants?|prices?|barter|gold sink|taxes?)\b", "Gameplay - Economy", 1.5),
+    (r"\b(immersive|immersion|realistic|wearable|bathing|sleep|eating|drinking|carry weight|carryweight|weight)\b", "Immersion", 1.0),
+    (r"\b(alchemy|potions?|poisons?|apothecary|brewing)\b", "Alchemy - Potions", 1.5),
+    (r"\b(ingredients?|reagents?|herbs?|harvest(ing)?)\b", "Alchemy - Ingredients", 1.5),
+    (r"\b(craft(ing)?|smithing|forge|tanning|cooking|recipes?|tempering|workbench|blacksmith)\b", "Crafting - General", 1.5),
+    (r"\b(enchant(ing|ments?|ed)?|disenchant|enchanter)\b", "Enchanting - Enchantments", 1.5),
+    (r"\b(overhaul(s|ed)?|rework(ed)?|redone|remastered|revamp(ed)?)\b", "Overhauls", 0.5),
+    # tier 4
+    (r"\b(spells?|magic|magicka|scrolls?|wards?|destruction|conjuration|illusion|restoration|alteration|summon(s|ing)?|rituals?|tomes?|staff|staves|mysticism|apocalypse|odin|arcanum)\b", "Magic - Spells & Enchantments", 1.0),
+    (r"\b(perks?|classes?|standing stones?|blessings?|powers?|shrine blessings?|ordinator|adamant|vokrii|apprentice|mannaz|aetherius|andromeda|paragon|custom skills?|skill trees?|skills?|level(l)?ing|experience|xp|attributes?)\b", "Class, Perks, Powers and Blessings", 1.5),
+    (r"\b(shouts?|thu'?um|word walls?|dragon ?souls?)\b", "Shouts", 1.5),
+    (r"\b(clothing|clothes|outfits?|dress(es)?|robes?|cloaks?|capes?|jewell?ery|amulets?|rings?|necklaces?|circlets?|earrings?|glasses|hoods?|scarf|scarves)\b", "Clothing and Accessories", 1.0),
     (r"\b(armou?rs?|cuirass|helmets?|boots|gauntlets|greaves|pauldrons|plate|mail)\b", "Armour", 1.0),
     (r"\b(shields?|bucklers?)\b", "Armour - Shields", 1.0),
-    (r"\b(swords?|weapons?|weaponry|bows?|daggers?|axes?|maces?|greatswords?|warhammers?|blades?|arrows?|bolts?|crossbows?|spears?|katanas?|halberds?|staffs|staves)\b", "Weapons", 1.0),
-    (r"\b(clothing|clothes|outfits?|dress(es)?|robes?|cloaks?|capes?|jewell?ery|amulets?|rings?|necklaces?|circlets?|earrings?|glasses|hoods?|scarf|scarves)\b", "Clothing and Accessories", 1.0),
-    (r"\b(spells?|magic|magicka|enchant(ments?|ing)?|scrolls?|wards?|destruction|conjuration|illusion|restoration|alteration|summon(s|ing)?|rituals?|tomes?)\b", "Magic - Spells & Enchantments", 1.0),
-    (r"\b(shouts?|thu'?um|word walls?|dragon ?souls?)\b", "Shouts", 1.5),
-    (r"\b(perks?|skills?|level(l)?ing|experience|xp|skill ?trees?|standing stones?|attributes?)\b", "Skills and Leveling", 1.0),
-    (r"\b(combat|parry|block(ing)?|stagger|killmoves?|poise|stamina ?regen|hit ?stop|impact|melee|archery)\b", "Combat", 1.0),
-    (r"\b(stealth|sneak(ing)?|thie(f|ves)|pickpocket(ing)?|lockpick(ing)?|detection)\b", "Stealth", 1.0),
-    (r"\b(alchemy|potions?|poisons?|ingredients?|apothecary|brewing)\b", "Alchemy", 1.0),
-    (r"\b(craft(ing)?|smithing|forge|tanning|cooking|recipes?|tempering|workbench)\b", "Crafting", 1.0),
-    (r"\b(guilds?|factions?|thieves guild|dark brotherhood|college of winterhold|bards? college|dawnguard|stormcloaks?|imperial legion|civil war)\b", "Guilds/Factions", 1.0),
-    (r"\b(ui|hud|menus?|interface|widgets?|fonts?|map markers?|compass|minimap|mcm|cursor|loading screens?|main menu|inventory ?(menu|ui))\b", "User Interface", 1.0),
-    (r"\b(sounds?|audio|music|voices?|voiced|soundtrack|ambience|footsteps|sfx)\b", "Audio", 1.0),
-    (r"\b(fix(es|ed)?|bug ?fix(es)?|corrections?|navmesh)\b", "Bug Fixes", 0.8),
-    (r"\b(patch(es|ed)?|compatibility|synergy|consistency)\b", "Patches", 1.0),
-    (r"\b(skse|dll|framework|library|engine|plugin loader|address library|papyrus extender|tweaks?|utilit(y|ies)|tool)\b", "Utilities", 1.0),
-    (r"\b(cit(y|ies)|towns?|villages?|hamlets?|settlements?|whiterun|riften|solitude|windhelm|markarth|falkreath|dawnstar|morthal|winterhold|riverwood|rorikstead|ivarstead|shor'?s stone|kynesgrove|dragon bridge|karthwasten|helgen|raven rock|skaal)\b", "Cities, Towns, Villages, and Hamlets", 1.0),
-    (r"\b(dungeons?|caves?|ruins?|tombs?|barrows?|crypts?|mines?|nordic ruins?|dwemer ruins?)\b", "Dungeons", 1.0),
-    (r"\b(inns?|taverns?|temples?|shrines?|farms?|mills?|lighthouses?|forts?|castles?|palaces?|keeps?|docks?|stables?|jails?|prisons?|towers?|bridges?|walls?|chapels?)\b", "Buildings", 1.0),
-    (r"\b(npcs?|faces?|face ?gen|bijin|citizens|villagers|guards|jarls?|overhauled npcs|character overhaul|children)\b", "NPC", 1.0),
-    (r"\b(creatures?|mounts?|horses?|dragons?|wolves|wolf|bears?|animals?|beasts?|mihail|spiders?|trolls?|giants?|draugr|falmer|dwarven automatons?)\b", "Creatures and Mounts", 1.0),
-    (r"\b(bod(y|ies)|skins?|hair(s|styles)?|eyes|brows|beards?|cbbe|himbo|unp|3ba|bhunp|racemenu|presets?|sliders?|complexion|makeup|warpaint|tattoos?)\b", "Body, Face, and Hair", 1.0),
-    (r"\b(races?|khajiit|argonians?|orcs?|orsimer|dunmer|altmer|bosmer|nords?|imperials?|bretons?|redguards?|birthsigns?|classes?)\b", "Races, Classes, and Birthsigns", 1.0),
-    (r"\b(immersive|immersion|realistic|survival|camping|campfire|needs|frostfall|hunterborn|hunting|bathing|sleep|eating|drinking|wearable|lanterns?|torches?)\b", "Immersion", 1.5),
-    (r"\b(overhaul(s|ed)?|rework(ed)?|redone|remastered|revamp(ed)?)\b", "Overhauls", 0.5),
-    (r"\b(cheats?|god ?(mode|items?)|infinite|unlimited|op)\b", "Cheats and God items", 1.0),
-    (r"\b(saves?|autosaves?|save ?games?)\b", "Save Games", 1.0),
-    (r"\b(collectables?|collectibles?|treasure|treasure hunts?|puzzles?)\b", "Collectables, Treasure Hunts, and Puzzles", 1.0),
-    (r"\b(items?|objects?|misc|clutter|furniture|displays?|books?|containers?|chests?|coins?|gold|currency|food|drinks?|ingots?|gems?|soul ?gems?)\b", "Items and Objects - World", 0.8),
-    (r"\b(worldspace|new lands?|island|province|beyond skyrim|bruma|wyrmstooth|falskaar|expansion)\b", "Locations - New", 1.2),
-    (r"\b(vanilla locations?|location overhaul|landmarks?|points? of interest|poi|environs)\b", "Locations - Vanilla", 1.0),
-    (r"\b(gameplay|mechanics?|systems?|balance|difficulty|economy|loot|encounters?|ai)\b", "Gameplay", 0.8),
+    (r"\b(swords?|weapons?|weaponry|bows?|daggers?|axes?|maces?|greatswords?|warhammers?|blades?|arrows?|bolts?|crossbows?|spears?|katanas?|halberds?)\b", "Weapons", 1.0),
     (r"\b(shape data|bodyslide|outfit studio|refits?|conversions?)\b", SHAPE_CAT, 1.5),
+    (r"\b(objects?|misc|containers?|chests?|displays?|book ?shel(f|ves)|lootable|placed items?)\b", "Items and Objects - World", 0.8),
+    (r"\b(collectables?|collectibles?|treasure|treasure hunts?|puzzles?|collectables helper)\b", "Collectables, Treasure Hunts, and Puzzles", 1.5),
+    (r"\b(creatures?|animals?|beasts?|mihail|spiders?|trolls?|giants?|draugr|falmer|dwarven automatons?|monsters?|wildlife|deer|elk|rabbits?|foxes|chickens?|hawks?|birds?|fish)\b", "Creatures - New Creatures", 1.0),
+    (r"\b(creature (re)?textures?|animal (re)?textures?|dragon (re)?textures?|wolf (re)?textures?|bear (re)?textures?|hd creatures|bellyaches)\b", "Creatures - Appearance", 2.0),
+    (r"\b(creature (ai|behaviou?r)|animal (ai|behaviou?r)|predators?|prey|animal aggression)\b", "Creatures - Behaviour", 2.0),
+    (r"\b(horses?|mounts?|mounted|riding|steeds?|saddles?|convenient horses|horse power|immersive horses)\b", "Creatures - Mounts", 2.0),
+    (r"\b(npcs?|citizens|villagers|guards|jarls?|children|overhauled npcs|character overhaul)\b", "NPC - Appearance", 1.0),
+    (r"\b(bijin|pandorable|high poly npcs?|npc (overhaul|replacer|faces)|facegen|rs children|the ordinary women|males of skyrim|beards of power|npc hair)\b", "NPC - Appearance", 2.0),
+    (r"\b(ai overhaul|ai|behaviou?r edits?|routines?|schedules?|sandbox(ing)?|pathing|combat ai|smart npcs?|reactions?|immersive citizens|npc (ai|behaviou?r)|take cover)\b", "NPC - AI and Behaviour", 2.0),
+    (r"\b(followers?|companions?|hirelings?|inigo|lucien|serana|nether'?s follower|ufo|eff|aft|nff|follower framework)\b", "NPC - Followers", 2.0),
+    (r"\b(player (appearance|preset|character)|racemenu presets?|character presets?|my character)\b", "Player - Appearance", 2.0),
+    (r"\b(quests?|questing|adventures?|questline|storyline|campaign|quest tracking|quest tracker)\b", "Quests and Adventures", 1.2),
+    (r"\b(player ?homes?|homes?|houses?|manor|cabin|estate|abode|hideout|residence|cottage|lodge|sanctuary)\b", "Player homes", 1.5),
+    (r"\b(vlindrel hall|breezehome|hjerim|honeyside|proudspire|lakeview|windstad|heljarchen|severin manor|myrwatch|tundra homestead|hendraheim|goldenhills)\b", "Player homes", DEFINITIVE),
+    (r"\b(inns?|taverns?|temples?|shrines?|farms?|mills?|lighthouses?|forts?|castles?|palaces?|keeps?|stables?|jails?|prisons?|towers?|chapels?|halls?|guildhalls?)\b", "Buildings", 1.0),
+    (r"\b(cit(y|ies)|towns?|villages?|hamlets?|settlements?|whiterun|riften|solitude|windhelm|markarth|falkreath|dawnstar|morthal|winterhold|riverwood|rorikstead|ivarstead|shor'?s stone|kynesgrove|dragon bridge|karthwasten|helgen|raven rock|skaal|stonehills|darkwater)\b", "Cities, Towns, Villages, and Hamlets", 1.0),
+    (r"\b(dungeons?|caves?|ruins?|tombs?|barrows?|crypts?|mines?|nordic ruins?|dwemer ruins?|delves?)\b", "Dungeons", 1.0),
+    (r"\b(worldspace|new lands?|island|province|beyond skyrim|bruma|wyrmstooth|falskaar|expansion)\b", "Locations - New", 1.2),
+    (r"\b(vanilla locations?|location overhaul|landmarks?|points? of interest|poi|environs|lost places)\b", "Locations - Vanilla", 1.0),
+    (r"\b(guilds?|factions?|thieves guild|dark brotherhood|college of winterhold|bards? college|dawnguard|stormcloaks?|imperial legion|civil war|companions guild)\b", "Guilds/Factions", 1.0),
+    (r"\b(cheats?|god ?(mode|items?)|infinite|unlimited|op)\b", "Cheats and God items", 1.0),
+    (r"\b(patch(es|ed)?|compatibility|synergy|consistency)\b", "Patches", 1.0),
 )]
 
-# which record groups a category's own label predicts; a plugin-bearing mod whose plugins hold NONE of them contradicts
+# ASSET PATHS (the owner: "what the mod contains"). A path class votes for a leaf in proportion to its share of the
+# mod's files: for a mod with no plugin that decides the sub-block (environment vs inventory scope, hair vs face vs
+# body, creature appearance); a plugin mod's paths count half.
+PATH_SIGNALS = [(re.compile(p), c) for p, c in (
+    (r"(^|/)textures/pbr/|_rmaos\.dds$|_cnr\.dds$", "PBR Textures"),
+    (r"(^|/)(landscape|terrain)/(?!(grass|trees|plants))", "Environment - Landscape"),
+    (r"(^|/)landscape/grass/|(^|/)grass/", "Environment - Grass"),
+    (r"(^|/)landscape/trees/|(^|/)trees/|treepine|treeaspen|treereach|treesnow", "Environment - Trees"),
+    (r"(^|/)landscape/plants/|(^|/)plants/|(^|/)flora/|mushroom|flower", "Environment - Plants"),
+    (r"(^|/)water/|waterfall|/water[a-z]*\.(nif|dds)$", "Environment - Water"),
+    (r"(^|/)sky/|(^|/)clouds?/|weather", "Environment - Weather"),
+    (r"(^|/)architecture/", "Environment - Architecture"),
+    (r"(^|/)roads?/|/road[a-z]*\.(nif|dds)$", "Environment - Roads"),
+    (r"(^|/)clutter/", "Models and Textures - Clutter"),
+    (r"(^|/)furniture/", "Models and Textures - Furniture"),
+    (r"(^|/)(armor|weapons|clothes)/", "__equipment__"),
+    (r"(^|/)actors/character/(hair|facegendata|facetint)/|(^|/)hair/", "__hairface__"),
+    (r"(^|/)actors/character/(female|male|character assets)/|(^|/)actors/character/.*(body|skin|hands|feet)", "Body"),
+    (r"(^|/)actors/character/(eyes|brows|teeth|mouth|facegendata|facetint|face)", "Face"),
+    (r"(^|/)actors/character/(animations|behaviors)/", "Animation - General"),
+    (r"(^|/)actors/(?!character/)[^/]+/(animations|behaviors)/", "Animation - Creature"),
+    (r"(^|/)actors/(?!character/)[^/]+/", "Creatures - Appearance"),
+    (r"(^|/)(effects|fx|particles|magic)/", "Visual Effects"),
+    (r"(^|/)lights?/|(^|/)lighting/", "Lighting"),
+    (r"^interface/", "User Interface"),
+    (r"^(sound|music)/", "Audio"),
+    (r"^seq/", "Quests and Adventures"),
+    (r"^calientetools/", SHAPE_CAT),
+    (r"^(shadersfx|shaders)/", "Visual Effects"),
+    (r"(^|/)dungeons/|(^|/)dwemer/|(^|/)imperial/interior", "Dungeons"),
+)]
+
+# which record groups a leaf's own label predicts; a plugin-bearing mod whose plugins hold NONE of them contradicts
 # its label (Campfire: Nexus says NPC, its ESM has no NPC_ record at all)
 LABEL_RECORDS = {
-    "npc": ("NPC_",), "followers & companions": ("NPC_",), "followers & companions - creatures": ("NPC_", "RACE"),
-    "creatures and mounts": ("NPC_", "RACE"), "weapons": ("WEAP", "AMMO"), "armour": ("ARMO",), "armour - shields": ("ARMO",),
-    "clothing and accessories": ("ARMO",), "weapons and armour": ("ARMO", "WEAP", "AMMO"),
+    "npc - appearance": ("NPC_",), "npc - ai and behaviour": ("NPC_", "PACK", "FLST"), "npc - followers": ("NPC_",),
+    "creatures - new creatures": ("NPC_", "RACE"), "creatures - mounts": ("NPC_", "RACE"),
+    "weapons": ("WEAP", "AMMO"), "new weapons": ("WEAP", "AMMO"), "armour": ("ARMO",), "new armour": ("ARMO",),
+    "armour - shields": ("ARMO",), "clothing and accessories": ("ARMO",), "new clothing": ("ARMO",),
+    "weapons and armour": ("ARMO", "WEAP", "AMMO"), "new weapons and armour": ("ARMO", "WEAP", "AMMO"),
     "magic - spells & enchantments": ("SPEL", "ENCH", "MGEF", "SCRL"), "shouts": ("SHOU", "WOOP"),
-    "quests and adventures": ("QUST",), "races, classes, and birthsigns": ("RACE", "HDPT"), "skills and leveling": ("PERK", "AVIF"),
+    "quests and adventures": ("QUST",), "races, classes, and birthsigns": ("RACE", "HDPT"),
+    "class, perks, powers and blessings": ("PERK", "AVIF", "SPEL"),
 }
 ART_EXTS = {".nif", ".dds", ".tri", ".bsa", ".txt", ".ini", ".json", ".png", ".jpg", ".xml"}
 CONTENT_TIER4 = {norm(c) for c in TIERS[4]} - {norm(SHAPE_CAT)}
+NEW_OF = {"armour": "New Armour", "weapons": "New Weapons", "weapons and armour": "New Weapons and Armour",
+          "clothing and accessories": "New Clothing"}
+EDIT_OF = {v.lower(): k for k, v in NEW_OF.items()}
 _CANON = {}
 
 
@@ -421,13 +533,19 @@ def canonical(cat):
     if not cat:
         return cat
     if not _CANON:
-        for _h, names in GROUPS:
-            for n in names:
-                _CANON[norm(n)] = n
-        for names in TIERS.values():
-            for n in names:
-                _CANON.setdefault(norm(n), n)
+        for n in LEAVES:
+            _CANON[norm(n)] = n
     return _CANON.get(norm(cat), re.sub(r"\s+", " ", cat).strip())
+
+
+def leaf_for(cat):
+    """A Nexus (or MO2) category name -> the leaf of the tree it defaults to."""
+    k = norm(cat or "")
+    if not k:
+        return ""
+    if k in NEXUS_TO_LEAF:
+        return NEXUS_TO_LEAF[k]
+    return canonical(cat)
 
 
 def _records_vote(m):
@@ -465,12 +583,14 @@ def _records_vote(m):
         cands.append(("Magic - Spells & Enchantments", magic, f"{magic} new spell/enchantment/effect records"))
     if shouts:
         cands.append(("Shouts", shouts * 3, f"{shouts} new shout/word records"))
-    if npc >= 3:
-        cands.append(("NPC", npc, f"{npc} new NPC records"))
+    if npc >= 10:
+        cands.append(("NPC - Appearance", npc, f"{npc} new NPC records"))
+    elif npc >= 3:
+        cands.append(("NPC - Other", 1, f"{npc} new NPC records (a handful: not the subject)"))
     if race:
         cands.append(("Races, Classes, and Birthsigns", race * 3, f"{race} new race records"))
     if perk >= 10:
-        cands.append(("Skills and Leveling", perk, f"{perk} new perk records"))
+        cands.append(("Class, Perks, Powers and Blessings", perk, f"{perk} new perk records"))
     if qust >= 3:
         cands.append(("Quests and Adventures", qust * 2, f"{qust} new quest records"))
     if items >= 5 and not (armo or weap):
@@ -478,74 +598,126 @@ def _records_vote(m):
     if weather:
         cands.append(("Environmental", weather * 2, f"{weather} new weather/climate records"))
     if world >= 200_000 and not cands:
-        cands.append(("Locations - New", 10, f"{world // 1024} KB of new cell/world records"))
+        cands.append(("Locations - New", 1, f"{world // 1024} KB of cell/world records (edits or new: weak)"))
     if not cands:
         return None
     cat, n, why = max(cands, key=lambda c: c[1])
-    strong = n >= 5
+    raw = int(re.match(r"(\d+)", why).group(1)) if re.match(r"(\d+)", why) else n
+    strong = raw >= 5 and n >= 5
     return cat, (W_RECORDS_STRONG if strong else W_RECORDS_WEAK), why + (" (strong)" if strong else " (few)")
 
 
 def _text_votes(m):
     """Votes from the words the mod uses about itself: its name counts fully, its documents at a lower rate."""
     name, docs = m.name, (m.text or "")
-    scores, reasons = {}, {}
+    # "X from Y" / "X for Y": Y is the subject (Perks from Questing is about questing) - its words count triple
+    subject = ""
+    ms = re.search(r"\b(?:from|for)\s+(.+)$", TAG_PATCH.sub(" ", name), re.I)
+    if ms:
+        subject = ms.group(1)
+    scores, reasons, definitive = {}, {}, set()
     for rx, cat, mult in TEXT_SIGNALS:
         hits_n = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(name))}
+        hits_s = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(subject))} if subject else set()
         hits_d = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(docs))} if docs else set()
         w = (TEXT_NAME_HIT * mult if hits_n else 0.0) + (TEXT_DOC_HIT * mult * min(3, len(hits_d)) if hits_d else 0.0)
+        if hits_s:
+            w += 2.0 * TEXT_NAME_HIT * mult
         if w:
             scores[cat] = scores.get(cat, 0.0) + w
             reasons.setdefault(cat, []).extend(sorted(hits_n)[:2] + (sorted(hits_d - hits_n)[:1]))
-    return [("text", cat, min(TEXT_CAP, w), "says " + ", ".join(f"'{x}'" for x in reasons[cat][:3])) for cat, w in scores.items()]
+            if hits_n and mult >= DEFINITIVE:
+                definitive.add(cat)
+    out = []
+    for cat, w in scores.items():
+        if cat in definitive and norm(cat) in NAME_DEFINED:
+            w = max(w, W_NAME_DEFINED)            # the owner defined this leaf by its name: the name decides
+            cap = 99.0
+        elif cat in definitive:
+            cap = 4.5
+        elif subject and any(rx.search(subject) for rx, c, _m in TEXT_SIGNALS if c == cat):
+            cap = 4.0                             # the subject of an "X from Y" name
+        else:
+            cap = TEXT_CAP
+        out.append(("text", cat, min(cap, w), "says " + ", ".join(f"'{x}'" for x in reasons[cat][:3])))
+    return out
 
 
-def _files_vote(m):
+def _path_votes(m):
+    """Votes from what the folder ships: the file kinds (a DLL, interface files, animations, sound) and the asset paths,
+    each path class in proportion to its share of the mod's files. Returns (votes, art_only, best_path_leaf)."""
     files = m.files or []
+    votes = []
     if not files:
-        return None
+        return votes, False, None
     exts = {os.path.splitext(f)[1].lower() for f in files}
-    tops = {f.split("/", 1)[0].lower() for f in files if "/" in f}
+    art_only = not m.plugins and exts <= ART_EXTS and bool(exts & {".dds", ".nif"})
     if ".dll" in exts:
-        return ("Utilities", W_FILES, "ships a DLL (SKSE plugin)")
-    if "interface" in tops or ".swf" in exts:
-        return ("User Interface", W_FILES, "ships interface files")
-    if ".hkx" in exts:
-        return ("Animation", W_FILES, "ships animations / behaviours")
+        votes.append(("files", "Utilities", 0.5, "ships a DLL (SKSE plugin) - weak: a named feature is not a utility"))
+    if ".hkx" in exts and not art_only:
+        votes.append(("files", "Animation - General", W_FILES, "ships animations / behaviours"))
     if exts & {".wav", ".xwm", ".fuz"} and not exts & {".dds", ".nif"}:
-        return ("Audio", W_FILES, "ships sound files")
-    if exts & {".dds", ".nif"} and not m.plugins and exts <= ART_EXTS:
-        return ("Models and Textures", W_FILES, "ships only meshes/textures, no plugin")
-    if exts & {".dds", ".nif"}:
-        return ("Models and Textures", 0.6, "ships meshes or textures")
-    if ".pex" in exts and not m.plugins:
-        return ("Utilities", 0.8, "ships scripts and nothing visual")
-    return None
+        votes.append(("files", "Audio", W_FILES, "ships sound files"))
+    counts = {}
+    n_art = 0
+    for f in files:
+        fl = f.lower()
+        if not fl.endswith((".dds", ".nif", ".tri", ".hkx", ".swf", ".seq", ".osp", ".xml")):
+            continue
+        n_art += 1
+        for rx, leaf in PATH_SIGNALS:
+            if rx.search(fl):
+                counts[leaf] = counts.get(leaf, 0) + 1
+                break
+    best = None
+    if n_art:
+        scale = 3.0 if art_only else 1.5
+        for leaf, n in sorted(counts.items(), key=lambda kv: -kv[1])[:3]:
+            share = n / n_art
+            if share < 0.15:
+                continue
+            if leaf == "__equipment__":
+                leaf_name = "Armour" if any("/armor/" in f.lower() or "/clothes/" in f.lower() for f in files) else "Weapons"
+                if any("/weapons/" in f.lower() for f in files) and any("/armor/" in f.lower() for f in files):
+                    leaf_name = "Weapons and Armour"
+            elif leaf == "__hairface__":
+                leaf_name = "Hair" if any("/hair/" in f.lower() for f in files) else "Face"
+            else:
+                leaf_name = leaf
+            votes.append(("paths", leaf_name, round(scale * share, 2), f"{n} of {n_art} asset files under {leaf_name.lower()} paths"))
+            if best is None:
+                best = leaf_name
+    if not counts and art_only:
+        votes.append(("files", "Models and Textures - General", W_FILES, "ships only meshes/textures, no plugin"))
+        best = "Models and Textures - General"
+    return votes, art_only, best
 
 
 def gather_votes(m, nexus_cat, mo2_names, structural_patch):
     """Every signal as a vote; nothing decided yet."""
     votes = []
-    nexus_cat = canonical(nexus_cat) if nexus_cat else ""
-    if nexus_cat:
-        votes.append(("nexus", nexus_cat, W_NEXUS, f"Nexus category of mod {m.nexus_id}"))
+    nexus_leaf = leaf_for(nexus_cat) if nexus_cat else ""
+    if nexus_leaf:
+        votes.append(("nexus", nexus_leaf, W_NEXUS, f"Nexus category of mod {m.nexus_id} ({nexus_cat})"))
+    nexus_cat = nexus_leaf
     for c in m.mo2_cats or ():
         name = mo2_names.get(c) if mo2_names else None
         if not name or norm(name) == "unpublished":
             continue
         if norm(name) == "test":
             votes.append(("mo2", "Test Builds", W_MO2_USER, "MO2 category 'test'"))
-        elif nexus_cat and norm(name) == norm(nexus_cat):
+        elif nexus_cat and norm(leaf_for(name)) == norm(nexus_cat):
             votes.append(("mo2", nexus_cat, 0.5, "the same MO2 category"))
         else:
-            votes.append(("mo2", canonical(name), W_MO2_USER, f"MO2 category '{name}' set by you (differs from Nexus)"))
+            votes.append(("mo2", leaf_for(name), W_MO2_USER, f"MO2 category '{name}' set by you (differs from Nexus)"))
         break
     rv = _records_vote(m)
     if rv:
         votes.append(("records", rv[0], rv[1], rv[2]))
-    fv = _files_vote(m)
-    if fv:
-        votes.append(("files", fv[0], fv[1], fv[2]))
+    pv, art_only, best_path = _path_votes(m)
+    votes.extend(pv)
+    if art_only:
+        votes.append(("files", "__art_only__", 0.0, best_path or "Models and Textures - General"))
     votes.extend(_text_votes(m))
     if TAG_PATCH.search(m.name):
         votes.append(("tag", "Patches", W_TAG, "[Patch] tag"))
@@ -562,8 +734,50 @@ def decide(m, votes, nexus_cat):
     if framework is not None:
         votes.remove(framework)
         notes.append(framework[3])
-    nexus_k = norm(nexus_cat) if nexus_cat else ""
+    art_marker = next((v for v in votes if v[1] == "__art_only__"), None)
+    art_target = None
+    if art_marker is not None:
+        votes.remove(art_marker)
+        art_target = art_marker[3]
+    nexus_k = norm(leaf_for(nexus_cat)) if nexus_cat else ""
     has_label = any(v[0] in ("nexus", "mo2") for v in votes)
+    files = m.files or []
+    n_pex = sum(1 for f in files if f.endswith(".pex"))
+    has_dll = any(f.endswith(".dll") for f in files)
+    has_hkx = any(f.endswith(".hkx") for f in files)
+    rec_new = sum(v for k, v in (m.records or {}).items() if not k.endswith("*") and not k.endswith("~"))
+    rec_alt = sum(v for k, v in (m.records or {}).items() if k.endswith("*"))
+    magic_new = sum((m.records or {}).get(k, 0) for k in ("SPEL", "ENCH", "MGEF", "SCRL"))
+    says_fix = bool(re.search(r"\b(fix(es|ed|er)?|bug ?fix(es|er)?|hotfix)\b", TAG_PATCH.sub(" ", m.name), re.I))
+    # R10 mechanism records: a mod that ships animations, a DLL or scripts uses spells and effects as a vehicle
+    # (TK Dodge, Press H to Horse, Perks from Questing) - its magic records count 0.4 unless it is a spell pack
+    if (has_hkx or has_dll or n_pex >= 5) and magic_new and magic_new < 50:
+        for v in votes:
+            if v[0] == "records" and v[1] == "Magic - Spells & Enchantments":
+                v[2] *= 0.4
+                notes.append("spells as a mechanism (animations, a DLL or scripts ship with them)")
+    # R11 too narrow for a system label: Gameplay or Overhauls on a plugin with five or fewer records is one item's
+    # edit (Better Rueful Axe) - the label counts 0.3
+    if nexus_k in (norm("Gameplay - General"), norm("Overhauls")) and m.plugins and m.records and rec_new + rec_alt <= 5:
+        for v in votes:
+            if v[0] in ("nexus", "mo2"):
+                v[2] *= 0.3
+                notes.append(f"too narrow for '{nexus_cat}': {rec_new + rec_alt} records")
+    # R12 an overhaul changes many records: the Overhauls label on a plugin with fewer than fifty is halved
+    elif nexus_k == norm("Overhauls") and m.plugins and m.records and rec_new + rec_alt < 50:
+        for v in votes:
+            if v[0] in ("nexus", "mo2"):
+                v[2] *= 0.5
+                notes.append(f"a small mod for an 'Overhauls' label: {rec_new + rec_alt} records")
+    # R13 a name that says fix under a Utilities label is a fix - a utility does nothing on its own (the owner) - and
+    # its records are the fix's means, not new content
+    if says_fix and nexus_k == norm("Utilities"):
+        for v in votes:
+            if v[0] in ("nexus", "mo2"):
+                v[2] *= 0.3
+            if v[0] == "records":
+                v[2] *= 0.3
+        votes.append(["rule", "Bug Fixes", 3.0, "named a fix under a Utilities label: a utility does nothing on its own"])
     kinds = LABEL_RECORDS.get(nexus_k)
     # R1 a label the records contradict: a plugin-bearing mod with none of the records its label predicts
     if kinds and m.plugins and m.records and not any(m.records.get(k, 0) or m.records.get(k + "*", 0) for k in kinds):
@@ -571,6 +785,39 @@ def decide(m, votes, nexus_cat):
             if v[0] == "nexus":
                 v[2] *= 0.25
                 notes.append(f"Nexus label '{nexus_cat}' contradicted: its plugins hold no {'/'.join(kinds)} record")
+    # R1b a label contradicted by the FILES: Audio with no sound file, Animation with no animation, Models and
+    # Textures with no mesh or texture, User Interface with no interface file (Sound Record Distributor: a DLL)
+    exts = {os.path.splitext(f)[1].lower() for f in files}
+    label_files = {"audio": {".wav", ".xwm", ".fuz", ".mp3"}, "animation - general": {".hkx"},
+                   "models and textures - general": {".dds", ".nif"}, "user interface": {".swf", ".txt"}}
+    need = label_files.get(nexus_k)
+    if need and files and not (exts & need):
+        for v in votes:
+            if v[0] in ("nexus", "mo2"):
+                v[2] *= 0.4
+        notes.append(f"label '{nexus_cat}' contradicted by the files: none of {'/'.join(sorted(need))}")
+    # a leaf the owner defined BY NAME, hit in this mod's name, takes precedence over what the files and paths say
+    # (a camera stagger remover ships an animation file; the Unofficial Modders Patch ships animations): the file
+    # and path votes count half and the content rules below stand down
+    named = any(v[0] == "text" and norm(v[1]) in NAME_DEFINED and v[2] >= W_NAME_DEFINED for v in votes)
+    if named:
+        for v in votes:
+            if v[0] in ("files", "paths"):
+                v[2] *= 0.5
+        notes.append("named for a leaf the owner defined: files and paths count half")
+    # R14 mostly animation files: 60%+ of the asset files under animation paths, with .hkx, is an animation mod
+    # whatever its label says (True Directional Movement, Simple Diving System)
+    anim_share = max((v[2] for v in votes if v[0] == "paths" and v[1].startswith("Animation")), default=0.0)
+    if has_hkx and anim_share >= 0.9 and not named:          # paths votes are 1.5 * share for plugin mods, 3.0 * share for art-only
+        votes.append(["rule", "Animation - General", 2.0, "mostly animation files"])
+    # R15 abilities given to actors: PERK/SPEL records under a Creatures or NPC label with no new actor records are a
+    # combat system, not new creatures (Know Your Enemy)
+    if nexus_k.startswith(("creatures", "npc")) and m.records and not m.records.get("NPC_", 0) \
+            and (m.records.get("PERK", 0) + m.records.get("SPEL", 0)) >= 10:
+        votes.append(["rule", "Gameplay - Combat", 3.0, "abilities given to actors: a combat system, not new creatures"])
+    # R16 a framework master is a system other mods build on (Campfire)
+    if framework is not None:
+        votes.append(["rule", "Gameplay - General", 2.0, "a system other mods build on"])
     # R7 a fixer: under a Bug Fixes / Patches / Overhauls label, a plugin that ALTERS several times more records than it
     # adds is about the existing game, not new content - its new-content records count little (USSEP: thousands of
     # altered records, 137 new quest records; the Bug Fixes label stands)
@@ -594,10 +841,19 @@ def decide(m, votes, nexus_cat):
     for v in votes:
         if v[0] == "records" and v[1] in compatible.get(nexus_k, set()):
             v[1] = canonical(nexus_cat)
-    # R4 a replacer: no plugin, only meshes/textures, under a content label - it is art, not content
-    if not m.plugins and m.files and {os.path.splitext(f)[1].lower() for f in m.files} <= ART_EXTS \
-            and any(norm(v[1]) in CONTENT_TIER4 for v in votes if v[0] in ("nexus", "mo2")):
-        votes.append(["rule", "Models and Textures", 3.5, "a replacer: ships only meshes/textures under a content label"])
+    # R4 a replacer: no plugin, only meshes/textures, under a content label - it is art, not content; the asset paths
+    # say which art (armour or weapon meshes stay in the EDITED equipment block, the rest goes where its paths point)
+    if art_target and any(norm(v[1]) in CONTENT_TIER4 for v in votes if v[0] in ("nexus", "mo2")):
+        label_fam = EDIT_OF.get(nexus_k, nexus_k)
+        if label_fam in NEW_OF or nexus_k == norm("Armour - Shields"):
+            target = canonical(label_fam)      # a replacer of existing equipment belongs in that equipment's EDITED block
+            votes.append(["rule", target, 3.5, f"a replacer: only meshes/textures under an equipment label - the edited {target} block"])
+        else:
+            votes.append(["rule", art_target, 3.5, f"a replacer: ships only meshes/textures under a content label; its paths say {art_target}"])
+    # R8 PBR supersedes other textures (the owner: "if it says pbr it goes in the pbr textures section")
+    if re.search(r"\bpbr\b", m.name, re.I) or any(v[0] == "paths" and v[1] == "PBR Textures" and v[2] >= 1.0 for v in votes):
+        if not m.plugins or art_target:
+            votes.append(["rule", "PBR Textures", 4.0, "says PBR: supersedes the other texture blocks"])
     # R5 a patch is a patch by structure; the word alone counts little against a real label (USSEP is 'Bug Fixes')
     if has_label and not any(v[0] == "structure" for v in votes):
         for v in votes:
@@ -612,8 +868,9 @@ def decide(m, votes, nexus_cat):
             if v[0] == "records" and v[1] in ("Armour", "Weapons", "Weapons and Armour", "Clothing and Accessories") and (m.records.get("ARMO", 0) + m.records.get("WEAP", 0)) < 100:
                 v[2] *= 0.5
                 notes.append("a scripted system: its equipment records count half")
-        if not any(m.records.get(k, 0) for k in ("NPC_", "ARMO", "WEAP", "QUST", "RACE")) and not (m.records.get("CELL~", 0) + m.records.get("WRLD~", 0) > 200_000):
-            votes.append(["rule", "Gameplay", 1.0, "a scripted system: many scripts, no content records"])
+        if not any(m.records.get(k, 0) for k in ("NPC_", "QUST", "RACE")) and not (m.records.get("CELL~", 0) + m.records.get("WRLD~", 0) > 200_000) \
+                and (m.records.get("ARMO", 0) + m.records.get("WEAP", 0)) < 100:
+            votes.append(["rule", "Gameplay - General", 1.0, "a scripted system: scripts or a DLL, no content of its own"])
     totals, best_reason = {}, {}
     for src, cat, w, why in votes:
         k = norm(cat)
@@ -626,6 +883,12 @@ def decide(m, votes, nexus_cat):
         return min((prio.get(v[0], 9) for v in votes if norm(v[1]) == k), default=9)
     win = max(totals, key=lambda k: (round(totals[k], 3), -first_src(k)))
     cat = canonical(best_reason[win])
+    # R9 new vs edited equipment: a plugin that ADDS armour/weapon records is new content; a replacer or an edit is not
+    fam = EDIT_OF.get(cat.lower(), cat.lower())
+    if fam in NEW_OF:
+        new_eq = m.records.get("ARMO", 0) + m.records.get("WEAP", 0) + m.records.get("AMMO", 0) if m.records else 0
+        cat = NEW_OF[fam] if (m.plugins and new_eq >= 3) else canonical(fam)
+        notes.append(f"{'new' if cat.startswith('New') else 'edited'} equipment: {new_eq} new armour/weapon records")
     shown = sorted(votes, key=lambda v: -v[2])[:4]
     why = f"{cat} ({totals[win]:.1f}): " + "; ".join(f"{v[0]} {v[1]} {v[2]:.1f} - {v[3]}" for v in shown)
     if notes:
@@ -707,7 +970,7 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 class Mod:
     __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records",
-                 "votes", "text")
+                 "votes", "text", "decided")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
@@ -717,6 +980,7 @@ class Mod:
         self.twin = None                                            # a test build: the name of the copy it supersedes
         self.records = {}                                           # {record type: new records its plugins add} for the types below
         self.votes = []                                             # the evidence model: [(source, category, weight, reason)]
+        self.decided = None                                         # the category the evidence decided, before any displacement or merge
         self.text = ""                                              # what the mod says about itself (plugin descriptions, readme, FOMOD, Nexus description)
 
     @property
@@ -962,6 +1226,7 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
     for m in mods:
         if m.category:
             m.group = tier_of(m.category)
+            m.decided = m.category
 
 
 def read_nexus_catmap(instance_dir):
@@ -1057,7 +1322,7 @@ def read_mo2_categories(instance_dir):
     return names
 
 
-def build(mods, rules=None, min_run=5):
+def build(mods, rules=None, min_run=2):
     """The new pane: [(name, enabled)] top-first, plus the facts.
 
     ONE WAY TO ORDER (2026-09-23, the owner: "clean up the plugin from previous versions' logic so it is not biased"):
@@ -1432,6 +1697,7 @@ def build(mods, rules=None, min_run=5):
     rows = []
     cur_header, cur_cat = None, None
     written_headers = set()
+    written_mains = set()
     block_uses = {}
     for m in ordered:
         k = norm(m.category)
@@ -1456,6 +1722,10 @@ def build(mods, rules=None, min_run=5):
                     pass                    # never a second separator of the same name: the mods continue under the last block
                 else:
                     block_uses[norm(m.category)] = 1
+                    main = MAIN_OF.get(norm(m.category))
+                    if main and main not in written_mains:      # the empty main separator heads its sub-blocks
+                        written_mains.add(main)
+                        rows.append((sep_name(main), False))
                     rows.append((sep_name(m.category), False))
             cur_cat = m.category
         rows.append((m.name, m.enabled))
@@ -1801,7 +2071,41 @@ def diff(mods, rows):
     return out
 
 
-def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, min_run=5):
+EXPECTATIONS_FILE = "expectations.json"
+
+
+def check_expectations(mods):
+    """[(mod, expected, got, ok)] against expectations.json beside this file: the owner's rulings as a test set."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), EXPECTATIONS_FILE)
+    try:
+        exp = json.load(open(p, encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    by = {m.name: m for m in mods if not is_sep(m.name)}
+    out = []
+    for name, want in exp.items():
+        if name.startswith("_"):
+            continue
+        m = by.get(name) or next((mm for k, mm in by.items() if name.endswith("*") and k.startswith(name[:-1])), None)
+        if m is None:
+            continue
+        got = m.decided or m.category or ""
+        placed = m.category or ""
+        wants = want if isinstance(want, list) else [want]
+        ok = False
+        for w in wants:
+            if w.startswith("!"):
+                ok = norm(got) != norm(w[1:])
+            elif norm(got) == norm(w):
+                ok = True
+            if ok:
+                break
+        shown = got if norm(placed) == norm(got) else f"{got} (placed under {placed}: {(m.why or '').split(':', 1)[0]})"
+        out.append((name, " | ".join(wants), shown, ok))
+    return out
+
+
+def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, min_run=2):
     """Everything up to (not including) writing. Returns a dict the dialog and the offline runner both use."""
     mods_dir = os.path.join(instance_dir, "mods")
     ml = os.path.join(instance_dir, "profiles", profile, "modlist.txt")
@@ -1820,6 +2124,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     plugin_state = plan_plugin_state(mods, os.path.join(instance_dir, "profiles", profile), theirs)
     place(mods, cats, read_mo2_categories(instance_dir), under, ours.get("pins"))
     new_rows, facts = build(mods, ours.get("rules"), min_run)
+    facts["expectations"] = check_expectations(mods)
     by_name = {m.name: m for m in mods}
     plugins = plugin_order(new_rows, by_name, theirs)
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
@@ -1961,7 +2266,7 @@ if mobase is not None:
             opts.addWidget(QLabel("Smallest block:"))
             self.sp_run = QSpinBox()
             self.sp_run.setRange(1, 60)
-            self.sp_run.setValue(5)
+            self.sp_run.setValue(2)
             opts.addWidget(self.sp_run)
             root.insertLayout(1, opts)
             self.sp_run.valueChanged.connect(lambda _v: self.compute())
@@ -2261,7 +2566,7 @@ if mobase is not None:
             except OSError:
                 pass
 
-        def compute(self, progress=None, min_run=5):
+        def compute(self, progress=None, min_run=2):
             org = self._organizer
             org.refresh(True)      # so modlist.txt on disk is what the pane shows
             domain = "skyrimspecialedition"
@@ -2363,6 +2668,13 @@ if __name__ == "__main__" and mobase is None:       # offline dry run: python MO
     out["test_pairs"] = res.get("test_pairs", [])
     json.dump(out, open(os.path.join(cache, "dry-run.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     ps = res["plugin_state"]
+    ex = res["facts"].get("expectations", [])
+    if ex:
+        ok = sum(1 for e in ex if e[3])
+        print(f"expectations: {ok} of {len(ex)} rulings met")
+        for name, want, got, good in ex:
+            if not good:
+                print(f"   MISS  {name[:48]:48s} wanted {want[:44]:44s} got {got[:60]}")
     print(res["nexus"]); print("moves", len(res["moves"]), "created", len(res["facts"]["created"]), "retired", len(res["facts"]["retired"]),
                                "fixes", len(res["facts"]["fixes"]), "plugins", len(res["plugins"]),
                                "| activate", len(ps["activate"]), "to optional", len(ps["to_optional"]), "from optional", len(ps["from_optional"]))
