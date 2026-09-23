@@ -72,7 +72,7 @@ TAXONOMY = [
         ("New Weapons and Armour", None), ("Shape", None), ("Equipment Positioning", None),
         ("Items and Objects - World", None),
         ("Collectables, Treasure Hunts, and Puzzles", None),
-        ("Creatures", ["Appearance", "Behaviour", "Mounts", "New Creatures"]),
+        ("Creatures", ["Appearance", "Behaviour", "Mounts", "Animals", "New Creatures"]),
         ("NPC", ["Appearance", "AI and Behaviour", "Followers", "Other"]), ("Player", ["Appearance", "Other"]),
         ("Quests and Adventures", None), ("Player homes", None), ("Buildings", None),
         ("Location Overhauls", ["City", "Town", "Interior", "General"]), ("Dungeons", None), ("Locations - New", None),
@@ -821,6 +821,12 @@ def gather_votes(m, nexus_cat, mo2_names, structural_patch, nexus_names=frozense
     return votes
 
 
+ANIMAL_NOUNS = re.compile(r"\b(crows?|ravens?|birds?|hawks?|eagles?|owls?|seagulls?|deer|elk|stags?|wol(f|ves)|dogs?|bears?|"
+                          r"sabre ?cats?|saber ?cats?|foxes|fox|rabbits?|hares?|goats?|cows?|mammoths?|horkers?|skeevers?|"
+                          r"mudcrabs?|fish|salmon|slaughterfish|chickens?|boars?|squirrels?|butterfl(y|ies)|moths?|"
+                          r"dragonfl(y|ies)|critters?|wildlife|fauna|predators?|prey)\b", re.I)
+
+
 def decide(m, votes, nexus_cat=""):
     """The rules over the votes, then the winner. Returns (category, why, adjusted votes). No rule reads a label."""
     votes = [list(v) for v in votes]
@@ -966,6 +972,15 @@ def decide(m, votes, nexus_cat=""):
             if v[0] == "text" and v[1] == "Creatures - New Creatures":
                 v[1] = "Creatures - Appearance"
                 notes.append("a replacer of a creature it names: creature appearance")
+    # R26 a mod that ships only distribution files and hands out gear that already exists (no armour, no plugin) is
+    # about what the NPCs wear, not the gear (the owner, 2026-09-23: Wolf Armor for The Companions - SPID "has no armor
+    # files, it just makes npcs wear specific armor that's already there")
+    shipped = [f.lower() for f in files if not f.lower().endswith(("meta.ini", ".txt", ".md"))]
+    if shipped and not m.plugins and all(f.endswith(("_distr.ini", "_kid.ini", "_swap.ini", "_flm.ini")) for f in shipped):
+        for v in votes:
+            if v[1] in ("Armour", "Weapons", "Weapons and Armour", "Armour - Shields", "Clothing and Accessories"):
+                v[1] = "NPC - Appearance"
+                notes.append("hands out gear that already exists: what NPCs wear")
     # R8 PBR supersedes other textures (the owner: "if it says pbr it goes in the pbr textures section")
     if re.search(r"\bpbr\b", m.name, re.I) or any(v[0] == "paths" and v[1] == "PBR Textures" and v[2] >= 1.0 for v in votes):
         if not m.plugins or art_target:
@@ -1020,6 +1035,13 @@ def decide(m, votes, nexus_cat=""):
         new_eq = rec.get("ARMO", 0) + rec.get("WEAP", 0) + rec.get("AMMO", 0)
         cat = NEW_OF[fam] if (m.plugins and new_eq >= 3) else canonical(fam)
         notes.append(f"{'new' if cat.startswith('New') else 'edited'} equipment: {new_eq} new armour/weapon records")
+    # R27 a new creature that is an animal - wildlife by its own noun - goes to Animals; monsters stay New Creatures
+    # (the owner, 2026-09-23: Crows go to Animals). The series tag "Monsters and Animals" is not an animal noun.
+    if cat == "Creatures - New Creatures":
+        own = re.sub(r"(?i)\bmonsters and animals\b", " ", plain)
+        if ANIMAL_NOUNS.search(own) or (re.search(r"(?i)\banimals\b", own) and not re.search(r"(?i)\bmonsters?\b", own)):
+            cat = "Creatures - Animals"
+            notes.append("an animal: wildlife")
     shown = sorted(votes, key=lambda v: -v[2])[:4]
     why = f"{cat} ({totals[win]:.1f}): " + "; ".join(f"{v[0]} {v[1]} {v[2]:.1f} - {v[3]}" for v in shown)
     if notes:
@@ -1733,13 +1755,21 @@ def build(mods, rules=None, min_run=2):
             edge(by_name[m.twin], m, f"test build supersedes {m.twin}")
     fixes = []
     for m in real:
+        # which of this mod's plugins need each other mod: the mod follows that mod in the pane only when ALL its
+        # plugins do - a bundled compatibility plugin (VividRoutines - Wyrmstooth.esp) or a patch hub's patches follow
+        # their masters in the plugin order alone, and the mod keeps its own block (the owner, 2026-09-23)
+        needs = {}
         for f, masters, _esm in m.plugins:
             for mast in masters:
                 o = owner.get(mast.lower())
                 if o and o is not m:
-                    edge(o, m, f"{f} needs its master {mast}")
-                    if o.index > m.index:
-                        fixes.append((m.name, o.name))
+                    needs.setdefault(o.name, (o, f, mast, set()))[3].add(f.lower())
+        for _on, (o, f, mast, fs) in needs.items():
+            if len(fs) < len(m.plugins):
+                continue
+            edge(o, m, f"{f} needs its master {mast}")
+            if o.index > m.index:
+                fixes.append((m.name, o.name))
     outputs = [m for m in real if norm(m.category) == norm("Generated Outputs")]
     for o in outputs:
         for m in real:
