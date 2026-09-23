@@ -378,7 +378,8 @@ W_NAME_DEFINED = 6.0     # a leaf the owner defined by its name, hit in the mod'
 NAME_DEFINED = {"camera", "dialogue", "improved controls", "physics", "performance optimization", "alternate start", "face", "hair",
                 "pbr textures", "environment - seasons", "lighting", "unofficial patches", "ui overhaul",
                 "essential engine fixes", "frameworks", "models and textures - interiors", "models and textures - clutter",
-                "models and textures - furniture", "environment - architecture", "player homes", "gameplay - general"}
+                "models and textures - furniture", "environment - architecture", "player homes", "gameplay - general", "utilities"}
+TIER0 = {norm(c) for c in TIERS[0]}            # the leaves a mod's own documents may not vote for: a readme names its requirements
 TEXT_NAME_HIT, TEXT_DOC_HIT, TEXT_CAP = 1.0, 0.4, 2.5
 
 # (pattern, leaf, weight multiplier) - the words a mod uses about itself. A multiplier of DEFINITIVE (3.6) means one hit
@@ -387,16 +388,26 @@ TEXT_NAME_HIT, TEXT_DOC_HIT, TEXT_CAP = 1.0, 0.4, 2.5
 DEFINITIVE = 3.6
 TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     # tier 0
-    (r"\b(skse64?|address library|engine fixes|ssedisplaytweaks|display tweaks|crash logger|backported extended esl|bees|sse fixes|scrambled bugs|skyrim priority|net script framework)\b", "Essential Engine Fixes", DEFINITIVE),
-    (r"\b(mcm helper|skyui|papyrusutil|papyrus extender|powerofthree|po3|base object swapper|spell perk item distributor|spid|keyword item distributor|kid|open animation replacer|oar|dynamic animation replacer|dar|jcontainers|consoleutil|community shaders|dynamic string distributor|sound record distributor|payload interpreter|racemenu|nemesis|pandora|xpmsse|xp32|uiextensions|behavior data injector|scaleform translation|inventory injector|framework|distributor|injector|extender|loader|sdk|api|hooks?)\b", "Frameworks", DEFINITIVE),
-    (r"\b(resources?|modder'?s? resource|texture set|assets? pack|tools?|tool ?kit|utilit(y|ies)|library|generator|xedit|lodgen|texgen|dyndolod resources)\b", "Utilities", 1.0),
+    # "skse" is not an engine fix (every DLL mod says it) and Skyrim Priority is a performance mod (the owner, 2026-09-23)
+    (r"\b(address library|engine fixes|ssedisplaytweaks|display tweaks|crash logger|backported extended esl|bees|sse fixes|scrambled bugs|net script framework|preloader)\b", "Essential Engine Fixes", DEFINITIVE),
+    (r"\b(mcm helper|skyui|papyrusutil|papyrus extender|powerofthree|po3|base object swapper|spell perk item distributor|spid|keyword item distributor|kid|open animation replacer|oar|dynamic animation replacer|dar|jcontainers|consoleutil|community shaders|dynamic string distributor|sound record distributor|payload interpreter|racemenu|nemesis|pandora|xpmsse|xp32|uiextensions|behavior data injector|scaleform translation|inventory injector|framework|distributor|injector|extender|loader|kiloader|runtime|sdk|api|hooks?)\b", "Frameworks", DEFINITIVE),
+    (r"\b(texture set|assets? pack|tools?|utilit(y|ies)|generator|xedit|lodgen|texgen|dyndolod resources)\b", "Utilities", 1.0),
+    (r"\b(resources?|modder'?s? resources?|library|tool ?kit|sdk)\b", "Utilities", 2.0),
+    # a utility does nothing by itself; other mods use it (the owner, 2026-09-23: Animation Motion Revolution, dTry's Key Utils)
+    (r"\b(animation motion revolution|amr|key ?utils?|utils?)\b", "Utilities", DEFINITIVE),
     (r"\b(fix(es|ed|er)?|bug ?fix(es|er)?|corrections?|navmesh|hotfix)\b", "Bug Fixes", 1.0),
-    (r"\b(efps|optimi[sz](ation|ed|er)|performance|insignificant object remover|lightened skyrim|occlusion|fps|shadow boost|object remover|culling)\b", "Performance Optimization", DEFINITIVE),
+    (r"\b(efps|optimi[sz](ation|ed|er)|performance|insignificant object remover|lightened skyrim|occlusion|fps|shadow boost|object remover|culling|skyrim priority|cpu)\b", "Performance Optimization", DEFINITIVE),
+    # speed words: faster loading, lookups, copies, profiling (the owner, 2026-09-23: the Faster * mods and Load Time Profiler) - strong,
+    # not decisive: "Faster HDT-SMP" is about SMP
+    (r"\b(load ?times?|loadscreens?|loading (times?|screens?)|profilers?|cell lookups?|decompression|file copy|game start|ini file cacher)\b", "Performance Optimization", 2.0),
     (r"\b(unofficial .*patch|ussep|usmp)\b", "Unofficial Patches", DEFINITIVE),
     # tier 1
-    (r"\b(ui|hud|menus?|interface|widgets?|fonts?|map markers?|compass|minimap|mcm|cursor|loading screens?|main menu|bestiary|character menu|follower stats|stats? menu|journal|inventory ?(menu|ui)|icons?)\b", "User Interface", 1.0),
+    (r"\b(ui|hud|menus?|interface|widgets?|fonts?|map markers?|compass|minimap|mcm|cursor|loading screens?|main menu|bestiary|character menu|follower stats|stats? menu|journal|inventory ?(menu|ui)|icons?|paper maps?|world map|fwmf|flat world map)\b", "User Interface", 1.0),
     (r"\b(ui overhaul|nordic ui|untarnished ui|norden ui|dear diary|edge ui|skyhud|interface overhaul|reskin|smooth ui|dragonbreaker|dwemer ui)\b", "UI Overhaul", DEFINITIVE),
-    (r"\b(read or take|better grabbing|btps|better third person selection|step up|quick ?loot|controls?|controller|gamepad|hotkeys?|keybinds?|keybinding|grab|activate|activation|interaction|pick ?up|take all|jump|sprint|whistle|auto ?(equip|unequip|loot|sort)|unbind|bindings?|wheeler|wheel menu|back pocket|item explorer)\b", "Improved Controls", DEFINITIVE),
+    # "Mod Control Panel" is SKSE Menu Framework's menu name, not a controls word; keyboard and window handling is controls
+    # (the owner, 2026-09-23: Kill Caps Lock, Better AltTab)
+    (r"\b(read or take|better grabbing|btps|better third person selection|step up|quick ?loot|(?<!mod )controls?(?! panel)|controller|gamepad|hotkeys?|keybinds?|keybinding|grab|activate|activation|interaction|pick ?up|take all|jump|sprint|whistle|auto ?(equip|unequip|loot|sort)|unbind|bindings?|wheeler|wheel menu|back pocket|item explorer)\b", "Improved Controls", DEFINITIVE),
+    (r"\b(caps ?lock|alt ?-?tab|keyboard|mouse)\b", "Improved Controls", 1.5),
     (r"\b(cam|camera|cameras|smoothcam|fov|field of view|headtracking|head tracking)\b", "Camera", DEFINITIVE),
     (r"\b(dialogue|dialog|persuasion|conversations?|talk|speech|voice ?lines?|subtitles?)\b", "Dialogue", DEFINITIVE),
     (r"\b(alternate start|alternate perspective|realm of lorkhan|live another life|skyrim unbound|new game start|character creation start)\b", "Alternate Start", DEFINITIVE),
@@ -407,7 +418,7 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(faces?|heads?|eyes?|brows?|eyebrows?|teeth|mouth|freckles?|scars?|warpaints?|makeup|blush(ing)?|tint|high poly head|expressions?|lips|complexions?|overlays?|tattoos?|bodypaints?|facegen|horns?)\b", "Face", DEFINITIVE),
     (r"\b(hairs?|hairdos?|hairstyles?|beards?|khisart[ai]n|stubble|ks hairdos|apachii|salt and wind|hairline)\b", "Hair", DEFINITIVE),
     (r"\b(races?|khajiit|argonians?|orcs?|orsimer|dunmer|altmer|bosmer|nords?|imperials?|bretons?|redguards?|birthsigns?|racial)\b", "Races, Classes, and Birthsigns", 1.0),
-    (r"\b(animations?|animated|idles?|mco|bfco|skysa|adxp|locomotion|movement|dodge|tk dodge|true directional|tdm|diving|dive|swim|sprint animation|attack animations?|combos?|behaviou?rs?)\b", "Animation - General", 1.0),
+    (r"\b(animations?|animated|idles?|mco|bfco|skysa|adxp|locomotion|movement|dodge|tk dodge|true directional|tdm|diving|dive|swim|sprint animation|attack animations?|combos?)\b", "Animation - General", 1.0),
     (r"\b(player animations?|first person animations?|pca)\b", "Animation - Player", 2.0),
     (r"\b(npc animations?|idle animations?|gesture|conversation animations?|citizen animations?)\b", "Animation - NPC", 2.0),
     (r"\b(enemy animations?|bandit animations?|draugr animations?|boss animations?)\b", "Animation - Enemy", 2.0),
@@ -435,7 +446,9 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(interiors?|snazzy|inn interiors?|tavern|shop|trader|store|rooms?|indoors?)\b", "Models and Textures - Interiors", DEFINITIVE),
     (r"\b(pbr|rmaos|parallax ?gen|pgpatcher|complex material)\b", "PBR Textures", DEFINITIVE),
     (r"\b(sounds?|audio|music|voices?|voiced|soundtrack|ambience|footsteps?|sfx)\b", "Audio", 1.0),
-    (r"\b(gameplay|mechanics?|systems?|balance|difficulty|encounters?|leveled lists?|survival|needs|hunger|thirst|frostfall|camping|campfire)\b", "Gameplay - General", 1.0),
+    (r"\b(gameplay|mechanics?|balance|difficulty|encounters?|survival|needs|hunger|thirst|frostfall|camping|campfire)\b", "Gameplay - General", 1.0),
+    # a rule about what the player may do (the owner, 2026-09-23: Item Equip Restrictor is gameplay)
+    (r"\b(restrict(s|ion|ions|or|ors|ed)?)\b", "Gameplay - General", 2.0),
     (r"\bpress \w+ to\b", "Gameplay - General", DEFINITIVE),
     (r"\b(combat|parry|block(ing)?|stagger|killmoves?|poise|stamina ?regen|hit ?stop|melee|archery|damage|localized damage|localised damage|resistances?|weakness(es)?|armou?r rating|enemies|enemy)\b", "Gameplay - Combat", 1.5),
     (r"\b(stealth|sneak(ing)?|thie(f|ves)|pickpocket(ing)?|lockpick(ing)?|detection)\b", "Gameplay - Stealth", 1.5),
@@ -463,7 +476,9 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(horses?|mounts?|mounted|riding|steeds?|saddles?|convenient horses|horse power|immersive horses)\b", "Creatures - Mounts", 2.0),
     (r"\b(npcs?|citizens|villagers|guards|jarls?|children|overhauled npcs|character overhaul)\b", "NPC - Appearance", 1.0),
     (r"\b(bijin|pandorable|high poly npcs?|npc (overhaul|replacer|faces)|facegen|rs children|the ordinary women|males of skyrim|beards of power|npc hair)\b", "NPC - Appearance", 2.0),
-    (r"\b(ai overhaul|ai|behaviou?r edits?|routines?|schedules?|sandbox(ing)?|pathing|combat ai|smart npcs?|reactions?|immersive citizens|npc (ai|behaviou?r)|take cover)\b", "NPC - AI and Behaviour", 2.0),
+    # "behaviour" in words is AI behaviour; animation behaviours are the .hkx files under behaviors/ (a path vote). How
+    # attackers move in combat is NPC behaviour (the owner, 2026-09-23: Wait Your Turn)
+    (r"\b(ai overhaul|ai|behaviou?rs?|behaviou?r edits?|routines?|schedules?|sandbox(ing)?|pathing|combat ai|smart npcs?|reactions?|immersive citizens|npc (ai|behaviou?r)|take cover|circl(e|ing)|attackers?|surround(ing)?|flank(ing)?|take turns|wait your turn)\b", "NPC - AI and Behaviour", 2.0),
     (r"\b(followers?|companions?|hirelings?|inigo|lucien|serana|nether'?s follower|ufo|eff|aft|nff|follower framework)\b", "NPC - Followers", 2.0),
     (r"\b(player (appearance|preset|character)|racemenu presets?|character presets?|my character)\b", "Player - Appearance", 2.0),
     (r"\b(quests?|questing|adventures?|questline|storyline|campaign|quest tracking|quest tracker)\b", "Quests and Adventures", 1.2),
@@ -485,6 +500,7 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
 # body, creature appearance); a plugin mod's paths count half.
 PATH_SIGNALS = [(re.compile(p), c) for p, c in (
     (r"(^|/)textures/pbr/|_rmaos\.dds$|_cnr\.dds$", "PBR Textures"),
+    (r"(^|/)terrain/[^/]+/[a-z0-9_]+\.dds$", "User Interface"),
     (r"(^|/)(landscape|terrain)/(?!(grass|trees|plants))", "Environment - Landscape"),
     (r"(^|/)landscape/grass/|(^|/)grass/", "Environment - Grass"),
     (r"(^|/)landscape/trees/|(^|/)trees/|treepine|treeaspen|treereach|treesnow", "Environment - Trees"),
@@ -505,7 +521,7 @@ PATH_SIGNALS = [(re.compile(p), c) for p, c in (
     (r"(^|/)actors/(?!character/)[^/]+/", "Creatures - Appearance"),
     (r"(^|/)(effects|fx|particles|magic)/", "Visual Effects"),
     (r"(^|/)lights?/|(^|/)lighting/", "Lighting"),
-    (r"^interface/", "User Interface"),
+    (r"^interface/|(^|/)(fwmf|maps?)/|paper ?map|worldmap", "User Interface"),
     (r"^(sound|music)/", "Audio"),
     (r"^seq/", "Quests and Adventures"),
     (r"^calientetools/", SHAPE_CAT),
@@ -616,15 +632,27 @@ def _text_votes(m):
     """Votes from the words the mod uses about itself: its name counts fully, its documents at a lower rate."""
     name, docs = m.name, (m.text or "")
     # "X from Y" / "X for Y": Y is the subject (Perks from Questing is about questing) - its words count triple
-    subject = ""
+    subject, proper = "", name
     ms = re.search(r"\b(?:from|for)\s+(.+)$", TAG_PATCH.sub(" ", name), re.I)
     if ms:
         subject = ms.group(1)
+        proper = TAG_PATCH.sub(" ", name)[:ms.start()]
     scores, reasons, definitive = {}, {}, set()
+    has_art = any(f.lower().endswith((".dds", ".nif")) for f in (m.files or ()))
     for rx, cat, mult in TEXT_SIGNALS:
         hits_n = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(name))}
         hits_s = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(subject))} if subject else set()
         hits_d = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(docs))} if docs else set()
+        # R17 a mod's documents name what it REQUIRES ("Address Library", "SKSE Menu Framework") and a "for X" subject names
+        # what it targets ("Fix Note icon for SkyUI"): neither says the mod is one - tier-0 leaves count from the name proper
+        # only (the owner, 2026-09-23: Item Equip Restrictor, Sure of Stealing, Wait Your Turn, Custom Difficulty UI)
+        if norm(cat) in TIER0:
+            hits_d, hits_s = set(), set()
+            if subject:
+                hits_n = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(proper))}
+        # R18 a mod that ships no meshes or textures is not art, whatever its readme mentions ("sitting on a bench")
+        if not has_art and cat.startswith(("Models and Textures", "Environment", "PBR")):
+            hits_d = set()
         w = (TEXT_NAME_HIT * mult if hits_n else 0.0) + (TEXT_DOC_HIT * mult * min(3, len(hits_d)) if hits_d else 0.0)
         if hits_s:
             w += 2.0 * TEXT_NAME_HIT * mult
@@ -776,7 +804,7 @@ def decide(m, votes, nexus_cat=""):
                 notes.append("spells as a mechanism (animations, a DLL or scripts ship with them)")
     # R13 a name that says fix is a fix: its records are the fix's means, not new content (a utility does nothing on
     # its own; USSEP alters thousands of records)
-    if says_fix and m.plugins:
+    if says_fix and (m.plugins or has_dll):          # a DLL that says fix is a fix too (Fix Note icon for SkyUI)
         for v in votes:
             if v[0] == "records":
                 v[2] *= 0.3
@@ -788,6 +816,11 @@ def decide(m, votes, nexus_cat=""):
             if v[0] == "records":
                 v[2] *= 0.5
         notes.append(f"alters {rec_alt} records, adds {rec_new}: about existing content")
+    if has_hkx:
+        for v in votes:
+            if v[0] == "text" and v[1] == "NPC - AI and Behaviour":
+                v[2] *= 0.3
+                notes.append("behaviour files ship: 'behaviour' means the animation graph")
     # R14 mostly animation files (60%+ under animation paths, with .hkx) is an animation mod (TDM, SDS)
     anim_share = max((v[2] for v in votes if v[0] == "paths" and v[1].startswith("Animation")), default=0.0)
     if has_hkx and anim_share >= 0.9 and not named:
@@ -798,6 +831,29 @@ def decide(m, votes, nexus_cat=""):
     if rec and not rec.get("NPC_", 0) and (rec.get("PERK", 0) + rec.get("SPEL", 0)) >= 10 \
             and ((rec.get("NPC_*", 0) + rec.get("RACE*", 0)) >= 10 or distributes):
         votes.append(["rule", "Gameplay - Combat", 3.0, "abilities given to actors" + (" through a distribution file" if distributes else "") + ": a combat system"])
+    # R19 "X Menu" / "X UI": the menu is the means, X is the subject - a content leaf named beside a UI word gets the
+    # vote (the owner, 2026-09-23: Custom Difficulty UI is gameplay, Add Spell Menu is spells)
+    mv = re.search(r"\b(\w+(?: \w+)?) (menu|ui|hud|widget|overlay|panel)\b", plain, re.I)
+    if mv:
+        before = mv.group(1)
+        content = [c for rx, c, _w in TEXT_SIGNALS if rx.search(before) and INDEX_TIER.get(norm(c), 0) >= 3
+                   and norm(c) not in ("patches", "overhauls")]
+        if content:
+            totals0 = {}
+            for v in votes:
+                totals0[norm(v[1])] = totals0.get(norm(v[1]), 0.0) + v[2]
+            subj = max(content, key=lambda c: totals0.get(norm(c), 0.0))
+            votes.append(["rule", subj, 2.0, f"the menu is the means; the subject is {subj.lower()}"])
+            # R20 the item records of a spell mod are its tomes: delivery, not the subject
+            if norm(subj) == "magic - spells & enchantments":
+                for v in votes:
+                    if v[0] == "records" and v[1] == "Items and Objects - World":
+                        v[2] *= 0.4
+                        notes.append("item records are spell tomes: delivery, not the subject")
+    # R21 a leveled-list injector is the patch layer: it integrates other mods' items into the lists (the owner,
+    # 2026-09-23: Dynamic Leveled Lists goes in Patches)
+    if has_dll and re.search(r"\bleveled lists?\b", plain, re.I):
+        votes.append(["rule", "Patches", 2.5, "a leveled-list injector: the patch layer between other mods' items and the lists"])
     # R16 a framework master is a system other mods build on (Campfire)
     if framework is not None:
         votes.append(["rule", "Gameplay - General", 2.0, "a system other mods build on"])
@@ -838,7 +894,7 @@ def decide(m, votes, nexus_cat=""):
                 notes.append("a scripted system: its equipment records count half")
         if not any(rec.get(k, 0) for k in ("NPC_", "QUST", "RACE")) and not (rec.get("CELL~", 0) + rec.get("WRLD~", 0) > 200_000) \
                 and (rec.get("ARMO", 0) + rec.get("WEAP", 0)) < 100:
-            votes.append(["rule", "Gameplay - General", 1.0, "a scripted system: scripts or a DLL, no content of its own"])
+            votes.append(["rule", "Gameplay - General", 0.9, "a scripted system: scripts or a DLL, no content of its own"])
     # content-type fallback: a plugin with scripts and nothing decisive is a system; a plugin that only alters is an
     # edit of existing things; scripts alone are a utility
     if not any(v[2] >= 1.0 for v in votes):
@@ -1259,8 +1315,7 @@ def scan(mods_dir, rows, progress=None):
                     if f.lower().endswith(PLUGIN_EXT) and os.path.isfile(os.path.join(opt, f)):
                         masters, _desc, esm = read_header(os.path.join(opt, f))
                         m.optional.append((f, masters, esm or f.lower().endswith((".esm", ".esl"))))
-            if enabled:
-                m.files = scan_files(d)
+            m.files = scan_files(d)              # every mod, enabled or not: the files are classification evidence too
         except OSError:
             pass
         m.text = " ".join(t for t in texts if t)[:12000]

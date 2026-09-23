@@ -1,5 +1,5 @@
 {
-  "_comment": "The owner's rulings (2026-09-23) as a test set: mod name (exact, or a prefix ending in *) -> the leaf it must land in, or a list of acceptable leaves, or !Leaf for 'never this'. The offline runner scores every dry run against it.",
+  "_comment": "The owner's rulings (2026-09-23, second batch the same night: the tier-0 and controls rulings) as a test set: mod name (exact, or a prefix ending in *) -> the leaf it must land in, or a list of acceptable leaves, or !Leaf for 'never this'. The offline runner scores every dry run against it.",
   "Smart Talk (Dialogue Menu Enhancer)": [
     "Dialogue",
     "User Interface"
@@ -123,5 +123,22 @@
   "Snazzy Interiors - Morthal Falion's House": [
     "Location Overhauls - Interior",
     "Models and Textures - Interiors"
-  ]
+  ],
+  "Item Equip Restrictor": "Gameplay - General",
+  "Dynamic Leveled Lists (SKSE)": "Patches",
+  "Skyrim Priority SE AE - CPU Performance FPS Optimizer": "Performance Optimization",
+  "Animation Motion Revolution": "Utilities",
+  "Kill Caps Lock NG": "Improved Controls",
+  "Better AltTab": "Improved Controls",
+  "Add Spell Menu": "Magic - Spells & Enchantments",
+  "unpublished Wait Your Turn Redux": "NPC - AI and Behaviour",
+  "unpublished Sure of Stealing": "Improved Controls",
+  "dTry's Key Utils": "Utilities",
+  "Faster Loadscreens": "Performance Optimization",
+  "Faster Cell Lookup": "Performance Optimization",
+  "Faster File Copy": "Performance Optimization",
+  "Faster Decompression": "Performance Optimization",
+  "Load Time Profiler": "Performance Optimization",
+  "Custom Difficulty UI": "Gameplay - General",
+  "Fix Note icon for SkyUI (SKSE64 plugin)": "Bug Fixes"
 }
