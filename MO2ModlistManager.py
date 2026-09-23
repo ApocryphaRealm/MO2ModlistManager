@@ -437,6 +437,8 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     # tier 2
     (r"\b(smp|hdt|cbpc|fsmp|physics|collision|jiggle|bounce|cloth physics)\b", "Physics", DEFINITIVE),
     (r"\b(bod(y|ies)|skins?|cbbe|himbo|unp|3ba|bhunp|tbd|muscle|nipple|feet|hands|complexion|bodypaint|tattoos?|texture ?set)\b", "Body", 1.0),
+    # which body each actor gets - morphs and presets handed out (the owner, 2026-09-23: OBody is body)
+    (r"\b(obody|autobody|body ?morphs?|body ?presets?|bodyslide presets?|body types?|body distribution)\b", "Body", DEFINITIVE),
     (r"\b(faces?|heads?|eyes?|brows?|eyebrows?|teeth|mouth|freckles?|scars?|warpaints?|makeup|blush(ing)?|tint|high poly head|expressions?|lips|complexions?|overlays?|tattoos?|bodypaints?|facegen|horns?)\b", "Face", DEFINITIVE),
     (r"\b(hairs?|hairdos?|hairstyles?|beards?|khisart[ai]n|stubble|ks hairdos|apachii|salt and wind|hairline)\b", "Hair", DEFINITIVE),
     (r"\b(races?|khajiit|argonians?|orcs?|orsimer|dunmer|altmer|bosmer|nords?|imperials?|bretons?|redguards?|birthsigns?|racial)\b", "Races, Classes, and Birthsigns", 1.0),
@@ -497,6 +499,9 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(objects?|misc|containers?|chests?|displays?|book ?shel(f|ves)|lootable|placed items?)\b", "Items and Objects - World", 0.8),
     (r"\b(collectables?|collectibles?|treasure|treasure hunts?|puzzles?|collectables helper)\b", "Collectables, Treasure Hunts, and Puzzles", 1.5),
     (r"\b(creatures?|animals?|beasts?|mihail|spiders?|trolls?|giants?|draugr|falmer|dwarven automatons?|monsters?|wildlife|deer|elk|rabbits?|foxes|chickens?|hawks?|birds?|fish)\b", "Creatures - New Creatures", 1.0),
+    # animals named (the owner, 2026-09-23: Dire Wolves is creatures) - plural or "dire"/"sabre" forms, so a "Wolf Armor"
+    # is not an animal mod
+    (r"\b(wolves|dire wol(f|ves)|bears|sabre ?cats?|saber ?cats?|mammoths?|horkers?|skeevers?|mudcrabs?|chaurus|boars?|wolf packs?|prehistoric|dinosaurs?|megafauna)\b", "Creatures - New Creatures", 2.0),
     (r"\b(creature (re)?textures?|animal (re)?textures?|dragon (re)?textures?|wolf (re)?textures?|bear (re)?textures?|hd creatures|bellyaches)\b", "Creatures - Appearance", 2.0),
     (r"\b(creature (ai|behaviou?r)|animal (ai|behaviou?r)|predators?|prey|animal aggression)\b", "Creatures - Behaviour", 2.0),
     (r"\b(horses?|mounts?|mounted|riding|steeds?|saddles?|convenient horses|horse power|immersive horses)\b", "Creatures - Mounts", 2.0),
@@ -638,7 +643,11 @@ def _records_vote(m):
         cands.append(("NPC - Appearance", npc, f"{npc} new NPC records"))
     elif npc >= 3:
         cands.append(("NPC - Other", 1, f"{npc} new NPC records (a handful: not the subject)"))
-    if race:
+    if race and npc and not new("HDPT") and npc <= 20 * race:
+        # a race with no head parts of its own, with a handful of actors of it: a creature race (the owner, 2026-09-23:
+        # Dire Wolves). A hundred actors against two races is a population with some creatures in it (Wyrmstooth)
+        cands.append(("Creatures - New Creatures", race * 3 + npc, f"{npc} NPC records of {race} new race(s) with no head parts: a creature race"))
+    elif race:
         cands.append(("Races, Classes, and Birthsigns", race * 3, f"{race} new race records"))
     if perk >= 10:
         cands.append(("Class, Perks, Powers and Blessings", perk, f"{perk} new perk records"))
@@ -730,8 +739,13 @@ def _path_votes(m):
         votes.append(("files", "Audio", W_FILES, "ships sound files"))
     counts = {}
     n_art = 0
+    own = {p[0].lower() for p in (m.plugins or [])}
     for f in files:
         fl = f.lower()
+        # FaceGen data under the mod's own plugin is its NPCs' generated faces, not a face mod (CFTO's drivers)
+        fg = re.search(r"facegendata/face(geom|tint)/([^/]+)/", fl)
+        if fg and fg.group(2) in own:
+            continue
         if not fl.endswith((".dds", ".nif", ".tri", ".hkx", ".swf", ".seq", ".osp", ".xml")):
             continue
         n_art += 1
@@ -923,6 +937,8 @@ def decide(m, votes, nexus_cat=""):
         eq_word = next((v[1] for v in votes if v[0] == "text" and v[1] in ("Weapons", "Armour", "Armour - Shields", "Clothing and Accessories")), None)
         if art_target == "Models and Textures - General" and eq_word:
             art_target = eq_word                       # custom mesh paths say nothing; the name says what it replaces
+        elif art_target == "Models and Textures - General" and any(v[0] == "text" and v[1] == "Creatures - New Creatures" and v[2] >= 1.0 for v in votes):
+            art_target = "Creatures - Appearance"       # a creature replacer: art for an animal the game already has
         votes.append(["rule", art_target, 2.0, f"a replacer: only meshes/textures; {'its name says' if eq_word and art_target == eq_word else 'its paths say'} {art_target}"])
     # R8 PBR supersedes other textures (the owner: "if it says pbr it goes in the pbr textures section")
     if re.search(r"\bpbr\b", m.name, re.I) or any(v[0] == "paths" and v[1] == "PBR Textures" and v[2] >= 1.0 for v in votes):
@@ -938,8 +954,10 @@ def decide(m, votes, nexus_cat=""):
     scripted = framework is not None or (m.plugins and files and (n_pex >= 20 or has_dll))
     if scripted:
         for v in votes:
-            if v[0] == "scope":
+            if v[0] == "scope" and not (v[1] == "Location Overhauls - General" and ("exterior" in v[3] or v[3].startswith("location overhaul"))):
                 v[2] *= 0.5                        # a system's cells are utility cells, not a place it overhauls
+                # (its exterior edits stay whole: what it adds to a worldspace is what needs patches - the owner,
+                # 2026-09-23, Carriage and Ferry Travel Overhaul)
     if scripted and rec:
         for v in votes:
             if v[0] == "records" and v[1] in ("Armour", "Weapons", "Weapons and Armour", "Clothing and Accessories") and (rec.get("ARMO", 0) + rec.get("WEAP", 0)) < 100:
