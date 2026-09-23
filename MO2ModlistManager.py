@@ -74,11 +74,14 @@ TIERS = {
     3: ("Models and Textures", "Visuals and Graphics", "Environmental", "Audio", "Overhauls", "Gameplay", "Immersion",
         "Skills and Leveling", "Magic - Gameplay", "Combat", "Stealth", "Guilds/Factions", "Alchemy", "Miscellaneous",
         "Presets - ENB and ReShade"),
-    4: ("Clothing and Accessories", "Armour", "Armour - Shields", "Weapons", "Weapons and Armour", "Shape", "Items and Objects - Player",
+    # magic systems first: Artificer, Thaumaturgy, Mysticism are what enchanted-equipment addons take as masters
+    # (Armory of the Dragon Cult's Artificer plugin), so the equipment blocks come after them (2026-09-23)
+    4: ("Magic - Spells & Enchantments", "Shouts", "Clothing and Accessories", "Armour", "Armour - Shields", "Weapons",
+        "Weapons and Armour", "Shape", "Items and Objects - Player",
         "Items and Objects - World", "Creatures and Mounts", "NPC", "Followers & Companions", "Followers & Companions - Creatures",
         "Quests and Adventures", "Collectables, Treasure Hunts, and Puzzles", "Player homes", "Buildings",
         "Cities, Towns, Villages, and Hamlets", "Dungeons", "Locations - New", "Locations - Vanilla",
-        "Magic - Spells & Enchantments", "Crafting", "Shouts", "Cheats and God items"),
+        "Crafting", "Cheats and God items"),
     5: ("Patches",),
     6: ("Test Builds",),
     7: ("Generated Outputs",),
@@ -88,7 +91,7 @@ TIER_HEADERS = {0: "--- 0 ENGINE, FIXES & FRAMEWORKS ---", 1: "--- 1 INTERFACE -
                 6: "--- 6 TEST BUILDS ---", 7: "--- 7 GENERATED OUTPUTS ---"}
 # blocks that stand on their own: never merged into a neighbour, never take a neighbour's mods (the owner, 2026-09-22:
 # the outputs had been folded into Test Builds, and Test Builds must hold every "test "-prefixed mod and nothing else)
-FIXED_BLOCKS = ("base game", "test builds", "generated outputs", "[nodelete]")
+FIXED_BLOCKS = ("base game", "test builds", "generated outputs", "[nodelete]", "shape")
 INDEX_TIER = {norm_key: t for t, names in TIERS.items() for norm_key in (re.sub(r"\s+", " ", n).strip().lower() for n in names)}
 
 
@@ -291,6 +294,102 @@ def read_header(path):
     return masters, description, bool(flags & 1)
 
 
+# WHAT A PLUGIN ADDS (the owner, 2026-09-23: "if it only has magic spells or only enchantments then it goes to magic
+# spells and enchantments but if it has armor and weapons with enchantments then it goes to the right separator ...
+# it alters some vanilla records and adds new weapons and enchantments so it goes in new weapons and armor"). The
+# top-level record groups of a plugin say what it adds; a record whose form ID belongs to the plugin itself is new,
+# one that belongs to a master is an override. Only these groups are read, the rest are skipped by their size.
+RECORD_GROUPS = (b"ARMO", b"WEAP", b"AMMO", b"SPEL", b"ENCH", b"MGEF", b"SCRL")
+
+
+def plugin_new_records(path, n_masters):
+    """{type: count of NEW records} over RECORD_GROUPS; {} when unreadable."""
+    out = {}
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(24)
+            if len(head) < 24 or head[:4] != b"TES4":
+                return out
+            fh.seek(24 + struct.unpack("<I", head[4:8])[0])
+            while True:
+                gh = fh.read(24)
+                if len(gh) < 24 or gh[:4] != b"GRUP":
+                    break
+                gsize, label, gtype = struct.unpack("<I", gh[4:8])[0], gh[8:12], struct.unpack("<i", gh[12:16])[0]
+                if gtype != 0 or label not in RECORD_GROUPS:
+                    fh.seek(gsize - 24, 1)
+                    continue
+                end = fh.tell() + gsize - 24
+                while fh.tell() < end:
+                    rh = fh.read(24)
+                    if len(rh) < 24:
+                        break
+                    sig, dsize, form = rh[:4], struct.unpack("<I", rh[4:8])[0], struct.unpack("<I", rh[12:16])[0]
+                    if sig == b"GRUP":                    # a nested group: skip whole
+                        fh.seek(dsize - 24, 1)
+                        continue
+                    key = sig.decode("ascii", "replace") + ("" if (form >> 24) >= n_masters else "*")   # "ARMO" new, "ARMO*" override
+                    out[key] = out.get(key, 0) + 1
+                    fh.seek(dsize, 1)
+                fh.seek(end)
+    except (OSError, struct.error):
+        return out
+    return out
+
+
+EQUIPMENT_FAMILY = {"magic - spells & enchantments", "magic - gameplay", "armour", "armour - shields", "weapons",
+                    "weapons and armour", "clothing and accessories"}
+
+
+def refine_by_records(m, cat):
+    """(category, why) when the records say the Nexus label is the wrong one of the equipment/magic family."""
+    if norm(cat or "") not in EQUIPMENT_FAMILY or not m.records:
+        return None
+    r = m.records
+    # new records say what a mod adds; altered ones say what it is about - up to a point. An enchanting overhaul
+    # alters every enchanted item in the game (Thaumaturgy: 4,800 armour, 4,900 weapons) without being an equipment
+    # mod, so altered equipment counts only up to a hundred records.
+    armo_new, weap_new = r.get("ARMO", 0), r.get("WEAP", 0) + r.get("AMMO", 0)
+    armo_alt, weap_alt = r.get("ARMO*", 0), r.get("WEAP*", 0) + r.get("AMMO*", 0)
+    alt_total = armo_alt + weap_alt
+    alt_scale = min(1.0, 100.0 / alt_total) if alt_total else 0.0            # altered equipment counts up to a hundred
+    armo = armo_new + int(armo_alt * alt_scale)
+    weap = weap_new + int(weap_alt * alt_scale)
+    magic = r.get("SPEL", 0) + r.get("ENCH", 0) + r.get("MGEF", 0) + r.get("SCRL", 0)   # new only: a magic mod adds
+    # no equipment mod adds five hundred pieces; a mod that does is an overhaul generating enchanted variants
+    # (Thaumaturgy: 2,300 armour, 2,100 weapons) and its Nexus label stands
+    if armo_new + weap_new > 500:
+        return None
+    # clothes ARE armour records in Skyrim: a Clothing label is never turned into Armour, only into Weapons/Magic
+    if norm(cat) == norm("Clothing and Accessories") and not weap:
+        return None
+    # a magic overhaul brings bound weapons and the odd robe with its spells (Mysticism: 131 weapons, 1,152 spells),
+    # while a unique weapon brings a dozen enchantment and effect records of its own. Magic is the mod's subject only
+    # when it adds fifty or more magic records AND they outnumber its equipment records six to one.
+    if magic >= 50 and magic >= 5 * (armo + weap):
+        new = "Magic - Spells & Enchantments"          # Mysticism: 1,152 spells against 136 bound weapons - its subject is magic
+    elif armo and weap:
+        new = "Weapons and Armour"
+    elif armo:
+        new = "Armour"
+    elif weap:
+        new = "Weapons"
+    elif magic:
+        new = "Magic - Spells & Enchantments"
+    else:
+        return None
+    if norm(new) == norm(cat):
+        return None
+    # a finer or equal Nexus label of the same family stands: Shields are armour, Weapons and Armour covers either,
+    # Magic - Gameplay is magic
+    compatible = {norm("Armour - Shields"): {"Armour"}, norm("Weapons and Armour"): {"Armour", "Weapons"},
+                  norm("Magic - Gameplay"): {"Magic - Spells & Enchantments"}, norm("Clothing and Accessories"): {"Armour"}}
+    if new in compatible.get(norm(cat), set()):
+        return None
+    parts = [f"{n} {k}" for k, n in (("armour (new or altered)", armo), ("weapon/ammo (new or altered)", weap), ("new spell/enchantment/effect", magic)) if n]
+    return new, f"its plugins add {', '.join(parts)} (Nexus said {cat})"
+
+
 def read_meta(mod_dir):
     """(nexus mod id or 0, MO2 category ids) from meta.ini."""
     p = os.path.join(mod_dir, "meta.ini")
@@ -311,7 +410,7 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 
 class Mod:
-    __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin")
+    __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
@@ -319,6 +418,7 @@ class Mod:
         self.optional = []                                          # the same, for the mod's optional folder (MO2's Optional ESPs)
         self.category, self.why, self.group, self.flags, self.files = None, "", None, set(), []
         self.twin = None                                            # a test build: the name of the copy it supersedes
+        self.records = {}                                           # {record type: new records its plugins add} for the types below
 
     @property
     def tier(self):
@@ -399,6 +499,8 @@ def scan(mods_dir, rows, progress=None):
                     masters, _desc, esm = read_header(os.path.join(d, f))
                     # a .esl-EXTENSION file loads in the master block whatever its header says, as does a .esm
                     m.plugins.append((f, masters, esm or f.lower().endswith((".esm", ".esl"))))
+                    for k, v in plugin_new_records(os.path.join(d, f), len(masters)).items():
+                        m.records[k] = m.records.get(k, 0) + v
             opt = os.path.join(d, "optional")
             if os.path.isdir(opt):
                 for f in os.listdir(opt):
@@ -492,6 +594,10 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             m.category, m.why = SHAPE_CAT, "Shape: " + why_shape
             continue
         if cat:
+            refined = refine_by_records(m, cat)
+            if refined:
+                m.category, m.why = refined[0], refined[1]
+                continue
             m.category, m.why = cat, f"Nexus category of mod {m.nexus_id}"
             continue
         # the [Patch] prefix only places a mod Nexus could not: USSEP is tagged [Patch] by name yet is "Bug Fixes" on
