@@ -152,5 +152,13 @@
   "Show Player In Inventory": "Camera",
   "OBody Next Generation": "Body",
   "Dire Wolves (Prehistoric Content Series) SE-AE": "Creatures - New Creatures",
-  "Carriage and Ferry Travel Overhaul (Formerly Complete Fast Travel Overhaul)": "Location Overhauls - General"
+  "Carriage and Ferry Travel Overhaul (Formerly Complete Fast Travel Overhaul)": "Location Overhauls - General",
+  "Wolf Armor for The Companions - SPID": [
+    "Armour",
+    "New Armour"
+  ],
+  "Mark and Summon NPC Friends": "NPC - Followers",
+  "Wyrmstooth": "Locations - New",
+  "Vivid Routines - Lightweight Living AI": "NPC - AI and Behaviour",
+  "Felidae - A Sabrecat Replacer": "Creatures - Appearance"
 }

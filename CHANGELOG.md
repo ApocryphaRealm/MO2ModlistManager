@@ -9,7 +9,7 @@ groups and the cells and worldspaces they reference, the mod's own words, its st
 himself), rules over the votes carry the owner's reasoning, and the heaviest category wins; the owner's taxonomy as
 data (tiers, empty mains with sub-separators); the conflict resolver by evidence; plugin order and Bethesda Plugin
 Manager groups following the pane; test builds under their official copy; a Review tab that writes nothing; copy
-from every table. `expectations.json` scores each dry run against the owner's rulings (77 on 2026-09-23).
+from every table. `expectations.json` scores each dry run against the owner's rulings (82 on 2026-09-23).
 
 Third batch of rulings, as weights: an Equipment Positioning separator after Shape (where gear sits on the body -
 Simple Dual Sheath, Immersive Equipment Displays and its presets; an IED word in a "for X" subject is the target, not
@@ -22,6 +22,13 @@ actors per race is a creature race, and named animals vote Creatures (Dire Wolve
 appearance; FaceGen data under the mod's own plugin is its NPCs' generated faces, not face art; a scripted system's
 concentrated exterior edits keep their full weight - what it adds to a worldspace needs patches (Carriage and Ferry
 Travel Overhaul is a location overhaul).
+
+Fifth batch: the reference walker gives the CELL and WRLD groups a budget each (a big interior group hid
+Wyrmstooth's new worldspace); references concentrated in the worldspace and cells a mod adds are a new land; the NPCs
+a place mod adds are its inhabitants (R25); a distribution-only mod (SPID/KID INIs) hands out what its name proper
+names - "for Y" is the recipients (R23); follower-gathering words (NPC friends, summon your followers) define
+Followers; "living AI" / routines define NPC AI and spells beside scripts and an MCM are its means; a replacer of a
+creature it names is creature appearance (R24).
 
 Sharing verdicts: a user's copy sends the verdicts it holds - mods whose MO2 category the user set and the evidence
 would have placed elsewhere - behind a one-time disclosure and an explicit Send (a prefilled GitHub issue, or an https

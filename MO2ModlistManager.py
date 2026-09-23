@@ -510,7 +510,12 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     # "behaviour" in words is AI behaviour; animation behaviours are the .hkx files under behaviors/ (a path vote). How
     # attackers move in combat is NPC behaviour (the owner, 2026-09-23: Wait Your Turn)
     (r"\b(ai overhaul|ai|behaviou?rs?|behaviou?r edits?|routines?|schedules?|sandbox(ing)?|pathing|combat ai|smart npcs?|reactions?|immersive citizens|npc (ai|behaviou?r)|take cover|circl(e|ing)|attackers?|surround(ing)?|flank(ing)?|take turns|wait your turn)\b", "NPC - AI and Behaviour", 2.0),
+    # a living world's AI named as such (the owner, 2026-09-23: Vivid Routines - Lightweight Living AI is NPC AI)
+    (r"\b(living ai|npc routines?|daily routines?|vivid routines|lifelike npcs?|living world)\b", "NPC - AI and Behaviour", DEFINITIVE),
     (r"\b(followers?|companions?|hirelings?|inigo|lucien|serana|nether'?s follower|ufo|eff|aft|nff|follower framework)\b", "NPC - Followers", 2.0),
+    # gathering the NPCs the player has chosen: marking, summoning, recalling friends is follower management (the owner,
+    # 2026-09-23: Mark and Summon NPC Friends)
+    (r"\b(npc friends|(summon|recall|teleport|gather) (your )?(friends|followers|allies|companions)|allies)\b", "NPC - Followers", DEFINITIVE),
     (r"\b(player (appearance|preset|character)|racemenu presets?|character presets?|my character)\b", "Player - Appearance", 2.0),
     (r"\b(quests?|questing|adventures?|questline|storyline|campaign|quest tracking|quest tracker)\b", "Quests and Adventures", 1.2),
     # a quest's own items: a mod about what the player may do with them is about the quest (the owner, 2026-09-23: Sell
@@ -682,9 +687,14 @@ def _text_votes(m):
         proper = TAG_PATCH.sub(" ", name)[:ms.start()]
     scores, reasons, definitive = {}, {}, set()
     has_art = any(f.lower().endswith((".dds", ".nif")) for f in (m.files or ()))
+    # R23 a mod that ships only distribution files (SPID / KID / SkyPatcher-style INIs) hands out what its name proper
+    # names; a "for Y" subject is who receives it (the owner, 2026-09-23: Wolf Armor for The Companions - SPID is armour)
+    shipped = [f.lower() for f in (m.files or ()) if not f.lower().endswith(("meta.ini", ".txt", ".md"))]
+    distribution_only = bool(shipped) and all(f.endswith(("_distr.ini", "_kid.ini", "_swap.ini", "_flm.ini")) for f in shipped)
+    recipients = distribution_only and bool(subject)
     for rx, cat, mult in TEXT_SIGNALS:
-        hits_n = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(name))}
-        hits_s = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(subject))} if subject else set()
+        hits_n = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(proper if recipients else name))}
+        hits_s = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(subject))} if subject and not recipients else set()
         hits_d = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(docs))} if docs else set()
         # R17 a mod's documents name what it REQUIRES ("Address Library", "SKSE Menu Framework") and a "for X" subject names
         # what it targets ("Fix Note icon for SkyUI"): neither says the mod is one - tier-0 leaves count from the name proper
@@ -849,7 +859,9 @@ def decide(m, votes, nexus_cat=""):
         notes.append("named for a leaf the owner defined: files, paths and scope count half")
     # R10 mechanism records: spells and effects shipped with animations, a DLL or scripts are a vehicle (TK Dodge,
     # Press H to Horse, Perks from Questing) - they count 0.4 unless it is a spell pack
-    if (has_hkx or has_dll or n_pex >= 5) and magic_new and magic_new < 50:
+    # an MCM or a SkyPatcher config beside the scripts is a system too (Vivid Routines: 2 scripts, an MCM, 8 spells)
+    has_cfg = any(f.lower().startswith(("mcm/", "skse/plugins/skypatcher/")) for f in files)
+    if (has_hkx or has_dll or n_pex >= 5 or (n_pex and has_cfg)) and magic_new and magic_new < 50:
         for v in votes:
             if v[0] == "records" and v[1] == "Magic - Spells & Enchantments":
                 v[2] *= 0.4
@@ -902,6 +914,13 @@ def decide(m, votes, nexus_cat=""):
                     if v[0] == "records" and v[1] == "Items and Objects - World":
                         v[2] *= 0.4
                         notes.append("item records are spell tomes: delivery, not the subject")
+    # R25 the NPCs a place mod adds are its inhabitants: with a location vote of 3.0 or more, new-NPC records count half
+    # (the owner, 2026-09-23: Carriage and Ferry Travel Overhaul, Wyrmstooth; Holds The City Overhaul's 1293 citizens)
+    if any(v[0] == "scope" and (v[1].startswith("Location Overhauls") or v[1] == "Locations - New") and v[2] >= 3.0 for v in votes):
+        for v in votes:
+            if v[0] == "records" and v[1] == "NPC - Appearance":
+                v[2] *= 0.5
+                notes.append("its NPCs are the place's inhabitants")
     # R22 quests that only hold scripts: quest records with no dialogue of their own, scripts beside them, no meshes and no
     # menu art - they are how a system runs (start-up and MCM quests), not a quest; the system is gameplay, and its few
     # spells and effects are its means (the owner, 2026-09-23: Acquisitive Soul Gems is a system for soul gem filling
@@ -940,6 +959,13 @@ def decide(m, votes, nexus_cat=""):
         elif art_target == "Models and Textures - General" and any(v[0] == "text" and v[1] == "Creatures - New Creatures" and v[2] >= 1.0 for v in votes):
             art_target = "Creatures - Appearance"       # a creature replacer: art for an animal the game already has
         votes.append(["rule", art_target, 2.0, f"a replacer: only meshes/textures; {'its name says' if eq_word and art_target == eq_word else 'its paths say'} {art_target}"])
+    # R24 a mod that calls itself a replacer or retexture of a creature it names is that creature's appearance, plugin
+    # or not (the owner, 2026-09-23: Felidae - A Sabrecat Replacer)
+    if re.search(r"\b(replacers?|retextures?|remodels?|re-?textures?)\b", plain, re.I):
+        for v in votes:
+            if v[0] == "text" and v[1] == "Creatures - New Creatures":
+                v[1] = "Creatures - Appearance"
+                notes.append("a replacer of a creature it names: creature appearance")
     # R8 PBR supersedes other textures (the owner: "if it says pbr it goes in the pbr textures section")
     if re.search(r"\bpbr\b", m.name, re.I) or any(v[0] == "paths" and v[1] == "PBR Textures" and v[2] >= 1.0 for v in votes):
         if not m.plugins or art_target:
@@ -954,7 +980,8 @@ def decide(m, votes, nexus_cat=""):
     scripted = framework is not None or (m.plugins and files and (n_pex >= 20 or has_dll))
     if scripted:
         for v in votes:
-            if v[0] == "scope" and not (v[1] == "Location Overhauls - General" and ("exterior" in v[3] or v[3].startswith("location overhaul"))):
+            if v[0] == "scope" and not (v[1] == "Location Overhauls - General" and ("exterior" in v[3] or v[3].startswith("location overhaul"))) \
+                    and v[1] != "Locations - New":
                 v[2] *= 0.5                        # a system's cells are utility cells, not a place it overhauls
                 # (its exterior edits stay whole: what it adds to a worldspace is what needs patches - the owner,
                 # 2026-09-23, Carriage and Ferry Travel Overhaul)
@@ -1037,7 +1064,7 @@ def plugin_refs(path, n_masters):
         "refs": {place key: references placed or altered there}} - a place key is an interior cell's EDID or
         "<world>/<cell edid or form id>" for an exterior cell."""
     out = {"cells_new": [], "cells_alt": [], "worlds_new": [], "worlds_alt": [], "ext": {}, "refs": {}}
-    seen = 0
+    seen = 0                                                 # reset per top-level group below
     world_names = {}
     cur = {"key": None}
 
@@ -1109,7 +1136,8 @@ def plugin_refs(path, n_masters):
                 gsize, label, gtype = struct.unpack("<I", gh[4:8])[0], gh[8:12], struct.unpack("<i", gh[12:16])[0]
                 gend = fh.tell() + gsize - 24
                 if gtype == 0 and label in (b"CELL", b"WRLD"):
-                    group(fh, gend, None)
+                    seen = 0                                 # CELL and WRLD each get the budget: a big interior group
+                    group(fh, gend, None)                    # must not hide a new worldspace (Wyrmstooth, 2026-09-23)
                 fh.seek(gend)
     except (OSError, struct.error):
         pass
@@ -1155,8 +1183,13 @@ def _scope_votes(m):
         interior_n = by_world.get("interior", 0)
         rec = m.records or {}
         base_edits = sum(rec.get(k + "*", 0) for k in ("STAT", "MSTT", "FURN", "ACTI", "CONT", "MISC", "DOOR", "LIGH", "FLOR", "TREE"))
+        own_new = set(r["cells_new"]) | set(r["worlds_new"])
+        new_n = sum(n for k, n in refs.items() if k.split("/", 1)[0] in own_new)
         if n_places >= 20 and total / n_places <= 3 and base_edits <= 30:
             votes.append(("scope", "Models and Textures - Clutter", 3.0, f"clutter: {total} references over {n_places} cells, {total / n_places:.1f} each"))
+        elif r["worlds_new"] and total >= 60 and new_n >= 0.5 * total:
+            # its references sit in the worldspace and cells it adds: a new land (the owner, 2026-09-23: Wyrmstooth)
+            votes.append(("scope", "Locations - New", 3.5, f"{new_n} of {total} references in the worldspace and cells it adds"))
         elif total >= 60:
             def place_of(key):
                 kl = key.lower()
