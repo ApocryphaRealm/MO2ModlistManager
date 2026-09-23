@@ -905,17 +905,18 @@ except ImportError:      # the offline runner
 
 if mobase is not None:
     try:
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QIcon
+        from PyQt6.QtCore import QSize, Qt, QTimer
+        from PyQt6.QtGui import QAction, QIcon
         from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView,
-                                     QLabel, QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QTreeView,
-                                     QVBoxLayout, QWidget)
+                                     QLabel, QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
+                                     QToolButton, QTreeView, QVBoxLayout, QWidget)
     except ImportError:
-        from PyQt5.QtCore import Qt
+        from PyQt5.QtCore import QSize, Qt, QTimer
         from PyQt5.QtGui import QIcon
         from PyQt5.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView,
-                                     QLabel, QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QTreeView,
-                                     QVBoxLayout, QWidget)
+                                     QLabel, QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
+                                     QToolButton, QTreeView, QVBoxLayout, QWidget)
+        from PyQt5.QtWidgets import QAction
 
     class RulerDialog(QDialog):
         def __init__(self, plugin, parent=None):
@@ -1136,7 +1137,65 @@ if mobase is not None:
 
         def init(self, organizer):
             self._organizer = organizer
+            # ITS OWN BUTTON ON THE TOOLBAR (the owner, 2026-09-22: "its own button at the top with a unique icon,
+            # using the same automatic refresh logic"). The same mechanism as the NoDelete button: poll until MO2's
+            # toolbar exists, insert the action before Settings, then keep checking lightly - MO2 rebuilds parts of
+            # the toolbar when executables or its style change, and the button is put back when that drops it.
+            self._toolbar_action = None
+            self._toolbar_timer = QTimer()
+            self._toolbar_timer.setInterval(500)
+            self._toolbar_timer.timeout.connect(self._keep_toolbar_button)
+            self._toolbar_timer.start()
             return True
+
+        def _keep_toolbar_button(self):
+            try:
+                app = QApplication.instance()
+                if app is None:
+                    return
+                window = None
+                for w in app.topLevelWidgets():
+                    if w.metaObject().className() == "MainWindow" or w.objectName() == "MainWindow":
+                        window = w
+                        break
+                if window is None:
+                    for w in app.topLevelWidgets():
+                        if w.findChild(QToolBar) is not None and w.isVisible():
+                            window = w
+                            break
+                if window is None:
+                    return
+                toolbars = window.findChildren(QToolBar)
+                if not toolbars:
+                    return
+                tb = toolbars[0]
+                if self._toolbar_action is not None and self._toolbar_action in tb.actions():
+                    self._toolbar_timer.setInterval(2000)      # in place: just keep an eye on it
+                    return
+                act = QAction(self.icon(), self.displayName(), window)
+                act.setObjectName("MO2ModlistOrderGeneratorAction")
+                act.setToolTip(self.tooltip())
+                act.triggered.connect(self.display)
+                anchor = None
+                for a in tb.actions():
+                    text = (a.text() or "").replace("&", "").lower()
+                    if "settings" in text or "settings" in (a.toolTip() or "").lower():
+                        anchor = a
+                        break
+                if anchor is not None:
+                    tb.insertAction(anchor, act)
+                else:
+                    tb.addAction(act)
+                btn = tb.widgetForAction(act)
+                if isinstance(btn, QToolButton):
+                    btn.setObjectName("MO2ModlistOrderGeneratorBtn")
+                    btn.setAutoRaise(True)
+                    btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                    btn.setIconSize(tb.iconSize())
+                self._toolbar_action = act
+                self._log("toolbar button added")
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"toolbar button: {exc!r}")
 
         def name(self):
             return "MO2 Modlist Order Generator"
