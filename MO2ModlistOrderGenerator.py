@@ -1165,8 +1165,16 @@ if mobase is not None:
             self.summary.setText("Reading the list and asking Nexus for categories...")
             QApplication.processEvents()
             try:
-                self._result = self._p.compute(lambda done, total, what: (QApplication.processEvents() or True),
-                                               self.c_keep.isChecked(), self.cb_mode.currentData(), self.sp_run.value())
+                def progress(done, total, what):
+                    # the first run asks Nexus for every mod's category, twenty a request - a couple of minutes on a
+                    # 2,000-mod list; say so instead of sitting on "reading the list"
+                    if what == "nexus":
+                        self.summary.setText(f"Asking Nexus for categories: {done} of {total} mods (cached after this run)...")
+                    elif total and done % 200 == 0:
+                        self.summary.setText(f"Reading the list: {done} of {total}...")
+                    QApplication.processEvents()
+                    return True
+                self._result = self._p.compute(progress, self.c_keep.isChecked(), self.cb_mode.currentData(), self.sp_run.value())
             except Exception as exc:  # noqa: BLE001
                 self._p._log(f"compute failed: {exc!r}")
                 self.summary.setText(f"Failed: {exc}")
