@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import struct
+import zlib
 import time
 import urllib.error
 import urllib.request
@@ -694,24 +695,23 @@ def _path_votes(m):
     return votes, art_only, best
 
 
-def gather_votes(m, nexus_cat, mo2_names, structural_patch):
-    """Every signal as a vote; nothing decided yet."""
+def gather_votes(m, nexus_cat, mo2_names, structural_patch, nexus_names=frozenset()):
+    """Every signal as a vote; nothing decided yet. NO Nexus category and no MO2 category that mirrors one (the owner,
+    2026-09-23: they get in the way) - only a category the user created himself in MO2 that names one of the tree's
+    own leaves counts, as his statement."""
     votes = []
-    nexus_leaf = leaf_for(nexus_cat) if nexus_cat else ""
-    if nexus_leaf:
-        votes.append(("nexus", nexus_leaf, W_NEXUS, f"Nexus category of mod {m.nexus_id} ({nexus_cat})"))
-    nexus_cat = nexus_leaf
     for c in m.mo2_cats or ():
         name = mo2_names.get(c) if mo2_names else None
-        if not name or norm(name) == "unpublished":
+        if not name or norm(name) in ("unpublished",):
             continue
         if norm(name) == "test":
             votes.append(("mo2", "Test Builds", W_MO2_USER, "MO2 category 'test'"))
-        elif nexus_cat and norm(leaf_for(name)) == norm(nexus_cat):
-            votes.append(("mo2", nexus_cat, 0.5, "the same MO2 category"))
-        else:
-            votes.append(("mo2", leaf_for(name), W_MO2_USER, f"MO2 category '{name}' set by you (differs from Nexus)"))
-        break
+            break
+        if norm(name) in NEXUS_TO_LEAF or norm(name) in nexus_names:
+            continue                                  # a Nexus category name (whoever wrote it): not his statement
+        if norm(name) in {norm(x) for x in LEAVES}:
+            votes.append(("mo2", canonical(name), W_MO2_USER, f"MO2 category '{name}' you created"))
+            break
     rv = _records_vote(m)
     if rv:
         votes.append(("records", rv[0], rv[1], rv[2]))
@@ -719,6 +719,7 @@ def gather_votes(m, nexus_cat, mo2_names, structural_patch):
     votes.extend(pv)
     if art_only:
         votes.append(("files", "__art_only__", 0.0, best_path or "Models and Textures - General"))
+    votes.extend(_scope_votes(m))
     votes.extend(_text_votes(m))
     if TAG_PATCH.search(m.name):
         votes.append(("tag", "Patches", W_TAG, "[Patch] tag"))
@@ -727,11 +728,13 @@ def gather_votes(m, nexus_cat, mo2_names, structural_patch):
     return votes
 
 
-def decide(m, votes, nexus_cat):
-    """The rules over the votes, then the winner. Returns (category, why, adjusted votes)."""
+def decide(m, votes, nexus_cat=""):
+    """The rules over the votes, then the winner. Returns (category, why, adjusted votes). No rule reads a label."""
     votes = [list(v) for v in votes]
     notes = []
-    framework = next((v for v in votes if v[1] == "__framework__"), None)     # the marker from place(): not a vote
+    for marker_name in ("__framework__", "__art_only__", "__everywhere__"):
+        pass
+    framework = next((v for v in votes if v[1] == "__framework__"), None)
     if framework is not None:
         votes.remove(framework)
         notes.append(framework[3])
@@ -740,138 +743,104 @@ def decide(m, votes, nexus_cat):
     if art_marker is not None:
         votes.remove(art_marker)
         art_target = art_marker[3]
-    nexus_k = norm(leaf_for(nexus_cat)) if nexus_cat else ""
-    has_label = any(v[0] in ("nexus", "mo2") for v in votes)
+    everywhere = next((v for v in votes if v[1] == "__everywhere__"), None)
+    if everywhere is not None:
+        votes.remove(everywhere)
+        notes.append(everywhere[3])
     files = m.files or []
+    rec = m.records or {}
     n_pex = sum(1 for f in files if f.endswith(".pex"))
     has_dll = any(f.endswith(".dll") for f in files)
     has_hkx = any(f.endswith(".hkx") for f in files)
-    rec_new = sum(v for k, v in (m.records or {}).items() if not k.endswith("*") and not k.endswith("~"))
-    rec_alt = sum(v for k, v in (m.records or {}).items() if k.endswith("*"))
-    magic_new = sum((m.records or {}).get(k, 0) for k in ("SPEL", "ENCH", "MGEF", "SCRL"))
-    says_fix = bool(re.search(r"\b(fix(es|ed|er)?|bug ?fix(es|er)?|hotfix)\b", TAG_PATCH.sub(" ", m.name), re.I))
-    # R10 mechanism records: a mod that ships animations, a DLL or scripts uses spells and effects as a vehicle
-    # (TK Dodge, Press H to Horse, Perks from Questing) - its magic records count 0.4 unless it is a spell pack
+    rec_new = sum(v for k, v in rec.items() if not k.endswith("*") and not k.endswith("~"))
+    rec_alt = sum(v for k, v in rec.items() if k.endswith("*"))
+    magic_new = sum(rec.get(k, 0) for k in ("SPEL", "ENCH", "MGEF", "SCRL"))
+    plain = TAG_PATCH.sub(" ", m.name)
+    says_fix = bool(re.search(r"\b(fix(es|ed|er)?|bug ?fix(es|er)?|hotfix)\b", plain, re.I))
+    # a leaf the owner defined BY NAME, hit in this mod's name, takes precedence over what the files and paths say
+    named = any(v[0] == "text" and norm(v[1]) in NAME_DEFINED and v[2] >= W_NAME_DEFINED for v in votes)
+    if named:
+        for v in votes:
+            if v[0] in ("files", "paths", "scope"):
+                v[2] *= 0.5
+        notes.append("named for a leaf the owner defined: files, paths and scope count half")
+    # R10 mechanism records: spells and effects shipped with animations, a DLL or scripts are a vehicle (TK Dodge,
+    # Press H to Horse, Perks from Questing) - they count 0.4 unless it is a spell pack
     if (has_hkx or has_dll or n_pex >= 5) and magic_new and magic_new < 50:
         for v in votes:
             if v[0] == "records" and v[1] == "Magic - Spells & Enchantments":
                 v[2] *= 0.4
                 notes.append("spells as a mechanism (animations, a DLL or scripts ship with them)")
-    # R11 too narrow for a system label: Gameplay or Overhauls on a plugin with five or fewer records is one item's
-    # edit (Better Rueful Axe) - the label counts 0.3
-    if nexus_k in (norm("Gameplay - General"), norm("Overhauls")) and m.plugins and m.records and rec_new + rec_alt <= 5:
+    # R13 a name that says fix is a fix: its records are the fix's means, not new content (a utility does nothing on
+    # its own; USSEP alters thousands of records)
+    if says_fix and m.plugins:
         for v in votes:
-            if v[0] in ("nexus", "mo2"):
-                v[2] *= 0.3
-                notes.append(f"too narrow for '{nexus_cat}': {rec_new + rec_alt} records")
-    # R12 an overhaul changes many records: the Overhauls label on a plugin with fewer than fifty is halved
-    elif nexus_k == norm("Overhauls") and m.plugins and m.records and rec_new + rec_alt < 50:
-        for v in votes:
-            if v[0] in ("nexus", "mo2"):
-                v[2] *= 0.5
-                notes.append(f"a small mod for an 'Overhauls' label: {rec_new + rec_alt} records")
-    # R13 a name that says fix under a Utilities label is a fix - a utility does nothing on its own (the owner) - and
-    # its records are the fix's means, not new content
-    if says_fix and nexus_k == norm("Utilities"):
-        for v in votes:
-            if v[0] in ("nexus", "mo2"):
-                v[2] *= 0.3
             if v[0] == "records":
                 v[2] *= 0.3
-        votes.append(["rule", "Bug Fixes", 3.0, "named a fix under a Utilities label: a utility does nothing on its own"])
-    kinds = LABEL_RECORDS.get(nexus_k)
-    # R1 a label the records contradict: a plugin-bearing mod with none of the records its label predicts
-    if kinds and m.plugins and m.records and not any(m.records.get(k, 0) or m.records.get(k + "*", 0) for k in kinds):
+        votes.append(["rule", "Bug Fixes", 3.0, "named a fix"])
+    # R7 alters far more than it adds: the mod is about existing things - new-content records count half, and scope
+    # (which places) decides ahead of what it adds
+    elif rec and rec_alt >= 3 * max(1, rec_new) and rec_alt >= 20:
         for v in votes:
-            if v[0] == "nexus":
-                v[2] *= 0.25
-                notes.append(f"Nexus label '{nexus_cat}' contradicted: its plugins hold no {'/'.join(kinds)} record")
-    # R1b a label contradicted by the FILES: Audio with no sound file, Animation with no animation, Models and
-    # Textures with no mesh or texture, User Interface with no interface file (Sound Record Distributor: a DLL)
-    exts = {os.path.splitext(f)[1].lower() for f in files}
-    label_files = {"audio": {".wav", ".xwm", ".fuz", ".mp3"}, "animation - general": {".hkx"},
-                   "models and textures - general": {".dds", ".nif"}, "user interface": {".swf", ".txt"}}
-    need = label_files.get(nexus_k)
-    if need and files and not (exts & need):
-        for v in votes:
-            if v[0] in ("nexus", "mo2"):
-                v[2] *= 0.4
-        notes.append(f"label '{nexus_cat}' contradicted by the files: none of {'/'.join(sorted(need))}")
-    # a leaf the owner defined BY NAME, hit in this mod's name, takes precedence over what the files and paths say
-    # (a camera stagger remover ships an animation file; the Unofficial Modders Patch ships animations): the file
-    # and path votes count half and the content rules below stand down
-    named = any(v[0] == "text" and norm(v[1]) in NAME_DEFINED and v[2] >= W_NAME_DEFINED for v in votes)
-    if named:
-        for v in votes:
-            if v[0] in ("files", "paths"):
+            if v[0] == "records":
                 v[2] *= 0.5
-        notes.append("named for a leaf the owner defined: files and paths count half")
-    # R14 mostly animation files: 60%+ of the asset files under animation paths, with .hkx, is an animation mod
-    # whatever its label says (True Directional Movement, Simple Diving System)
+        notes.append(f"alters {rec_alt} records, adds {rec_new}: about existing content")
+    # R14 mostly animation files (60%+ under animation paths, with .hkx) is an animation mod (TDM, SDS)
     anim_share = max((v[2] for v in votes if v[0] == "paths" and v[1].startswith("Animation")), default=0.0)
-    if has_hkx and anim_share >= 0.9 and not named:          # paths votes are 1.5 * share for plugin mods, 3.0 * share for art-only
+    if has_hkx and anim_share >= 0.9 and not named:
         votes.append(["rule", "Animation - General", 2.0, "mostly animation files"])
-    # R15 abilities given to actors: PERK/SPEL records under a Creatures or NPC label with no new actor records are a
-    # combat system, not new creatures (Know Your Enemy)
-    if nexus_k.startswith(("creatures", "npc")) and m.records and not m.records.get("NPC_", 0) \
-            and (m.records.get("PERK", 0) + m.records.get("SPEL", 0)) >= 10:
-        votes.append(["rule", "Gameplay - Combat", 3.0, "abilities given to actors: a combat system, not new creatures"])
+    # R15 abilities given to actors: perks/spells added while actors are altered, none added, is a combat system
+    # (Know Your Enemy), not creatures or NPCs
+    distributes = any(f.lower().endswith(("_distr.ini", "_kid.ini")) for f in files)      # SPID / KID: records handed to actors
+    if rec and not rec.get("NPC_", 0) and (rec.get("PERK", 0) + rec.get("SPEL", 0)) >= 10 \
+            and ((rec.get("NPC_*", 0) + rec.get("RACE*", 0)) >= 10 or distributes):
+        votes.append(["rule", "Gameplay - Combat", 3.0, "abilities given to actors" + (" through a distribution file" if distributes else "") + ": a combat system"])
     # R16 a framework master is a system other mods build on (Campfire)
     if framework is not None:
         votes.append(["rule", "Gameplay - General", 2.0, "a system other mods build on"])
-    # R7 a fixer: under a Bug Fixes / Patches / Overhauls label, a plugin that ALTERS several times more records than it
-    # adds is about the existing game, not new content - its new-content records count little (USSEP: thousands of
-    # altered records, 137 new quest records; the Bug Fixes label stands)
-    if nexus_k in (norm("Bug Fixes"), norm("Patches"), norm("Overhauls")) and m.records:
-        new_total = sum(v for k, v in m.records.items() if not k.endswith("*") and not k.endswith("~"))
-        alt_total = sum(v for k, v in m.records.items() if k.endswith("*"))
-        if alt_total >= 3 * max(1, new_total):
-            for v in votes:
-                if v[0] == "records":
-                    v[2] *= 0.3
-            notes.append(f"a fixer: alters {alt_total} records, adds {new_total}")
-    # R2 clothes are ARMO records: a Clothing label is never turned into Armour by records alone
-    if nexus_k == norm("Clothing and Accessories"):
+    # R2 clothes are ARMO records: armour records with clothing words in the name are clothing
+    if any(v[0] == "records" and v[1] == "Armour" for v in votes) and re.search(r"\b(clothing|clothes|outfits?|dress(es)?|robes?|cloaks?|capes?|jewell?ery|amulets?|rings?|necklaces?|circlets?)\b", plain, re.I) \
+            and not rec.get("WEAP", 0):
         for v in votes:
             if v[0] == "records" and v[1] == "Armour":
                 v[1] = "Clothing and Accessories"
-                notes.append("armour records under a Clothing label count for Clothing")
-    # R3 a finer or broader label of the same family stands: the records' vote joins it
-    compatible = {norm("Armour - Shields"): {"Armour"}, norm("Weapons and Armour"): {"Armour", "Weapons"},
-                  norm("Magic - Gameplay"): {"Magic - Spells & Enchantments"}}
-    for v in votes:
-        if v[0] == "records" and v[1] in compatible.get(nexus_k, set()):
-            v[1] = canonical(nexus_cat)
-    # R4 a replacer: no plugin, only meshes/textures, under a content label - it is art, not content; the asset paths
-    # say which art (armour or weapon meshes stay in the EDITED equipment block, the rest goes where its paths point)
-    if art_target and any(norm(v[1]) in CONTENT_TIER4 for v in votes if v[0] in ("nexus", "mo2")):
-        label_fam = EDIT_OF.get(nexus_k, nexus_k)
-        if label_fam in NEW_OF or nexus_k == norm("Armour - Shields"):
-            target = canonical(label_fam)      # a replacer of existing equipment belongs in that equipment's EDITED block
-            votes.append(["rule", target, 3.5, f"a replacer: only meshes/textures under an equipment label - the edited {target} block"])
-        else:
-            votes.append(["rule", art_target, 3.5, f"a replacer: ships only meshes/textures under a content label; its paths say {art_target}"])
+                notes.append("armour records with clothing in the name are clothing")
+    # R4 a replacer: no plugin, only meshes/textures - it is art; its paths say which (equipment meshes stay in the
+    # EDITED equipment block)
+    if art_target:
+        eq_word = next((v[1] for v in votes if v[0] == "text" and v[1] in ("Weapons", "Armour", "Armour - Shields", "Clothing and Accessories")), None)
+        if art_target == "Models and Textures - General" and eq_word:
+            art_target = eq_word                       # custom mesh paths say nothing; the name says what it replaces
+        votes.append(["rule", art_target, 2.0, f"a replacer: only meshes/textures; {'its name says' if eq_word and art_target == eq_word else 'its paths say'} {art_target}"])
     # R8 PBR supersedes other textures (the owner: "if it says pbr it goes in the pbr textures section")
     if re.search(r"\bpbr\b", m.name, re.I) or any(v[0] == "paths" and v[1] == "PBR Textures" and v[2] >= 1.0 for v in votes):
         if not m.plugins or art_target:
             votes.append(["rule", "PBR Textures", 4.0, "says PBR: supersedes the other texture blocks"])
-    # R5 a patch is a patch by structure; the word alone counts little against a real label (USSEP is 'Bug Fixes')
-    if has_label and not any(v[0] == "structure" for v in votes):
+    # R5 a patch is a patch by structure; the word or tag alone counts little
+    if not any(v[0] == "structure" for v in votes):
         for v in votes:
             if v[0] in ("tag", "text") and v[1] == "Patches":
                 v[2] *= 0.3
-    # R6 scripts-and-systems: a plugin with many scripts (or a DLL) is a system; the equipable items it adds (Campfire's
-    # tents and backpacks are ARMO records) are its props, not its subject - equipment records count half, and with no
-    # content records at all it leans Gameplay
-    scripted = framework is not None or (m.plugins and m.files and (sum(1 for f in m.files if f.endswith(".pex")) >= 20 or any(f.endswith(".dll") for f in m.files)))
-    if scripted and m.records:
+    # R6 scripts-and-systems: many scripts or a DLL is a system; the equipable items it adds (Campfire's tents) are
+    # props - equipment records count half - and with no content of its own it leans Gameplay
+    scripted = framework is not None or (m.plugins and files and (n_pex >= 20 or has_dll))
+    if scripted and rec:
         for v in votes:
-            if v[0] == "records" and v[1] in ("Armour", "Weapons", "Weapons and Armour", "Clothing and Accessories") and (m.records.get("ARMO", 0) + m.records.get("WEAP", 0)) < 100:
+            if v[0] == "records" and v[1] in ("Armour", "Weapons", "Weapons and Armour", "Clothing and Accessories") and (rec.get("ARMO", 0) + rec.get("WEAP", 0)) < 100:
                 v[2] *= 0.5
                 notes.append("a scripted system: its equipment records count half")
-        if not any(m.records.get(k, 0) for k in ("NPC_", "QUST", "RACE")) and not (m.records.get("CELL~", 0) + m.records.get("WRLD~", 0) > 200_000) \
-                and (m.records.get("ARMO", 0) + m.records.get("WEAP", 0)) < 100:
+        if not any(rec.get(k, 0) for k in ("NPC_", "QUST", "RACE")) and not (rec.get("CELL~", 0) + rec.get("WRLD~", 0) > 200_000) \
+                and (rec.get("ARMO", 0) + rec.get("WEAP", 0)) < 100:
             votes.append(["rule", "Gameplay - General", 1.0, "a scripted system: scripts or a DLL, no content of its own"])
+    # content-type fallback: a plugin with scripts and nothing decisive is a system; a plugin that only alters is an
+    # edit of existing things; scripts alone are a utility
+    if not any(v[2] >= 1.0 for v in votes):
+        if m.plugins and n_pex:
+            votes.append(["files", "Gameplay - General", 0.8, "a scripted plugin, nothing more specific"])
+        elif m.plugins and rec_alt and not rec_new:
+            votes.append(["files", "Overhauls", 0.6, "a plugin that only alters existing records"])
+        elif n_pex and not m.plugins:
+            votes.append(["files", "Utilities", 0.8, "scripts and nothing visual"])
     totals, best_reason = {}, {}
     for src, cat, w, why in votes:
         k = norm(cat)
@@ -879,7 +848,7 @@ def decide(m, votes, nexus_cat):
         best_reason.setdefault(k, cat)
     if not totals:
         return None, "", votes
-    prio = {"mo2": 0, "nexus": 1, "records": 2, "structure": 3, "rule": 4, "files": 5, "text": 6, "tag": 7}
+    prio = {"mo2": 0, "structure": 1, "scope": 2, "records": 3, "rule": 4, "paths": 5, "files": 6, "text": 7, "tag": 8}
     def first_src(k):
         return min((prio.get(v[0], 9) for v in votes if norm(v[1]) == k), default=9)
     win = max(totals, key=lambda k: (round(totals[k], 3), -first_src(k)))
@@ -887,7 +856,7 @@ def decide(m, votes, nexus_cat):
     # R9 new vs edited equipment: a plugin that ADDS armour/weapon records is new content; a replacer or an edit is not
     fam = EDIT_OF.get(cat.lower(), cat.lower())
     if fam in NEW_OF:
-        new_eq = m.records.get("ARMO", 0) + m.records.get("WEAP", 0) + m.records.get("AMMO", 0) if m.records else 0
+        new_eq = rec.get("ARMO", 0) + rec.get("WEAP", 0) + rec.get("AMMO", 0)
         cat = NEW_OF[fam] if (m.plugins and new_eq >= 3) else canonical(fam)
         notes.append(f"{'new' if cat.startswith('New') else 'edited'} equipment: {new_eq} new armour/weapon records")
     shown = sorted(votes, key=lambda v: -v[2])[:4]
@@ -921,6 +890,150 @@ def structural_patch_reason(m, owner_of, framework_masters=frozenset(), owner_ti
     if len(foreign) == 1 and _PATCH_WORD.search(plain):
         return f"named a patch and takes its master from {next(iter(foreign))}"
     return ""
+
+
+# WHAT A PLUGIN REFERENCES (the owner, 2026-09-23: "specific names of things it references, like Whiterun in the name
+# or the Whiterun worldspace, as a discriminator"). The CELL and WRLD groups are walked (nested blocks and all) for the
+# EDIDs of the cells and worldspaces a plugin adds or alters; exterior cells are counted per worldspace.
+_REF_LIMIT = 6000
+
+
+def plugin_refs(path, n_masters):
+    """{"cells_new": [edid], "cells_alt": [edid], "worlds_new": [edid], "worlds_alt": [edid], "ext": {world: count}}"""
+    out = {"cells_new": [], "cells_alt": [], "worlds_new": [], "worlds_alt": [], "ext": {}}
+    seen = 0
+    world_names = {}
+
+    def edid_of(fh, rh):
+        dsize, flags = struct.unpack("<I", rh[4:8])[0], struct.unpack("<I", rh[8:12])[0]
+        data = fh.read(dsize)
+        if flags & 0x00040000:
+            try:
+                data = zlib.decompress(data[4:])
+            except zlib.error:
+                return None
+        p = 0
+        while p + 6 <= len(data):
+            sig, ln = data[p:p + 4], struct.unpack("<H", data[p + 4:p + 6])[0]
+            p += 6
+            if sig == b"EDID":
+                return data[p:p + ln].split(b"\x00", 1)[0].decode("cp1252", "replace")
+            p += ln
+        return None
+
+    def group(fh, end, world):
+        nonlocal seen
+        while fh.tell() < end and seen < _REF_LIMIT:
+            rh = fh.read(24)
+            if len(rh) < 24:
+                return
+            if rh[:4] == b"GRUP":
+                gsize, gtype = struct.unpack("<I", rh[4:8])[0], struct.unpack("<i", rh[12:16])[0]
+                gend = fh.tell() + gsize - 24
+                if gtype == 1:                                   # a worldspace's children: the label is the WRLD form id
+                    wid = struct.unpack("<I", rh[8:12])[0]
+                    group(fh, gend, world_names.get(wid, f"WRLD{wid:08X}"))
+                elif gtype in (2, 3, 4, 5):                      # interior blocks/sub-blocks, exterior blocks/sub-blocks
+                    group(fh, gend, world)
+                fh.seek(gend)
+                continue
+            sig, dsize, form = rh[:4], struct.unpack("<I", rh[4:8])[0], struct.unpack("<I", rh[12:16])[0]
+            new = (form >> 24) >= n_masters
+            seen += 1
+            if sig == b"WRLD":
+                ed = edid_of(fh, rh) or f"WRLD{form:08X}"
+                world_names[form] = ed
+                (out["worlds_new"] if new else out["worlds_alt"]).append(ed)
+            elif sig == b"CELL":
+                if world is None:                                # an interior cell: its EDID is the name
+                    ed = edid_of(fh, rh)
+                    if ed:
+                        (out["cells_new"] if new else out["cells_alt"]).append(ed)
+                else:                                            # an exterior cell: counted under its worldspace
+                    fh.seek(dsize, 1)
+                    out["ext"][world] = out["ext"].get(world, 0) + 1
+            else:
+                fh.seek(dsize, 1)                                # a child record (REFR, ACHR, NAVM...)
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(24)
+            if len(head) < 24 or head[:4] != b"TES4":
+                return out
+            fh.seek(24 + struct.unpack("<I", head[4:8])[0])
+            while True:
+                gh = fh.read(24)
+                if len(gh) < 24 or gh[:4] != b"GRUP":
+                    break
+                gsize, label, gtype = struct.unpack("<I", gh[4:8])[0], gh[8:12], struct.unpack("<i", gh[12:16])[0]
+                gend = fh.tell() + gsize - 24
+                if gtype == 0 and label in (b"CELL", b"WRLD"):
+                    group(fh, gend, None)
+                fh.seek(gend)
+    except (OSError, struct.error):
+        pass
+    return out
+
+
+# named places, as they appear in names and in EDIDs (CamelCase, no spaces): word -> the place
+PLACES = {p.replace(" ", "").lower(): p for p in (
+    "Whiterun", "Riften", "Solitude", "Windhelm", "Markarth", "Falkreath", "Dawnstar", "Morthal", "Winterhold",
+    "Riverwood", "Rorikstead", "Ivarstead", "Shors Stone", "Kynesgrove", "Dragon Bridge", "Karthwasten", "Helgen",
+    "Raven Rock", "Skaal", "Stonehills", "Darkwater Crossing", "Half-Moon Mill", "Old Hroldan", "Angas Mill",
+    "Mixwater Mill", "Sarethi Farm", "Heljarchen", "Dragon Bridge", "Nightgate", "Tel Mithryn", "Soljund", "Kolskeggr",
+    "Left Hand Mine", "Salvius Farm", "Katla", "Pelagia", "Battle-Born", "Loreius", "Merryfair", "Goldenglow",
+    "Whistling Mine", "Fort Dawnguard", "High Hrothgar", "Sky Haven", "Castle Volkihar", "Bthardamz", "Blackreach")}
+HOME_WORDS = re.compile(r"playerhouse|playerhome|breezehome|hjerim|honeyside|proudspire|vlindrel|lakeview|windstad|heljarchenhall|severinmanor|myrwatch|tundrahomestead|hendraheim|goldenhills|bloodchill|shadowfoot|nchuanthumz|elysium", re.I)
+DUNGEON_WORDS = re.compile(r"cave|ruins?|barrow|crypt|mine(?!r)|tomb|grotto|hideout|lair|redoubt|sanctum|depths|nordic|dwemer|dwarven|catacomb|labyrinth|vault|den\b|camp\b|tower", re.I)
+FACTION_WORDS = re.compile(r"college|guild|brotherhood|jorrvaskr|companions|thalmor|dawnguard|bards|greybeard|highhrothgar|penitus|stormcloak|legion|castlevolkihar|nightingale|sanctuary", re.I)
+LANDMARK_WORDS = re.compile(r"shrine|standingstone|waystone|altar|statue|bridge|lighthouse|farm|mill|watchtower|ruin|fort\b", re.I)
+
+
+def _scope_votes(m):
+    """Votes from what the plugins reference: a new worldspace, a home's cells, dungeon cells, a town's cells, interiors
+    only, exteriors everywhere."""
+    r = m.refs
+    votes = []
+    if not r:
+        return votes
+    cells = r["cells_new"] + r["cells_alt"]
+    ext_total = sum(r["ext"].values())
+    everywhere = len(r["cells_alt"]) + ext_total > 200 and not r["cells_new"] and not r["worlds_new"]
+    scale = 0.3 if everywhere else 1.0             # a mod that touches hundreds of cells is a systemic edit, not a place
+    if everywhere:
+        votes.append(("scope", "__everywhere__", 0.0, f"touches {len(r['cells_alt'])} interiors and {ext_total} exterior cells: a systemic edit"))
+    if r["worlds_new"]:
+        votes.append(("scope", "Locations - New", 3.5, f"adds worldspace {', '.join(r['worlds_new'][:2])}"))
+    home = [c for c in cells if HOME_WORDS.search(c)]
+    if home:
+        votes.append(("scope", "Player homes", min(3.5, 1.5 + len(home)) * scale, f"references home cells {', '.join(home[:2])}"))
+    dung = [c for c in cells if DUNGEON_WORDS.search(c) and not HOME_WORDS.search(c)]
+    if cells and len(dung) >= max(1, len(cells) * 0.5):
+        votes.append(("scope", "Dungeons", min(3.0, 1.0 + len(dung) * 0.5) * scale, f"references dungeon cells {', '.join(dung[:2])}"))
+    place_hits = {}
+    for c in cells + list(r["ext"].keys()) + r["worlds_alt"]:
+        cl = c.lower()
+        for w, place in PLACES.items():
+            if w in cl:
+                place_hits[place] = place_hits.get(place, 0) + 1
+    fac = [c for c in cells if FACTION_WORDS.search(c)]
+    if cells and len(fac) >= max(2, len(cells) * 0.5):
+        votes.append(("scope", "Guilds/Factions", min(3.5, 1.5 + len(fac) * 0.3) * scale, f"references faction cells {', '.join(fac[:2])}"))
+        place_hits = {}
+    if place_hits:
+        top = sorted(place_hits.items(), key=lambda kv: -kv[1])
+        n_place = sum(place_hits.values())
+        names = ", ".join(f"{p} ({n})" for p, n in top[:3])
+        interiors_only = not r["ext"] and not r["worlds_new"]
+        if interiors_only and len(cells) <= 3 and not home:
+            votes.append(("scope", "Models and Textures - Interiors", 2.5 * scale, f"one or two interiors in {names}"))
+        elif not (dung and len(dung) >= len(cells) * 0.5):
+            votes.append(("scope", "Cities, Towns, Villages, and Hamlets", min(3.5, 1.5 + n_place * 0.5) * scale, f"references {names}"))
+    elif ext_total and not r["worlds_new"] and not everywhere:
+        land = [c for c in cells if LANDMARK_WORDS.search(c)]
+        votes.append(("scope", "Locations - Vanilla", min(3.0, 1.0 + ext_total * 0.2) * scale, f"edits {ext_total} exterior cells" + (f" and {', '.join(land[:2])}" if land else "")))
+    elif cells and not r["ext"] and not home and not dung:
+        votes.append(("scope", "Models and Textures - Interiors", min(2.5, 1.0 + len(cells) * 0.3) * scale, f"interiors only: {', '.join(cells[:2])}"))
+    return votes
 
 
 def read_meta(mod_dir):
@@ -971,7 +1084,7 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 class Mod:
     __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records",
-                 "votes", "text", "decided")
+                 "votes", "text", "decided", "refs")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
@@ -982,6 +1095,7 @@ class Mod:
         self.records = {}                                           # {record type: new records its plugins add} for the types below
         self.votes = []                                             # the evidence model: [(source, category, weight, reason)]
         self.decided = None                                         # the category the evidence decided, before any displacement or merge
+        self.refs = None                                            # what the plugins reference: cells, worldspaces (plugin_refs)
         self.text = ""                                              # what the mod says about itself (plugin descriptions, readme, FOMOD, Nexus description)
 
     @property
@@ -1068,6 +1182,15 @@ def scan(mods_dir, rows, progress=None):
                     m.plugins.append((f, masters, esm or f.lower().endswith((".esm", ".esl"))))
                     for k, v in plugin_new_records(os.path.join(d, f), len(masters)).items():
                         m.records[k] = m.records.get(k, 0) + v
+                    if m.records.get("CELL~", 0) or m.records.get("WRLD~", 0):
+                        rr = plugin_refs(os.path.join(d, f), len(masters))
+                        if m.refs is None:
+                            m.refs = rr
+                        else:
+                            for key_ in ("cells_new", "cells_alt", "worlds_new", "worlds_alt"):
+                                m.refs[key_].extend(rr[key_])
+                            for w, n in rr["ext"].items():
+                                m.refs["ext"][w] = m.refs["ext"].get(w, 0) + n
             opt = os.path.join(d, "optional")
             if os.path.isdir(opt):
                 for f in os.listdir(opt):
@@ -1145,6 +1268,7 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             for mast in masters:
                 dependents.setdefault(mast.lower(), set()).add(m.name)
     framework_masters = frozenset(k for k, ds in dependents.items() if len(ds) >= 10)
+    nexus_names = frozenset(norm(c) for c in categories.values() if c)      # every category name Nexus uses: never a vote
 
     def owner_tier(o):
         if o.category:                                   # decided already (the list is walked top-down, masters first)
@@ -1180,7 +1304,7 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             m.category, m.why = SHAPE_CAT, "Shape: " + why_shape
             continue
         # THE EVIDENCE MODEL: every signal votes, the rules adjust, the heaviest category wins (the owner, 2026-09-23)
-        m.votes = gather_votes(m, cat, mo2_category_names, structural_patch_reason(m, owner_of, framework_masters, owner_tier))
+        m.votes = gather_votes(m, cat, mo2_category_names, structural_patch_reason(m, owner_of, framework_masters, owner_tier), nexus_names)
         if any(f.lower() in framework_masters for f, _, _ in m.plugins):
             n_dep = max(len(dependents.get(f.lower(), ())) for f, _, _ in m.plugins)
             m.votes = list(m.votes) + [("structure", "__framework__", 0.0, f"a framework: {n_dep} mods depend on its plugin")]
