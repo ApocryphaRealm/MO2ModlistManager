@@ -46,7 +46,7 @@ GROUPS = [
     ("--- NPCS & CREATURES ---", ["NPC", "Followers & Companions", "Followers & Companions - Creatures", "Creatures and Mounts"]),
     ("--- GAMEPLAY ---", ["Gameplay", "Overhauls", "Immersion", "Combat", "Stealth", "Skills and Leveling", "Magic - Gameplay",
                           "Magic - Spells & Enchantments", "Shouts", "Alchemy", "Crafting", "Guilds/Factions", "Cheats and God items"]),
-    ("--- ITEMS & EQUIPMENT ---", ["Weapons and Armour", "Armour", "Armour - Shields", "Weapons", "Clothing and Accessories",
+    ("--- ITEMS & EQUIPMENT ---", ["Weapons and Armour", "Armour", "Armour - Shields", "Weapons", "Clothing and Accessories", "Shape",
                                    "Items and Objects - Player", "Items and Objects - World", "Collectables, Treasure Hunts, and Puzzles"]),
     ("--- WORLD & CONTENT ---", ["Cities, Towns, Villages, and Hamlets", "Buildings", "Player homes", "Dungeons", "Locations - New",
                                  "Locations - Vanilla", "Quests and Adventures", "Miscellaneous"]),
@@ -74,7 +74,7 @@ TIERS = {
     3: ("Models and Textures", "Visuals and Graphics", "Environmental", "Audio", "Overhauls", "Gameplay", "Immersion",
         "Skills and Leveling", "Magic - Gameplay", "Combat", "Stealth", "Guilds/Factions", "Alchemy", "Miscellaneous",
         "Presets - ENB and ReShade"),
-    4: ("Armour", "Armour - Shields", "Weapons", "Weapons and Armour", "Clothing and Accessories", "Items and Objects - Player",
+    4: ("Armour", "Armour - Shields", "Weapons", "Weapons and Armour", "Clothing and Accessories", "Shape", "Items and Objects - Player",
         "Items and Objects - World", "Creatures and Mounts", "NPC", "Followers & Companions", "Followers & Companions - Creatures",
         "Quests and Adventures", "Collectables, Treasure Hunts, and Puzzles", "Player homes", "Buildings",
         "Cities, Towns, Villages, and Hamlets", "Dungeons", "Locations - New", "Locations - Vanilla",
@@ -166,6 +166,30 @@ def resolve_conflict(a, b, shared, files_of):
     return None
 
 
+# SHAPE (the owner, 2026-09-23: "recognise mods that have only shape data or keywords like himbo, cbbe, unp, 3ba and
+# other bodyslide related words to go in the shape separator which should override armor and clothes"). A BodySlide
+# refit or conversion - shape data alone (CalienteTools\BodySlide), or a body's name in the mod's name - goes to the
+# Shape block, which sits after Armour, Weapons and Clothing in tier 4 and loads after every equipment mod it shares
+# a file with. The bodies themselves (Nexus: Body, Face, and Hair) stay bodies unless they are a refit by name.
+SHAPE_CAT = "Shape"
+SHAPE_WORDS = re.compile(r"\b(himbo|cbbe|unp|uunp|bhunp|3ba|3bbb|tbd|bodyslides?|body slides?|outfit studio|refits?|conversions?)\b", re.I)
+SHAPE_REFIT_WORDS = re.compile(r"\b(bodyslides?|body slides?|outfit studio|refits?|conversions?)\b", re.I)
+EQUIPMENT_CATS = {"armour", "armour - shields", "weapons", "weapons and armour", "clothing and accessories"}
+
+
+def shape_reason(m, nexus_cat):
+    """Why this mod is a Shape mod, or None."""
+    files = m.files or []
+    shape_only = bool(files) and all(f.startswith("calientetools/") for f in files)
+    if shape_only:
+        return "ships shape data only (CalienteTools/BodySlide)"
+    if SHAPE_WORDS.search(m.name):
+        if norm(nexus_cat or "") == norm("Body, Face, and Hair") and not SHAPE_REFIT_WORDS.search(m.name):
+            return None                       # the body itself, not a refit of something to it
+        return f"a body's name in the mod's name ({SHAPE_WORDS.search(m.name).group(0)})"
+    return None
+
+
 def index_tier(category, mod=None):
     """The six-tier index of a category; an unknown category is tier 3 (the middle) and says so in the report.
 
@@ -177,6 +201,8 @@ def index_tier(category, mod=None):
     if k == NODELETE_SEP.lower():
         return 8
     t = INDEX_TIER.get(k, 3)
+    if k == SHAPE_CAT.lower():
+        return 4                                  # a refit stays with the equipment it refits, plugin or not
     if t == 4 and mod is not None and not mod.plugins and mod.files:
         exts = {os.path.splitext(f)[1] for f in mod.files}
         if exts <= {".nif", ".dds", ".tri", ".hkx", ".bsa", ".txt", ".ini", ".json"} and exts & {".nif", ".dds"}:
@@ -461,6 +487,10 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             m.category, m.why = "Generated Outputs", "no Nexus page and a tool's output name"
             continue
         cat = categories.get(str(m.nexus_id), "") if m.nexus_id else ""
+        why_shape = shape_reason(m, cat)
+        if why_shape:
+            m.category, m.why = SHAPE_CAT, "Shape: " + why_shape
+            continue
         if cat:
             m.category, m.why = cat, f"Nexus category of mod {m.nexus_id}"
             continue
@@ -780,6 +810,20 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                 rule_moves.append((a.name, f"before {b.name}"))
     # hand-written rules first: they outrank the resolver's heuristics (never a master, output or loader edge)
     apply_rules([r for r in rules if "review" not in str(r.get("comment", ""))])
+    # a Shape mod (a refit) must win the files it shares with the armour, weapon and clothing mods it refits
+    shape_pairs = set()
+    for a_mod in real:
+        if a_mod.category != SHAPE_CAT or not a_mod.enabled:
+            continue
+        seen_ = {}
+        for f in a_mod.files:
+            for b_mod in owners.get(f, []):
+                if b_mod is not a_mod and b_mod.enabled and b_mod.category != SHAPE_CAT and norm(b_mod.category) not in (norm("Generated Outputs"), norm("Test Builds"), NODELETE_SEP.lower()):
+                    seen_[b_mod.name] = seen_.get(b_mod.name, 0) + 1
+        for b_name, n in seen_.items():
+            if not would_cycle(a_mod.name, b_name):
+                edge(by_name[b_name], a_mod, f"shape refit: must win {n} file(s) of {b_name}")
+                shape_pairs.add((a_mod.name, b_name))
     pairs = {}
     for f, ms in owners.items():
         if len(ms) < 2 or len(ms) > 40:
@@ -797,8 +841,8 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
         n = len(shared)
         loser, winner = (a, b) if by_name[a].index < by_name[b].index else (b, a)
         winners[(loser, winner)] = n
-        if (loser, winner) in loader_pairs or (winner, loser) in loader_pairs:
-            continue                  # a settings loader's pair is settled by the loader rule above
+        if (loser, winner) in loader_pairs or (winner, loser) in loader_pairs or (loser, winner) in shape_pairs or (winner, loser) in shape_pairs:
+            continue                  # a settings loader's or a shape refit's pair is settled above
         ma, mb = by_name[a], by_name[b]
         same_tier_pair = index_tier(ma.category, ma) == index_tier(mb.category, mb)
         verdict = resolve_conflict(ma, mb, shared, files_of)
