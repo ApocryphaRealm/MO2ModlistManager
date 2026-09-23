@@ -129,9 +129,23 @@ def _pbr_kind(files, shared):
     return None
 
 
+def _is_local_build(m):
+    return bool(m.twin) or m.name.lower().startswith(("unpublished ", "test "))
+
+
 def resolve_conflict(a, b, shared, files_of):
     """(winner, loser, reason) from the evidence, or None. a and b are Mods; shared is the list of files both ship."""
     ca, cb = _core_name(a.name), _core_name(b.name)
+    # 0. a local build (unpublished / test) of a mod wins over the third-party mod it forks - the one whose name is
+    #    the same mod's ("unpublished Wait Your Turn Redux" over "Wait Your Turn Redux - Enemy Circling Behavior").
+    #    Only when the names say they are the same mod: a reskin that merely shares a file with the local build
+    #    (Norden UI over Dragon's Eye Minimap) is decided by the ordinary evidence below (2026-09-23)
+    la, lb = _is_local_build(a), _is_local_build(b)
+    if la != lb:
+        local, other = (a, b) if la else (b, a)
+        cl, co = (ca, cb) if la else (cb, ca)
+        if len(cl) >= 6 and (cl in co or co in cl):
+            return local, other, f"local build of the same mod wins over {other.name}"
     if len(cb) >= 6 and cb in ca and ca != cb and not (len(ca) >= 6 and ca in cb):
         return a, b, f"named for {b.name}"
     if len(ca) >= 6 and ca in cb and ca != cb and not (len(cb) >= 6 and cb in ca):
@@ -271,17 +285,45 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 
 class Mod:
-    __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files")
+    __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
         self.nexus_id, self.mo2_cats, self.plugins = 0, [], []      # plugins: [(file, [masters], is_esm)]
         self.optional = []                                          # the same, for the mod's optional folder (MO2's Optional ESPs)
         self.category, self.why, self.group, self.flags, self.files = None, "", None, set(), []
+        self.twin = None                                            # a test build: the name of the copy it supersedes
 
     @property
     def tier(self):
         return tier_of(self.category) if self.category else None
+
+
+TEST_BUILD = re.compile(r"^test\s+(.+?)(?:\s+\d+(?:\.\d+)*)?$", re.I)
+
+
+def pair_test_builds(mods):
+    """(the owner, 2026-09-23: "the test versions should be right next to their official versions with the official
+    version being superseded by the test version"). A 'test <Name> [<ver>]' mod whose official copy is in the list -
+    '<Name>' (the Nexus download) or 'unpublished <Name>' (a local build) - is paired with it: both are enabled, the
+    test build takes the official copy's category and is placed directly under it, so its files win. A test build
+    with no counterpart still goes to Test Builds. Returns [(test, official, redundant)] - redundant when the two
+    carry the same version, so the test copy adds nothing."""
+    by = {m.name: m for m in mods}
+    pairs = []
+    for m in mods:
+        mt = TEST_BUILD.match(m.name)
+        if not mt or is_sep(m.name):
+            continue
+        base = mt.group(1).strip()
+        official = by.get(base) or by.get("unpublished " + base)
+        if official is None or is_sep(official.name):
+            continue
+        m.twin = official.name
+        m.enabled = official.enabled = True
+        vt = re.search(r"\s(\d+(?:\.\d+)*)$", m.name)
+        pairs.append((m.name, official.name, vt.group(1) if vt else ""))
+    return pairs
 
 
 def scan_files(mod_dir):
@@ -407,6 +449,9 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             continue
         low = n.lower()
         if low.startswith("test "):
+            if m.twin:
+                m.category, m.why = None, ""       # filled from the twin in the post-pass below
+                continue
             m.category, m.why = "Test Builds", "name starts with 'test '"
             continue
         if m.plugins and all(f.lower() in BASE_MASTERS or f.lower().startswith("cc") for f, _, _ in m.plugins) and not m.nexus_id:
@@ -441,6 +486,13 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             m.category, m.why = cat, why
             continue
         m.category, m.why = "Uncategorised", ("no Nexus page" if not m.nexus_id else f"Nexus has no category for mod {m.nexus_id}")
+    by_name_ = {m.name: m for m in mods}
+    for m in mods:
+        if m.twin and by_name_.get(m.twin) is not None and by_name_[m.twin].category:
+            t = by_name_[m.twin]
+            m.category, m.why = t.category, f"test build of {t.name}: sits directly under it and supersedes it"
+        elif m.twin:
+            m.category, m.why = "Test Builds", "test build; its official copy has no category yet"
     for m in mods:
         if m.category:
             m.group = tier_of(m.category)
@@ -591,6 +643,9 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             # 496 of 2,191 mods sat in a block of another category (the owner: "many mods seem out of place").
             # Now every category is one block; the tested same-tier override winners are kept by the keep-winners
             # edges below, which pull a winner down under its loser and relabel it there (the 'displaced' list).
+            if m.twin and m.twin in by_name and by_name[m.twin] is not m:
+                base = rank(by_name[m.twin])
+                return (base[0], base[1], base[2] + 0.5)      # directly behind the copy it supersedes
             t = index_tier(m.category, m)
             names = TIERS.get(t, ())
             k = norm(m.category)
@@ -618,6 +673,9 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             k = f.lower()
             if m.enabled or k not in owner:
                 owner[k] = m
+    for m in real:
+        if m.twin and m.twin in by_name:
+            edge(by_name[m.twin], m, f"test build supersedes {m.twin}")
     fixes = []
     for m in real:
         for f, masters, _esm in m.plugins:
@@ -886,17 +944,27 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
         # short runs - the owner, 2026-09-23: "pelt cloaks should be in clothing": all eight Clothing and Accessories
         # mods had been absorbed into Weapons blocks because no single run of them reached eight. Only a category
         # that is genuinely tiny in its tier is folded into a neighbour as a minority.
+        # ONE BLOCK PER CATEGORY NAME (the owner, 2026-09-23: "no separator should have duplicate named separators
+        # like name then name(1)"). The category's largest run keeps the separator; every other run of it, whatever
+        # its size, is absorbed into a neighbouring block and its mods are listed as minorities there. A category too
+        # small for a block of its own (fewer than min_run mods in the list) is absorbed entirely.
         cat_total = {}
         for r in runs:
             cat_total[norm(r[0])] = cat_total.get(norm(r[0]), 0) + len(r[1])
-        largest = {}                       # (tier, category) -> the biggest run of it: the one that keeps its separator
+        largest = {}                       # category -> its biggest run: the one block it gets
         for r in runs:
-            key_ = (run_tier(r), norm(r[0]))
+            key_ = norm(r[0])
             if key_ not in largest or len(r[1]) > len(largest[key_][1]):
                 largest[key_] = r
-        for key_, r in largest.items():
-            if len(r) == 2 and norm(r[0]) not in FIXED_BLOCKS and cat_total.get(norm(r[0]), 0) >= min_run and len(r[1]) < min_run:
-                r.append("keep")       # the category's home block; its splinters elsewhere are absorbed as minorities
+        for r in runs:
+            key_ = norm(r[0])
+            if key_ in FIXED_BLOCKS:
+                continue
+            if largest[key_] is r:
+                if len(r) == 2 and cat_total.get(key_, 0) >= min_run and len(r[1]) < min_run:
+                    r.append("keep")
+            elif len(r) == 2:
+                r.append("absorb")
 
         def same_tier(a, b):
             if a is None or b is None:
@@ -905,16 +973,24 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                 return False
             return mode != "index" or run_tier(a) == run_tier(b)
         while len(runs) > 1:
-            i = min(range(len(runs)), key=lambda j: (10**6 if (len(runs[j]) > 2 or norm(runs[j][0]) in FIXED_BLOCKS) else len(runs[j][1]), j))
-            if len(runs[i][1]) >= min_run or len(runs[i]) > 2 or norm(runs[i][0]) in FIXED_BLOCKS:
+            def pick_key(j):
+                r = runs[j]
+                if norm(r[0]) in FIXED_BLOCKS or (len(r) > 2 and r[2] == "keep"):
+                    return (10**6, j)
+                if len(r) > 2 and r[2] == "absorb":
+                    return (len(r[1]), j)             # a second run of a category: absorbed whatever its size
+                return (len(r[1]) if len(r[1]) < min_run else 10**6, j)
+            i = min(range(len(runs)), key=pick_key)
+            if pick_key(i)[0] >= 10**6:
                 break
             left = runs[i - 1] if i > 0 and same_tier(runs[i - 1], runs[i]) else None
             right = runs[i + 1] if i + 1 < len(runs) and same_tier(runs[i], runs[i + 1]) else None
             if left is None and right is None:
                 # a short run alone in its tier keeps its own separator; mark it so the loop moves on
-                runs[i].append("keep")
-                if all(len(r[1]) >= min_run or len(r) > 2 for r in runs):
-                    break
+                if len(runs[i]) > 2:
+                    runs[i][2] = "keep"
+                else:
+                    runs[i].append("keep")
                 continue
             into = left if (right is None or (left is not None and len(left[1]) >= len(right[1]))) else right
             if into is left:
@@ -922,12 +998,14 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             else:
                 right[1][0:0] = runs[i][1]
             del runs[i]
-            # merging can make two same-category runs adjacent: join them
+            # merging can make two same-category runs adjacent: join them (the joined run keeps a 'keep' if either had it)
             j = 0
             while j + 1 < len(runs):
                 if norm(runs[j][0]) == norm(runs[j + 1][0]):
+                    keep_ = (len(runs[j]) > 2 and runs[j][2] == "keep") or (len(runs[j + 1]) > 2 and runs[j + 1][2] == "keep")
                     runs[j][1].extend(runs[j + 1][1])
                     del runs[j + 1]
+                    runs[j][2:] = ["keep"] if keep_ else []
                 else:
                     j += 1
         # every block is named for the category MOST of its mods carry; the rest are listed as the minority they are
@@ -971,8 +1049,11 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                 # the same category can head several blocks (five 'Utilities' runs in tier 0, split by masters); a
                 # repeated name is numbered - the owner, 2026-09-23: "there are duplicate plugin group names" - so every
                 # block, and so every BPM group made from it, has a name of its own
-                n = block_uses[norm(m.category)] = block_uses.get(norm(m.category), 0) + 1
-                rows.append((sep_name(m.category if n == 1 else f"{m.category} ({n})"), False))
+                if norm(m.category) in block_uses:
+                    pass                    # never a second separator of the same name: the mods continue under the last block
+                else:
+                    block_uses[norm(m.category)] = 1
+                    rows.append((sep_name(m.category), False))
             cur_cat = m.category
         rows.append((m.name, m.enabled))
     for m in mods:
@@ -1307,6 +1388,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     ml = os.path.join(instance_dir, "profiles", profile, "modlist.txt")
     rows, header = read_modlist(ml)
     mods = scan(mods_dir, rows, progress)
+    test_pairs = pair_test_builds(mods)
     cats, asked, got = fetch_categories([m.nexus_id for m in mods], os.path.join(cache_dir, "nexus-categories.json"), domain, progress, log)
     under = set()
     inside = False
@@ -1324,7 +1406,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
             "category_updates": plan_mo2_category_updates(mods, cats, instance_dir),
             "plugin_groups": plugin_groups(new_rows, by_name), "bpm": bpm_installed(instance_dir),
-            "plugin_state": plugin_state,
+            "plugin_state": plugin_state, "test_pairs": test_pairs,
             "plugins": plugins, "rules": ruler_rules(mods), "mod_rules": ours,
             "nexus": f"{len(cats)} categories cached, {got} of {asked} fetched now",
             "modlist_path": ml, "mods_dir": mods_dir}
@@ -1901,6 +1983,7 @@ if __name__ == "__main__" and mobase is None:       # offline dry run: python MO
            "rows": res["rows"], "placements": [(m.name, m.category, m.why) for m in res["mods"] if not is_sep(m.name)]}
     json.dump(out, open(os.path.join(cache, "dry-run.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     out["plugin_state"] = res["plugin_state"]
+    out["test_pairs"] = res.get("test_pairs", [])
     json.dump(out, open(os.path.join(cache, "dry-run.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     ps = res["plugin_state"]
     print(res["nexus"]); print("moves", len(res["moves"]), "created", len(res["facts"]["created"]), "retired", len(res["facts"]["retired"]),
