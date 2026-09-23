@@ -1,49 +1,127 @@
 {
   "_comment": "The owner's rulings (2026-09-23) as a test set: mod name (exact, or a prefix ending in *) -> the leaf it must land in, or a list of acceptable leaves, or !Leaf for 'never this'. The offline runner scores every dry run against it.",
-  "Smart Talk (Dialogue Menu Enhancer)": ["Dialogue", "User Interface"],
-  "Predictable Persuasion": ["Dialogue", "User Interface"],
+  "Smart Talk (Dialogue Menu Enhancer)": [
+    "Dialogue",
+    "User Interface"
+  ],
+  "Predictable Persuasion": [
+    "Dialogue",
+    "User Interface"
+  ],
   "FSMP - Faster HDT-SMP 3.5.0": "Physics",
   "Quest Journal Limit Bug Fixer - Recover Disappeared Quests": "Bug Fixes",
-  "unpublished TK Dodge AIO": ["Animation - Player", "Animation - General"],
+  "unpublished TK Dodge AIO": [
+    "Animation - Player",
+    "Animation - General"
+  ],
   "Read Or Take SKSE": "Improved Controls",
   "Better Grabbing": "Improved Controls",
   "Better Third Person Selection - BTPS": "Improved Controls",
-  "Turn of the Seasons": ["Environment - Seasons", "Environment - Trees", "Environment - Plants"],
-  "Turn of the Seasons PBR": ["PBR Textures", "Environment - Seasons"],
-  "Modern Hay - PBR and CM": ["PBR Textures", "Models and Textures - Clutter", "Environment - Architecture"],
-  "Sound Record Distributor": ["Frameworks", "Utilities"],
-  "Lux Via": ["Lighting", "Environment - Roads", "Visual Effects"],
-  "Press H to Horse": ["Gameplay - General", "Creatures - Mounts"],
+  "Turn of the Seasons": [
+    "Environment - Seasons",
+    "Environment - Trees",
+    "Environment - Plants"
+  ],
+  "Turn of the Seasons PBR": [
+    "PBR Textures",
+    "Environment - Seasons"
+  ],
+  "Modern Hay - PBR and CM": [
+    "PBR Textures",
+    "Models and Textures - Clutter",
+    "Environment - Architecture"
+  ],
+  "Sound Record Distributor": [
+    "Frameworks",
+    "Utilities"
+  ],
+  "Lux Via": [
+    "Lighting",
+    "Environment - Roads",
+    "Visual Effects"
+  ],
+  "Press H to Horse": [
+    "Gameplay - General",
+    "Creatures - Mounts"
+  ],
   "True Light [Patch]": "Lighting",
   "SmoothCam": "Camera",
   "Cinematic Conversation Camera": "Camera",
-  "Camera Persistence Fixes": ["Camera", "Bug Fixes"],
+  "Camera Persistence Fixes": [
+    "Camera",
+    "Bug Fixes"
+  ],
   "3rd Person Camera Stagger Remover": "Camera",
   "Apostate Camera Tweaks - SmoothCam and Camera Noise": "Camera",
   "Alternate Perspective - Alternate Start": "Alternate Start",
   "Perks from Questing": "Quests and Adventures",
-  "Better Rueful Axe": ["Weapons", "Enchanting - Enchantments", "Magic - Spells & Enchantments"],
+  "Better Rueful Axe": [
+    "Weapons",
+    "Enchanting - Enchantments",
+    "Magic - Spells & Enchantments"
+  ],
   "The Dragonborn's Bestiary": "User Interface",
   "Character Menu SE": "User Interface",
   "Follower Stats": "User Interface",
-  "True Directional Movement - Modernized Third Person Gameplay": ["Animation - Player", "Animation - General"],
-  "Simple Diving System (SDS) - Dive Into Water Animations and Modder Resource": ["Animation - Player", "Animation - General"],
-  "Ryn's Riverwood Trader": ["Models and Textures - Interiors", "Immersion"],
-  "Farmhouse Chimneys SE (main)": ["Environment - Architecture", "Buildings"],
+  "True Directional Movement - Modernized Third Person Gameplay": [
+    "Animation - Player",
+    "Animation - General"
+  ],
+  "Simple Diving System (SDS) - Dive Into Water Animations and Modder Resource": [
+    "Animation - Player",
+    "Animation - General"
+  ],
+  "Ryn's Riverwood Trader": [
+    "Location Overhauls - Interior",
+    "Models and Textures - Interiors"
+  ],
+  "Farmhouse Chimneys SE (main)": [
+    "Environment - Architecture",
+    "Buildings"
+  ],
   "JS Knapsacks SE": "Models and Textures - Clutter",
   "unpublished Localized Damage": "Gameplay - Combat",
   "unpublished Apocrypha Localized Damage": "Gameplay - Combat",
   "Thrones Expanded": "Models and Textures - Furniture",
-  "Thrones Expanded PBR": ["PBR Textures", "Models and Textures - Furniture"],
-  "Neutral Hjerim": ["Player homes", "Quests and Adventures"],
+  "Thrones Expanded PBR": [
+    "PBR Textures",
+    "Models and Textures - Furniture"
+  ],
+  "Neutral Hjerim": [
+    "Player homes",
+    "Quests and Adventures"
+  ],
   "Know Your Enemy 2": "Gameplay - Combat",
-  "C.O.I.N. - Coins of Interesting Nature [Patch]": ["Models and Textures - Clutter", "Immersion"],
+  "C.O.I.N. - Coins of Interesting Nature [Patch]": [
+    "Models and Textures - Clutter",
+    "Immersion"
+  ],
   "ePath's Vlindrel Hall [Patch]": "Player homes",
   "Resource Pack": "Base Game",
   "Unofficial Skyrim Special Edition Patch - USSEP [Patch]": "Unofficial Patches",
   "Unofficial Skyrim Modder's Patch - USMP SE [Patch]": "Unofficial Patches",
-  "Campfire 1.12.1SEVR Release": ["Immersion", "Gameplay - General", "Frameworks"],
-  "Steel Weapons Replacer": ["Weapons", "Models and Textures - Items"],
+  "Campfire 1.12.1SEVR Release": [
+    "Immersion",
+    "Gameplay - General",
+    "Frameworks"
+  ],
+  "Steel Weapons Replacer": [
+    "Weapons",
+    "Models and Textures - Items"
+  ],
   "Valhalla Combat": "Gameplay - Combat",
-  "Immersive College of Winterhold": ["Overhauls", "Guilds/Factions", "Locations - Vanilla", "Quests and Adventures"]
+  "Immersive College of Winterhold": [
+    "Location Overhauls - Interior",
+    "Guilds/Factions",
+    "Overhauls",
+    "Location Overhauls - General"
+  ],
+  "JK's Skyrim": "Location Overhauls - Town",
+  "Whiterun Has Walls Redone - 3.0": "Location Overhauls - City",
+  "The Great City of Solitude SSE": "Location Overhauls - City",
+  "Environs - The Shrines of Talos": "Location Overhauls - General",
+  "Snazzy Interiors - Morthal Falion's House": [
+    "Location Overhauls - Interior",
+    "Models and Textures - Interiors"
+  ]
 }

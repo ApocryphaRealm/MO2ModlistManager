@@ -73,8 +73,8 @@ TAXONOMY = [
         ("Creatures", ["Appearance", "Behaviour", "Mounts", "New Creatures"]),
         ("NPC", ["Appearance", "AI and Behaviour", "Followers", "Other"]), ("Player", ["Appearance", "Other"]),
         ("Quests and Adventures", None), ("Player homes", None), ("Buildings", None),
-        ("Cities, Towns, Villages, and Hamlets", None), ("Dungeons", None), ("Locations - New", None),
-        ("Locations - Vanilla", None), ("Guilds/Factions", None), ("Cheats and God items", None)]),
+        ("Location Overhauls", ["City", "Town", "Interior", "General"]), ("Dungeons", None), ("Locations - New", None),
+        ("Guilds/Factions", None), ("Cheats and God items", None)]),
     (5, "--- 5 PATCHES ---", [("Patches", None)]),
     (6, "--- 6 TEST BUILDS ---", [("Test Builds", None)]),
     (7, "--- 7 GENERATED OUTPUTS ---", [("Generated Outputs", None)]),
@@ -109,7 +109,9 @@ NEXUS_TO_LEAF = {
     "items and objects - player": "Items and Objects - World", "npc": "NPC - Appearance",
     "followers & companions": "NPC - Followers", "followers & companions - creatures": "NPC - Followers",
     "creatures and mounts": "Creatures - New Creatures",
+    "cities, towns, villages, and hamlets": "Location Overhauls - Town", "locations - vanilla": "Location Overhauls - General",
 }
+CAPITALS = {"Whiterun", "Riften", "Solitude", "Windhelm", "Markarth"}      # a city has a worldspace of its own; the rest are towns
 LEAF_TO_NEXUS = {}
 for _k, _v in NEXUS_TO_LEAF.items():
     LEAF_TO_NEXUS.setdefault(_v.lower(), _k)
@@ -468,10 +470,11 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(player ?homes?|homes?|houses?|manor|cabin|estate|abode|hideout|residence|cottage|lodge|sanctuary)\b", "Player homes", 1.5),
     (r"\b(vlindrel hall|breezehome|hjerim|honeyside|proudspire|lakeview|windstad|heljarchen|severin manor|myrwatch|tundra homestead|hendraheim|goldenhills)\b", "Player homes", DEFINITIVE),
     (r"\b(inns?|taverns?|temples?|shrines?|farms?|mills?|lighthouses?|forts?|castles?|palaces?|keeps?|stables?|jails?|prisons?|towers?|chapels?|halls?|guildhalls?)\b", "Buildings", 1.0),
-    (r"\b(cit(y|ies)|towns?|villages?|hamlets?|settlements?|whiterun|riften|solitude|windhelm|markarth|falkreath|dawnstar|morthal|winterhold|riverwood|rorikstead|ivarstead|shor'?s stone|kynesgrove|dragon bridge|karthwasten|helgen|raven rock|skaal|stonehills|darkwater)\b", "Cities, Towns, Villages, and Hamlets", 1.0),
+    (r"\b(cit(y|ies)|whiterun|riften|solitude|windhelm|markarth|falkreath|dawnstar|morthal|winterhold|raven rock)\b", "Location Overhauls - City", 1.0),
+    (r"\b(towns?|villages?|hamlets?|settlements?|riverwood|rorikstead|ivarstead|shor'?s stone|kynesgrove|dragon bridge|karthwasten|helgen|skaal|stonehills|darkwater|half-?moon mill|old hroldan|anga'?s mill|mixwater mill)\b", "Location Overhauls - Town", 1.0),
     (r"\b(dungeons?|caves?|ruins?|tombs?|barrows?|crypts?|mines?|nordic ruins?|dwemer ruins?|delves?)\b", "Dungeons", 1.0),
     (r"\b(worldspace|new lands?|island|province|beyond skyrim|bruma|wyrmstooth|falskaar|expansion)\b", "Locations - New", 1.2),
-    (r"\b(vanilla locations?|location overhaul|landmarks?|points? of interest|poi|environs|lost places)\b", "Locations - Vanilla", 1.0),
+    (r"\b(vanilla locations?|location overhauls?|landmarks?|points? of interest|poi|environs|lost places)\b", "Location Overhauls - General", 1.0),
     (r"\b(guilds?|factions?|thieves guild|dark brotherhood|college of winterhold|bards? college|dawnguard|stormcloaks?|imperial legion|civil war|companions guild)\b", "Guilds/Factions", 1.0),
     (r"\b(cheats?|god ?(mode|items?)|infinite|unlimited|op)\b", "Cheats and God items", 1.0),
     (r"\b(patch(es|ed)?|compatibility|synergy|consistency)\b", "Patches", 1.0),
@@ -824,6 +827,10 @@ def decide(m, votes, nexus_cat=""):
     # R6 scripts-and-systems: many scripts or a DLL is a system; the equipable items it adds (Campfire's tents) are
     # props - equipment records count half - and with no content of its own it leans Gameplay
     scripted = framework is not None or (m.plugins and files and (n_pex >= 20 or has_dll))
+    if scripted:
+        for v in votes:
+            if v[0] == "scope":
+                v[2] *= 0.5                        # a system's cells are utility cells, not a place it overhauls
     if scripted and rec:
         for v in votes:
             if v[0] == "records" and v[1] in ("Armour", "Weapons", "Weapons and Armour", "Clothing and Accessories") and (rec.get("ARMO", 0) + rec.get("WEAP", 0)) < 100:
@@ -899,10 +906,13 @@ _REF_LIMIT = 6000
 
 
 def plugin_refs(path, n_masters):
-    """{"cells_new": [edid], "cells_alt": [edid], "worlds_new": [edid], "worlds_alt": [edid], "ext": {world: count}}"""
-    out = {"cells_new": [], "cells_alt": [], "worlds_new": [], "worlds_alt": [], "ext": {}}
+    """{"cells_new": [edid], "cells_alt": [edid], "worlds_new": [edid], "worlds_alt": [edid], "ext": {world: count},
+        "refs": {place key: references placed or altered there}} - a place key is an interior cell's EDID or
+        "<world>/<cell edid or form id>" for an exterior cell."""
+    out = {"cells_new": [], "cells_alt": [], "worlds_new": [], "worlds_alt": [], "ext": {}, "refs": {}}
     seen = 0
     world_names = {}
+    cur = {"key": None}
 
     def edid_of(fh, rh):
         dsize, flags = struct.unpack("<I", rh[4:8])[0], struct.unpack("<I", rh[8:12])[0]
@@ -933,7 +943,7 @@ def plugin_refs(path, n_masters):
                 if gtype == 1:                                   # a worldspace's children: the label is the WRLD form id
                     wid = struct.unpack("<I", rh[8:12])[0]
                     group(fh, gend, world_names.get(wid, f"WRLD{wid:08X}"))
-                elif gtype in (2, 3, 4, 5):                      # interior blocks/sub-blocks, exterior blocks/sub-blocks
+                elif gtype in (2, 3, 4, 5, 6, 8, 9):             # interior blocks, exterior blocks, cell children
                     group(fh, gend, world)
                 fh.seek(gend)
                 continue
@@ -945,15 +955,20 @@ def plugin_refs(path, n_masters):
                 world_names[form] = ed
                 (out["worlds_new"] if new else out["worlds_alt"]).append(ed)
             elif sig == b"CELL":
+                ed = edid_of(fh, rh)
                 if world is None:                                # an interior cell: its EDID is the name
-                    ed = edid_of(fh, rh)
                     if ed:
                         (out["cells_new"] if new else out["cells_alt"]).append(ed)
+                    cur["key"] = ed or f"CELL{form:08X}"
                 else:                                            # an exterior cell: counted under its worldspace
-                    fh.seek(dsize, 1)
                     out["ext"][world] = out["ext"].get(world, 0) + 1
+                    cur["key"] = f"{world}/{ed or f'{form:08X}'}"
+            elif sig in (b"REFR", b"ACHR", b"PGRE", b"PHZD", b"PMIS", b"PARW", b"PBEA", b"PFLA", b"PCON", b"PBAR"):
+                fh.seek(dsize, 1)                                # a placed reference: counted at the current cell
+                k = cur["key"] or "?"
+                out["refs"][k] = out["refs"].get(k, 0) + 1
             else:
-                fh.seek(dsize, 1)                                # a child record (REFR, ACHR, NAVM...)
+                fh.seek(dsize, 1)                                # LAND, NAVM and the rest
     try:
         with open(path, "rb") as fh:
             head = fh.read(24)
@@ -997,6 +1012,50 @@ def _scope_votes(m):
         return votes
     cells = r["cells_new"] + r["cells_alt"]
     ext_total = sum(r["ext"].values())
+    # HOW THE REFERENCES DISTRIBUTE (the owner, 2026-09-23): a location overhaul concentrates many placed references
+    # in one worldspace or cell - a city's own worldspace (WhiterunWorld), a town's cells, an interior, or some other
+    # place; clutter puts a few changes on the same objects across many cells and spaces
+    refs = r.get("refs", {})
+    total = sum(refs.values())
+    n_places = len(refs)
+    if total:
+        by_world = {}
+        for k, n in refs.items():
+            w = k.split("/", 1)[0] if "/" in k else "interior"
+            by_world[w] = by_world.get(w, 0) + n
+        top_world, top_world_n = max(by_world.items(), key=lambda kv: kv[1])
+        top_cell, top_cell_n = max(refs.items(), key=lambda kv: kv[1])
+        interior_n = by_world.get("interior", 0)
+        rec = m.records or {}
+        base_edits = sum(rec.get(k + "*", 0) for k in ("STAT", "MSTT", "FURN", "ACTI", "CONT", "MISC", "DOOR", "LIGH", "FLOR", "TREE"))
+        if n_places >= 20 and total / n_places <= 3 and base_edits <= 30:
+            votes.append(("scope", "Models and Textures - Clutter", 3.0, f"clutter: {total} references over {n_places} cells, {total / n_places:.1f} each"))
+        elif total >= 60:
+            def place_of(key):
+                kl = key.lower()
+                for w, place in PLACES.items():
+                    if w in kl:
+                        return place
+                return None
+            ext_n = total - interior_n
+            place = place_of(top_world) or place_of(top_cell)
+            ext_worlds = {w: n for w, n in by_world.items() if w != "interior"}
+            top_ext_world = max(ext_worlds, key=ext_worlds.get) if ext_worlds else ""
+            ext_place = place_of(top_ext_world) if top_ext_world else None
+            conc = max(top_world_n, top_cell_n) / total
+            # a city's or town's exterior outranks its own interiors: a city worldspace or a placed town holding a
+            # fifth of the references is the overhaul's subject even when the interiors carry more
+            if ext_place and ext_n >= 0.2 * total and (top_ext_world.lower().endswith("world") or conc >= 0.3):
+                kind = "City" if ext_place in CAPITALS else "Town"
+                votes.append(("scope", f"Location Overhauls - {kind}", 3.5, f"{kind.lower()} overhaul: {ext_worlds[top_ext_world]} exterior and {interior_n} interior references in {ext_place}"))
+            elif interior_n >= 0.7 * total:
+                pl = place_of(top_cell)
+                votes.append(("scope", "Location Overhauls - Interior", 3.5, f"interior overhaul: {interior_n} references in {len([k for k in refs if '/' not in k])} interiors" + (f" ({pl})" if pl else "")))
+            elif place and conc >= 0.5:
+                kind = "City" if place in CAPITALS else "Town"
+                votes.append(("scope", f"Location Overhauls - {kind}", 3.5, f"{kind.lower()} overhaul: {max(top_world_n, top_cell_n)} of {total} references in {place}"))
+            elif conc >= 0.5 and not (top_world.lower() == "tamriel" and top_cell_n < 0.3 * total):
+                votes.append(("scope", "Location Overhauls - General", 3.0, f"location overhaul: {max(top_world_n, top_cell_n)} of {total} references at {top_cell.split('/')[-1][:30]}"))
     everywhere = len(r["cells_alt"]) + ext_total > 200 and not r["cells_new"] and not r["worlds_new"]
     scale = 0.3 if everywhere else 1.0             # a mod that touches hundreds of cells is a systemic edit, not a place
     if everywhere:
@@ -1024,15 +1083,16 @@ def _scope_votes(m):
         n_place = sum(place_hits.values())
         names = ", ".join(f"{p} ({n})" for p, n in top[:3])
         interiors_only = not r["ext"] and not r["worlds_new"]
-        if interiors_only and len(cells) <= 3 and not home:
-            votes.append(("scope", "Models and Textures - Interiors", 2.5 * scale, f"one or two interiors in {names}"))
+        if interiors_only and len(cells) <= 3 and not home and total >= 20:
+            votes.append(("scope", "Location Overhauls - Interior", 2.0 * scale, f"one or two interiors in {names}"))
         elif not (dung and len(dung) >= len(cells) * 0.5):
-            votes.append(("scope", "Cities, Towns, Villages, and Hamlets", min(3.5, 1.5 + n_place * 0.5) * scale, f"references {names}"))
+            kind = "City" if top[0][0] in CAPITALS else "Town"
+            votes.append(("scope", f"Location Overhauls - {kind}", min(3.0, 1.0 + n_place * 0.5) * scale, f"references {names}"))
     elif ext_total and not r["worlds_new"] and not everywhere:
         land = [c for c in cells if LANDMARK_WORDS.search(c)]
-        votes.append(("scope", "Locations - Vanilla", min(3.0, 1.0 + ext_total * 0.2) * scale, f"edits {ext_total} exterior cells" + (f" and {', '.join(land[:2])}" if land else "")))
-    elif cells and not r["ext"] and not home and not dung:
-        votes.append(("scope", "Models and Textures - Interiors", min(2.5, 1.0 + len(cells) * 0.3) * scale, f"interiors only: {', '.join(cells[:2])}"))
+        votes.append(("scope", "Location Overhauls - General", min(3.0, 1.0 + ext_total * 0.2) * scale, f"edits {ext_total} exterior cells" + (f" and {', '.join(land[:2])}" if land else "")))
+    elif cells and not r["ext"] and not home and not dung and total >= 20:
+        votes.append(("scope", "Location Overhauls - Interior", min(2.5, 1.0 + len(cells) * 0.3) * scale, f"interiors only: {', '.join(cells[:2])}"))
     return votes
 
 
@@ -1191,6 +1251,8 @@ def scan(mods_dir, rows, progress=None):
                                 m.refs[key_].extend(rr[key_])
                             for w, n in rr["ext"].items():
                                 m.refs["ext"][w] = m.refs["ext"].get(w, 0) + n
+                            for k2, n in rr.get("refs", {}).items():
+                                m.refs["refs"][k2] = m.refs["refs"].get(k2, 0) + n
             opt = os.path.join(d, "optional")
             if os.path.isdir(opt):
                 for f in os.listdir(opt):
