@@ -92,6 +92,66 @@ FIXED_BLOCKS = ("base game", "test builds", "generated outputs", "[nodelete]")
 INDEX_TIER = {norm_key: t for t, names in TIERS.items() for norm_key in (re.sub(r"\s+", " ", n).strip().lower() for n in names)}
 
 
+# --- CONFLICT RESOLVER (the owner, 2026-09-23: "refine this plugin to the point that there's no need to have keep
+# winners ... and it will still work properly"). Two mods sharing files are ordered by EVIDENCE about the two mods,
+# never by where they happen to sit today. Read in this order, first hit decides:
+#   1 name dependency  - one mod is named for the other ("Pelt Cloaks for Wet and Cold", "X - Y Patch"): it loads after
+#   2 patch            - a [Patch]-tagged or "patch"-named mod loads after the mod it shares files with
+#   3 PBR / parallax   - the mod shipping PBR or parallax companions of the shared textures loads after the plain one
+#   4 specificity      - a small pack riding on a big one (most of its files are the big one's, the big one is 2x+
+#                        larger) loads after it: the specific over the general
+# Nothing decided = category order decides, and the pair is listed for review as "no evidence".
+_NAME_NOISE = re.compile(r"\[[^\]]*\]|\((main|se|sse|ae)\)|\b(sse|se|ae|special edition|skyrim|for|the|a|an|of|and|v\d+(\.\d+)*)\b|[^a-z0-9]+", re.I)
+_PATCH_WORD = re.compile(r"\bpatch(es)?\b|\bpatch collection\b|\bcompatibility\b", re.I)
+_PBR_COMPANION = (("_rmaos.dds", "pbr"), ("_p.dds", "parallax"), ("_cnr.dds", "pbr"), ("_f.dds", "pbr"))
+
+
+def _core_name(name):
+    return _NAME_NOISE.sub("", name.lower())
+
+
+def _is_patch_mod(m):
+    return bool(TAG_PATCH.match(m.name) or _PATCH_WORD.search(m.name))
+
+
+def _pbr_kind(files, shared):
+    """'pbr' or 'parallax' when this mod ships a companion map for a shared texture, else None."""
+    fs = files if isinstance(files, set) else set(files)
+    for f in shared:
+        if not f.endswith(".dds"):
+            continue
+        stem = f[:-4]
+        for suffix, kind in _PBR_COMPANION:
+            if stem + suffix in fs:
+                return kind
+    if any(x.startswith("pbrnifpatcher/") or x.startswith("pbrtexturesets/") for x in fs):
+        return "pbr"
+    return None
+
+
+def resolve_conflict(a, b, shared, files_of):
+    """(winner, loser, reason) from the evidence, or None. a and b are Mods; shared is the list of files both ship."""
+    ca, cb = _core_name(a.name), _core_name(b.name)
+    if len(cb) >= 6 and cb in ca and ca != cb and not (len(ca) >= 6 and ca in cb):
+        return a, b, f"named for {b.name}"
+    if len(ca) >= 6 and ca in cb and ca != cb and not (len(cb) >= 6 and cb in ca):
+        return b, a, f"named for {a.name}"
+    pa, pb = _is_patch_mod(a), _is_patch_mod(b)
+    if pa != pb:
+        return (a, b, f"a patch loads after {b.name}") if pa else (b, a, f"a patch loads after {a.name}")
+    ka, kb = _pbr_kind(files_of[a.name], shared), _pbr_kind(files_of[b.name], shared)
+    if ka and not kb:
+        return a, b, f"ships {ka} companions of the shared textures; {b.name} does not"
+    if kb and not ka:
+        return b, a, f"ships {kb} companions of the shared textures; {a.name} does not"
+    na, nb = len(files_of[a.name]), len(files_of[b.name])
+    small, big = (a, b) if na <= nb else (b, a)
+    ns, nbg = min(na, nb), max(na, nb)
+    if ns and len(shared) >= 0.5 * ns and nbg >= 2 * ns:
+        return small, big, f"specific over general: {len(shared)} of its {ns} files are also in {big.name} ({nbg} files)"
+    return None
+
+
 def index_tier(category, mod=None):
     """The six-tier index of a category; an unknown category is tier 3 (the middle) and says so in the report.
 
@@ -637,6 +697,31 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
         loader_pairs.update((a_mod.name, b) for b in shared)
         if shared:
             loaders += 1
+    rule_moves = []
+    rules_ignored = []
+
+    def apply_rules(which):
+        for r in which:
+            a, b, kind = by_name.get(r.get("mod", "")), by_name.get(r.get("target", "")), r.get("type", "")
+            if a is None or not r.get("enabled", True):
+                continue
+            # a rule that would close a loop against what is already known is skipped and reported, never obeyed:
+            # 527 review rules written under an old order pinned settings loaders ABOVE their targets and mods after
+            # generated outputs, and every one became a cycle that froze the pane (2026-09-23)
+            if kind == "after" and b is not None:
+                if would_cycle(b.name, a.name):
+                    rules_ignored.append((a.name, f"after {b.name}", reason.get((a.name, b.name), "would loop through other edges")))
+                    continue
+                edge(b, a, f"rule: after {b.name}")
+                rule_moves.append((a.name, f"after {b.name}"))
+            elif kind == "before" and b is not None:
+                if would_cycle(a.name, b.name):
+                    rules_ignored.append((a.name, f"before {b.name}", reason.get((b.name, a.name), "would loop through other edges")))
+                    continue
+                edge(a, b, f"rule: before {b.name}")
+                rule_moves.append((a.name, f"before {b.name}"))
+    # hand-written rules first: they outrank the resolver's heuristics (never a master, output or loader edge)
+    apply_rules([r for r in rules if "review" not in str(r.get("comment", ""))])
     pairs = {}
     for f, ms in owners.items():
         if len(ms) < 2 or len(ms) > 40:
@@ -645,44 +730,44 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             for j in range(i + 1, len(ms)):
                 a, b = ms[i], ms[j]
                 k = (a.name, b.name) if a.name < b.name else (b.name, a.name)
-                pairs[k] = pairs.get(k, 0) + 1
+                pairs.setdefault(k, []).append(f)
+    files_of = {m.name: set(m.files) for m in real if m.enabled}
     winners = {}
     winners_yielded = []
-    for (a, b), n in pairs.items():
+    resolved, undecided = [], []
+    for (a, b), shared in pairs.items():
+        n = len(shared)
         loser, winner = (a, b) if by_name[a].index < by_name[b].index else (b, a)
         winners[(loser, winner)] = n
         if (loser, winner) in loader_pairs or (winner, loser) in loader_pairs:
             continue                  # a settings loader's pair is settled by the loader rule above
-        if keep_winners and (mode != "index" or index_tier(by_name[loser].category, by_name[loser]) == index_tier(by_name[winner].category, by_name[winner])):
-            # in index mode only SAME-tier winners are kept: a cross-tier flip is the hierarchy doing its job.
-            # A winner that would loop against a master or loader edge yields to it (JS Knapsacks won 36 files over
-            # Wet and Cold today while its own patch plugin needs WetandCold.esp as a master - 2026-09-23)
+        ma, mb = by_name[a], by_name[b]
+        same_tier_pair = index_tier(ma.category, ma) == index_tier(mb.category, mb)
+        verdict = resolve_conflict(ma, mb, shared, files_of)
+        # name dependency and patch evidence hold across tiers (a "for X" mod belongs under X whatever their
+        # categories); PBR and specificity only inside a tier, where the hierarchy has nothing to say
+        if verdict is not None and not same_tier_pair and not (verdict[2].startswith("named for") or verdict[2].startswith("a patch")):
+            verdict = None
+        if verdict is not None:
+            w, l, why = verdict
+            if would_cycle(l.name, w.name):
+                winners_yielded.append((w.name, l.name, n, "resolver: " + why + " - but a master or loader edge says the opposite"))
+                continue
+            edge(l, w, "resolver: " + why)
+            resolved.append((w.name, l.name, n, why, "as today" if w.name == winner else "flips today's order"))
+            continue
+        if not same_tier_pair:
+            continue                  # the hierarchy decides a cross-tier pair
+        undecided.append((winner, loser, n, "no evidence either way - category order decides" + ("" if not keep_winners else "; today's winner kept")))
+        if keep_winners:
+            # the box now covers only pairs with no evidence: today's winner stays unless a master or loader says otherwise
             if would_cycle(loser, winner):
                 winners_yielded.append((winner, loser, n, reason.get((winner, loser), "a master or loader edge says the opposite")))
                 continue
             edge(by_name[loser], by_name[winner], f"keeps winning {n} shared file(s) over {loser}")
-    rule_moves = []
-    rules_ignored = []
-
-    for r in rules:
-        a, b, kind = by_name.get(r.get("mod", "")), by_name.get(r.get("target", "")), r.get("type", "")
-        if a is None or not r.get("enabled", True):
-            continue
-        # a rule that says the opposite of a structural edge is ignored and reported, never obeyed: 527 review rules
-        # written under the old order pinned settings loaders ABOVE their targets and mods after generated outputs,
-        # and every one of them became a cycle that froze the pane (2026-09-23)
-        if kind == "after" and b is not None:
-            if would_cycle(b.name, a.name):
-                rules_ignored.append((a.name, f"after {b.name}", reason.get((a.name, b.name), "would loop through other edges")))
-                continue
-            edge(b, a, f"rule: after {b.name}")
-            rule_moves.append((a.name, f"after {b.name}"))
-        elif kind == "before" and b is not None:
-            if would_cycle(a.name, b.name):
-                rules_ignored.append((a.name, f"before {b.name}", reason.get((b.name, a.name), "would loop through other edges")))
-                continue
-            edge(a, b, f"rule: before {b.name}")
-            rule_moves.append((a.name, f"before {b.name}"))
+    # the Review tab's auto-written rules ("kept today's winner") rank BELOW the resolver's evidence and go in here;
+    # rules written by hand went in before the resolver (above), so they rank above it
+    apply_rules([r for r in rules if "review" in str(r.get("comment", ""))])
     firsts = {r.get("mod") for r in rules if r.get("type") == "first" and r.get("enabled", True)}
     lasts = {r.get("mod") for r in rules if r.get("type") == "last" and r.get("enabled", True)}
 
@@ -692,7 +777,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     # the tier order the list itself has been tested with, with the table deciding only where the list is silent.
     cats = sorted({norm(m.category) for m in real}, key=lambda c: taxonomy_rank(c))
     weight = {}
-    for (a, b), n in pairs.items():
+    for (a, b), n in ((k, len(v)) for k, v in pairs.items()):
         ma, mb = by_name[a], by_name[b]
         loser, winner = (ma, mb) if ma.index < mb.index else (mb, ma)
         ca, cb = norm(loser.category), norm(winner.category)
@@ -918,7 +1003,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     new_seps = {nm for nm, _ in rows if is_sep(nm)}
     old_seps = {m.name for m in mods if is_sep(m.name)}
     return rows, {"fixes": fixes, "rule_moves": rule_moves, "flips": flips, "conflict_pairs": len(pairs),
-                  "displaced": displaced, "absorbed": absorbed, "advice": advice, "mode": mode, "cycles": [m.name for m in cycles], "cycle_edges": cycle_edges, "rules_ignored": rules_ignored, "winners_yielded": winners_yielded,
+                  "displaced": displaced, "absorbed": absorbed, "advice": advice, "mode": mode, "cycles": [m.name for m in cycles], "cycle_edges": cycle_edges, "rules_ignored": rules_ignored, "winners_yielded": winners_yielded, "resolved": resolved, "undecided": undecided,
                   "category_order": seq, "category_moves": moved_cats, "contradicted_files": best,
                   "created": sorted(new_seps - old_seps), "retired": sorted(old_seps - new_seps)}
 
@@ -1216,7 +1301,7 @@ def diff(mods, rows):
     return out
 
 
-def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, keep_winners=True, mode="index", min_run=8):
+def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, keep_winners=False, mode="index", min_run=8):
     """Everything up to (not including) writing. Returns a dict the dialog and the offline runner both use."""
     mods_dir = os.path.join(instance_dir, "mods")
     ml = os.path.join(instance_dir, "profiles", profile, "modlist.txt")
@@ -1351,7 +1436,7 @@ if mobase is not None:
             self.t_moves = self._table(["Mod", "Was under", "Goes under", "Line", "New line"])
             self.t_seps = self._table(["Separator", "Change"])
             self.t_disp = self._table(["Mod", "Its category", "In the block", "Because"])
-            self.t_conf = self._table(["Wins today", "Would lose to", "Shared files", "The index says"])
+            self.t_conf = self._table(["Wins", "Over", "Shared files", "Why"])
             self.t_conf.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
             self.t_conf.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
             self.t_place = self._table(["Mod", "Tier", "Separator", "Why"])
@@ -1360,8 +1445,8 @@ if mobase is not None:
             self.tabs.addTab(self.t_disp, "Minorities / displaced")
             conf_page = QWidget()
             cl = QVBoxLayout(conf_page)
-            cl.addWidget(QLabel("Where today's order disagrees with the index. Each row is a call to make once: keep today's "
-                                "winner (written as an 'after' rule, so it holds on every run) or let the index decide."))
+            cl.addWidget(QLabel("Every file conflict the resolver could not decide from evidence (top), then the ones it "
+                                "flipped against today's order. Keep today's winner for a row to write it as an 'after' rule."))
             cl.addWidget(self.t_conf, 1)
             row = QHBoxLayout()
             b_all = QPushButton("Select all")
@@ -1391,8 +1476,8 @@ if mobase is not None:
             self.sp_run.setRange(1, 60)
             self.sp_run.setValue(8)
             opts.addWidget(self.sp_run)
-            self.c_keep = QCheckBox("keep today's override winners")
-            self.c_keep.setChecked(True)          # on by default (the owner, 2026-09-23): tested winners stay unless he says otherwise
+            self.c_keep = QCheckBox("keep today's winner where there is no evidence")
+            self.c_keep.setChecked(False)         # the resolver decides from evidence; this only covers what it cannot (2026-09-23)
             opts.addWidget(self.c_keep)
             root.insertLayout(1, opts)
             self.cb_mode.currentIndexChanged.connect(lambda _i: self.compute())
@@ -1491,7 +1576,8 @@ if mobase is not None:
             if not rows or not self._result:
                 return
             r = self._p.rules()
-            table = self._result["facts"]["flips"] + self._result["facts"]["advice"]
+            f = self._result["facts"]
+            table = f.get("undecided", []) + [(w, l, n, why) for w, l, n, why, tag in f.get("resolved", []) if tag != "as today"]
             have = {(x.get("type"), x.get("mod"), x.get("target")) for x in r.get("rules", [])}
             for i in rows:
                 w, l, _n, _k = table[i]
@@ -1549,14 +1635,16 @@ if mobase is not None:
                 f"{len(mods)} mods - {r['nexus']} - {len(r['moves'])} mod(s) change separator or line - "
                 f"{len(r['facts']['created'])} separator(s) created, {len(r['facts']['retired'])} retired - "
                 f"{len(r['facts']['absorbed'])} in a block of another category, {len(r['facts']['displaced'])} displaced by a master or a kept winner - "
-                f"{len(r['facts']['flips'])} override winner(s) would flip - {len(r['plugins'])} plugins ordered"
+                f"{len(r['facts'].get('resolved', []))} file conflicts decided by evidence, {len(r['facts'].get('undecided', []))} left to category order, "
+                f"{len(r['facts'].get('rules_ignored', []))} rule(s) ignored as contradictory - {len(r['plugins'])} plugins ordered"
                 f" ({len(r.get('plugin_state', {}).get('activate', []))} to activate, {len(r.get('plugin_state', {}).get('to_optional', []))} to Optional ESPs, "
                 f"{len(r.get('plugin_state', {}).get('from_optional', []))} back from Optional ESPs)"
                 + (f" into {len(set(r.get('plugin_groups', {}).values()))} BPM groups" if r.get("bpm") else " (no Bethesda Plugin Manager: no groups)"))
             self._fill(self.t_moves, [(n, (o or "")[:-len("_separator")] if o else "", (w or "")[:-len("_separator")] if w else "", a, b) for n, o, w, a, b in r["moves"]])
             self._fill(self.t_seps, [(s[:-len("_separator")], "created") for s in r["facts"]["created"]] + [(s[:-len("_separator")], "retired (folder moved to the backup)") for s in r["facts"]["retired"]])
             self._fill(self.t_disp, [(a, b, c, "") for a, b, c in r["facts"]["absorbed"]] + r["facts"]["displaced"])
-            self._fill(self.t_conf, r["facts"]["flips"] + r["facts"]["advice"])
+            f = r["facts"]
+            self._fill(self.t_conf, f.get("undecided", []) + [(w, l, n, "resolver flipped today's order: " + why) for w, l, n, why, tag in f.get("resolved", []) if tag != "as today"])
             # the box and the selection agree: ticked = every review row selected, unticked = none (the owner, 2026-09-23)
             if self.c_keep.isChecked():
                 self.t_conf.selectAll()
