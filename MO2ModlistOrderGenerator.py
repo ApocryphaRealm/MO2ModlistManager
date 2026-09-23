@@ -397,6 +397,72 @@ def class_from_files(m):
     return "", ""
 
 
+def read_nexus_catmap(instance_dir):
+    """{nexus category name (normalised): MO2 category id} from nexuscatmap.dat (mo2 id | name | nexus id) -
+    the table MO2 fills when categories are imported from Nexus. Rows with MO2 id -1 are unmapped."""
+    out = {}
+    p = os.path.join(instance_dir, "nexuscatmap.dat")
+    try:
+        for line in open(p, encoding="utf-8", errors="ignore"):
+            parts = line.rstrip("\n").split("|")
+            if len(parts) >= 3 and parts[0].lstrip("-").isdigit() and int(parts[0]) > 0:
+                out[norm(parts[1])] = int(parts[0])
+    except OSError:
+        pass
+    return out
+
+
+def plan_mo2_category_updates(mods, categories, instance_dir):
+    """[(mod name, meta.ini path, MO2 category id, Nexus category name)] for every mod that has a Nexus page whose
+    category Nexus reports, and no MO2 category of its own. MO2's own "import categories from Nexus" only fills the
+    mapping table; a mod is categorised only when MO2 queries it, which 1,960 of the owner's 2,110 never were."""
+    catmap = read_nexus_catmap(instance_dir)
+    mods_dir = os.path.join(instance_dir, "mods")
+    out = []
+    for m in mods:
+        if is_sep(m.name) or not m.nexus_id or m.mo2_cats:
+            continue
+        cat = categories.get(str(m.nexus_id), "")
+        mo2_id = catmap.get(norm(cat)) if cat else None
+        if mo2_id:
+            out.append((m.name, os.path.join(mods_dir, m.name, "meta.ini"), mo2_id, cat))
+    return out
+
+
+def apply_mo2_category_updates(updates, log=None):
+    """Write category="<id>," into each meta.ini (the form MO2 writes), keeping every other line as it is."""
+    done = 0
+    for name, path, mo2_id, cat in updates:
+        try:
+            text = open(path, "rb").read().decode("utf-8-sig")
+            nl = "\r\n" if "\r\n" in text else "\n"
+            lines = text.split(nl)
+            new = 'category="{0},"'.format(mo2_id)
+            replaced = False
+            for i, line in enumerate(lines):
+                if line.startswith("category="):
+                    lines[i] = new
+                    replaced = True
+                    break
+            if not replaced:
+                for i, line in enumerate(lines):
+                    if line.strip() == "[General]":
+                        lines.insert(i + 1, new)
+                        replaced = True
+                        break
+            if not replaced:
+                lines.insert(0, "[General]")
+                lines.insert(1, new)
+            open(path, "wb").write(nl.join(lines).encode("utf-8"))
+            done += 1
+        except OSError as exc:
+            if log:
+                log(f"category update failed for {name}: {exc}")
+    if log:
+        log(f"MO2 categories written for {done} of {len(updates)} mod(s)")
+    return done
+
+
 def read_mo2_categories(instance_dir):
     names = {}
     p = os.path.join(instance_dir, "categories.dat")
@@ -847,6 +913,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     new_rows, facts = build(mods, ours.get("rules"), keep_winners, mode, min_run)
     by_name = {m.name: m for m in mods}
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
+            "category_updates": plan_mo2_category_updates(mods, cats, instance_dir),
             "plugins": plugin_order(new_rows, by_name, theirs), "rules": ruler_rules(mods), "mod_rules": ours,
             "nexus": f"{len(cats)} categories cached, {got} of {asked} fetched now",
             "modlist_path": ml, "mods_dir": mods_dir}
@@ -976,6 +1043,10 @@ if mobase is not None:
             root.addWidget(self.status)
             buttons = QHBoxLayout()
             buttons.addStretch(1)
+            self.b_cats = QPushButton("Update MO2 categories from Nexus")
+            self.b_cats.setToolTip("Write each mod's Nexus category into its meta.ini as its MO2 category, for mods that have none")
+            self.b_cats.clicked.connect(self.update_categories)
+            buttons.addWidget(self.b_cats)
             self.b_refresh = QPushButton("Compute again")
             self.b_apply = QPushButton("Apply")
             self.b_close = QPushButton("Close")
@@ -1102,6 +1173,7 @@ if mobase is not None:
                 return
             r = self._result
             mods = [m for m in r["mods"] if not is_sep(m.name)]
+            self.b_cats.setText(f"Update MO2 categories from Nexus ({len(r.get('category_updates', []))} without one)")
             self.summary.setText(
                 f"{len(mods)} mods - {r['nexus']} - {len(r['moves'])} mod(s) change separator or line - "
                 f"{len(r['facts']['created'])} separator(s) created, {len(r['facts']['retired'])} retired - "
@@ -1115,6 +1187,23 @@ if mobase is not None:
             self._fill(self.t_rules, self._rules_rows())
             self.b_apply.setEnabled(bool(r["moves"] or r["facts"]["created"] or r["facts"]["retired"]))
             self.status.setText("Nothing is written until Apply. Apply backs up modlist.txt, plugins.txt, loadorder.txt and the retired separators first.")
+
+        def update_categories(self):
+            if not self._result:
+                return
+            ups = self._result.get("category_updates", [])
+            if not ups:
+                self.status.setText("Every mod with a Nexus page already has an MO2 category.")
+                return
+            self.status.setText(f"Writing MO2 categories for {len(ups)} mod(s)...")
+            QApplication.processEvents()
+            done = apply_mo2_category_updates(ups, self._p._log)
+            try:
+                self._p._organizer.refresh(True)
+            except Exception:  # noqa: BLE001
+                pass
+            self.status.setText(f"MO2 categories written for {done} of {len(ups)} mod(s) from their Nexus category; MO2 refreshed.")
+            self.compute()
 
         def apply(self):
             if not self._result:
