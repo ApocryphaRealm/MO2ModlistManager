@@ -526,10 +526,16 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                 return (1, 0, m.index)              # NoDelete stays the tail
             return (0, 0, m.index)
         if mode == "index":
-            # tier, then today's position: inside a tier the tested order stands (the 'general before specific'
-            # rule held in only 65% of a tested list's same-tier conflicts - PBR packs are large AND must win - so
-            # it is advice in the review list, not an ordering key)
-            return (index_tier(m.category, m), 0, m.index)
+            # tier, then the category's place in that tier's own list, then today's position. Until 2026-09-23 the
+            # order inside a tier was today's position alone, and the blocks were labels stamped over runs of it -
+            # 496 of 2,191 mods sat in a block of another category (the owner: "many mods seem out of place").
+            # Now every category is one block; the tested same-tier override winners are kept by the keep-winners
+            # edges below, which pull a winner down under its loser and relabel it there (the 'displaced' list).
+            t = index_tier(m.category, m)
+            names = TIERS.get(t, ())
+            k = norm(m.category)
+            ci = next((i for i, n in enumerate(names) if norm(n) == k), len(names))
+            return (t, ci, m.index)
         if k in cat_rank:
             return (cat_rank[k], 0, m.index)
         gi, ci = taxonomy_rank(m.category)
@@ -585,7 +591,8 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     for (a, b), n in pairs.items():
         loser, winner = (a, b) if by_name[a].index < by_name[b].index else (b, a)
         winners[(loser, winner)] = n
-        if keep_winners and mode != "index":
+        if keep_winners and (mode != "index" or index_tier(by_name[loser].category, by_name[loser]) == index_tier(by_name[winner].category, by_name[winner])):
+            # in index mode only SAME-tier winners are kept: a cross-tier flip is the hierarchy doing its job
             edge(by_name[loser], by_name[winner], f"keeps winning {n} shared file(s) over {loser}")
     rule_moves = []
     for r in rules:
