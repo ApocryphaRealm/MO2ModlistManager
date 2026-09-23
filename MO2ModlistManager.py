@@ -57,7 +57,7 @@ GROUPS = [
 ]
 NODELETE_SEP = "[NoDelete]"            # kept as the last separator with its contents untouched (Wabbajack's convention)
 TAG_NODELETE = re.compile(r"^\s*\[nodelete\]", re.I)
-TAG_PATCH = re.compile(r"^\s*\[patch\]", re.I)
+TAG_PATCH = re.compile(r"(^|\s)\[patch\](\s|$)", re.I)      # a prefix (older names) or a suffix (MO2 Keyword Tagger 1.0.2)
 BASE_MASTERS = {"skyrim.esm", "update.esm", "dawnguard.esm", "hearthfires.esm", "dragonborn.esm"}
 PLUGIN_EXT = (".esp", ".esm", ".esl")
 OUTPUT_TOOLS = re.compile(r"\b(dyndolod|texgen|xlodgen|occlusion|pgpatcher|parallaxgen|nemesis|pandora|synthesis|bodyslide)\b.*\boutput\b"
@@ -114,7 +114,7 @@ def _core_name(name):
 
 
 def _is_patch_mod(m):
-    return bool(TAG_PATCH.match(m.name) or _PATCH_WORD.search(m.name))
+    return bool(TAG_PATCH.search(m.name) or _PATCH_WORD.search(m.name))
 
 
 def _pbr_kind(files, shared):
@@ -602,7 +602,7 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             continue
         # the [Patch] prefix only places a mod Nexus could not: USSEP is tagged [Patch] by name yet is "Bug Fixes" on
         # Nexus and a master to dozens of mods - filing it under Patches dragged them all below it
-        if TAG_PATCH.match(n):
+        if TAG_PATCH.search(n):
             m.category, m.why = "Patches", "[Patch] prefix (MO2 Patch Tagger), no Nexus category"
             continue
         if m.mo2_cats and mo2_category_names:
@@ -882,7 +882,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
         base = re.sub(r"\s*-\s*settings loader.*$", "", a_mod.name, flags=re.I).strip()
         # the target may carry a suffix of its own ("Farmhouse Chimneys SE (main)"): the shortest enabled mod named
         # base, "base (...)" or "base - ..." that is not itself a loader or a patch
-        cands = [m for m in real if m.enabled and m is not a_mod and not name_re.search(m.name) and not TAG_PATCH.match(m.name)
+        cands = [m for m in real if m.enabled and m is not a_mod and not name_re.search(m.name) and not TAG_PATCH.search(m.name)
                  and (norm(m.name) == norm(base) or m.name.lower().startswith(base.lower() + " (") or m.name.lower().startswith(base.lower() + " - "))]
         target = min(cands, key=lambda m: len(m.name)) if cands else None
         if target is not None and target.name not in shared:
