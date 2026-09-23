@@ -211,11 +211,12 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 
 class Mod:
-    __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "category", "why", "group", "flags", "files")
+    __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
         self.nexus_id, self.mo2_cats, self.plugins = 0, [], []      # plugins: [(file, [masters], is_esm)]
+        self.optional = []                                          # the same, for the mod's optional folder (MO2's Optional ESPs)
         self.category, self.why, self.group, self.flags, self.files = None, "", None, set(), []
 
     @property
@@ -270,6 +271,12 @@ def scan(mods_dir, rows, progress=None):
                     masters, _desc, esm = read_header(os.path.join(d, f))
                     # a .esl-EXTENSION file loads in the master block whatever its header says, as does a .esm
                     m.plugins.append((f, masters, esm or f.lower().endswith((".esm", ".esl"))))
+            opt = os.path.join(d, "optional")
+            if os.path.isdir(opt):
+                for f in os.listdir(opt):
+                    if f.lower().endswith(PLUGIN_EXT) and os.path.isfile(os.path.join(opt, f)):
+                        masters, _desc, esm = read_header(os.path.join(opt, f))
+                        m.optional.append((f, masters, esm or f.lower().endswith((".esm", ".esl"))))
             if enabled:
                 m.files = scan_files(d)
         except OSError:
@@ -875,6 +882,122 @@ def plugin_order(rows, mods_by_name, ruler_user_rules=()):
 RULES_FILE = "modlist_order_rules.json"
 
 
+def read_active_plugins(profile_dir):
+    """Plugins MO2 will load: the '*' lines of plugins.txt plus the game's forced masters and CC content, which MO2
+    lists without a star."""
+    active = set()
+    p = os.path.join(profile_dir, "plugins.txt")
+    if os.path.isfile(p):
+        for line in open(p, encoding="utf-8-sig"):
+            line = line.strip()
+            if line.startswith("*"):
+                active.add(line[1:].lower())
+            elif line and not line.startswith("#") and (line.lower() in BASE_MASTERS or line.lower().startswith("cc")):
+                active.add(line.lower())
+    return active | BASE_MASTERS
+
+
+def plan_plugin_state(mods, profile_dir, plugin_rules=()):
+    """Every plugin ends up in one of two places (the owner, 2026-09-23): a plugin whose masters are all here is in the
+    mod's root and ACTIVE; one that cannot load - a master it needs is in no enabled mod - waits in the mod's
+    optional folder (MO2's Optional ESPs). And the way back: an optional plugin whose masters have since arrived
+    (a mod you added) is moved back beside the mod's files and activated. A plugin rule of type "off" keeps a plugin
+    in Optional ESPs whatever its masters. Returns {"activate": [(plugin, mod, why)], "to_optional": [...],
+    "from_optional": [...]} and rewrites each Mod's plugins/optional lists to the planned state, so the plugin
+    order and BPM groups computed afterwards describe the pane as it will be."""
+    active = read_active_plugins(profile_dir)
+    off = {str(r.get("plugin", "")).lower() for r in plugin_rules if r.get("type") == "off" and r.get("enabled", True)}
+    root, opt = {}, {}                          # plugin name -> (mod, entry): the LOWEST enabled mod wins, as in MO2
+    for m in mods:
+        if not m.enabled or is_sep(m.name):
+            continue
+        for e in m.plugins:
+            root[e[0].lower()] = (m, e)
+        for e in m.optional:
+            opt.setdefault(e[0].lower(), (m, e))
+    # loadable = every master is a base master, or a candidate (root or optional) that is itself loadable and not off
+    cands = {k: v[1][1] for k, v in root.items()}
+    cands.update({k: v[1][1] for k, v in opt.items() if k not in cands})
+    loadable = {k: True for k in cands}
+    changed = True
+    while changed:
+        changed = False
+        for k, masters in cands.items():
+            if not loadable[k]:
+                continue
+            for ms in masters:
+                mk = ms.lower()
+                if mk in BASE_MASTERS:
+                    continue
+                if mk in off or mk not in cands or not loadable[mk]:
+                    loadable[k] = False
+                    changed = True
+                    break
+
+    def missing(masters):
+        return [ms for ms in masters if ms.lower() not in BASE_MASTERS and not loadable.get(ms.lower(), False)]
+
+    plan = {"activate": [], "to_optional": [], "from_optional": []}
+    for k, (m, e) in root.items():
+        f, masters, _esm = e
+        if k in off:
+            plan["to_optional"].append((f, m.name, "rule: kept off"))
+        elif not loadable[k]:
+            plan["to_optional"].append((f, m.name, "needs " + ", ".join(missing(masters)) + " - not in any enabled mod"))
+        elif k not in active:
+            plan["activate"].append((f, m.name, "every master is present"))
+    for k, (m, e) in opt.items():
+        f, masters, _esm = e
+        if k in root or k in off or not loadable[k]:
+            continue
+        # only a plugin that DEPENDS on another mod comes back - "a mod that uses the optional esp". One whose
+        # masters are all base game (an author's preview or examples plugin) sits in Optional ESPs by design
+        needs = [ms for ms in masters if ms.lower() not in BASE_MASTERS]
+        if not needs:
+            continue
+        plan["from_optional"].append((f, m.name, "its masters are present now: " + ", ".join(needs[:4])))
+    # rewrite the mods to the planned state
+    for f, mod_name, _why in plan["to_optional"]:
+        for m in mods:
+            if m.name == mod_name:
+                moved = [e for e in m.plugins if e[0] == f]
+                m.plugins = [e for e in m.plugins if e[0] != f]
+                m.optional.extend(moved)
+    for f, mod_name, _why in plan["from_optional"]:
+        for m in mods:
+            if m.name == mod_name:
+                moved = [e for e in m.optional if e[0] == f]
+                m.optional = [e for e in m.optional if e[0] != f]
+                m.plugins.extend(moved)
+    return plan
+
+
+def apply_plugin_state(plan, mods_dir, backup_dir, log=None):
+    """Move the files: root <-> optional. Every move is recorded in the backup folder (plugin-moves.json) so it can
+    be undone by hand."""
+    moves = []
+    for f, mod_name, why in plan.get("to_optional", []):
+        src, dst_dir = os.path.join(mods_dir, mod_name, f), os.path.join(mods_dir, mod_name, "optional")
+        if os.path.isfile(src):
+            os.makedirs(dst_dir, exist_ok=True)
+            dst = os.path.join(dst_dir, f)
+            if os.path.exists(dst):
+                os.remove(dst)
+            shutil.move(src, dst)
+            moves.append({"plugin": f, "mod": mod_name, "from": "root", "to": "optional", "why": why})
+    for f, mod_name, why in plan.get("from_optional", []):
+        src, dst = os.path.join(mods_dir, mod_name, "optional", f), os.path.join(mods_dir, mod_name, f)
+        if os.path.isfile(src) and not os.path.exists(dst):
+            shutil.move(src, dst)
+            moves.append({"plugin": f, "mod": mod_name, "from": "optional", "to": "root", "why": why})
+    if moves:
+        json.dump(moves, open(os.path.join(backup_dir, "plugin-moves.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    if log:
+        log(f"plugins: {len(plan.get('activate', []))} activated, {len(plan.get('to_optional', []))} to Optional ESPs, "
+            f"{len(plan.get('from_optional', []))} back from Optional ESPs")
+    return moves
+
+
 def load_rules(profile_dir):
     """The generator's own rules: {"rules": [mod rules], "plugin_rules": [plugin rules], "pins": {mod: separator}}.
     A rule is {"type": after|before|first|last, "mod"|"plugin": name, "target": name, "enabled": bool}."""
@@ -987,6 +1110,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
         elif inside:
             under.add(nm)
     ours, theirs = load_rules(os.path.join(instance_dir, "profiles", profile))
+    plugin_state = plan_plugin_state(mods, os.path.join(instance_dir, "profiles", profile), theirs)
     place(mods, cats, read_mo2_categories(instance_dir), under, ours.get("pins"))
     new_rows, facts = build(mods, ours.get("rules"), keep_winners, mode, min_run)
     by_name = {m.name: m for m in mods}
@@ -994,6 +1118,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
             "category_updates": plan_mo2_category_updates(mods, cats, instance_dir),
             "plugin_groups": plugin_groups(new_rows, by_name), "bpm": bpm_installed(instance_dir),
+            "plugin_state": plugin_state,
             "plugins": plugins, "rules": ruler_rules(mods), "mod_rules": ours,
             "nexus": f"{len(cats)} categories cached, {got} of {asked} fetched now",
             "modlist_path": ml, "mods_dir": mods_dir}
@@ -1037,18 +1162,21 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
             os.makedirs(retired_dir, exist_ok=True)
             shutil.move(d, os.path.join(retired_dir, name))
     write_modlist(result["modlist_path"], result["rows"], result["header"])
+    apply_plugin_state(result.get("plugin_state", {}), mods_dir, backup, log)
     plugins = result["plugins"]
     open(os.path.join(prof, "loadorder.txt"), "wb").write(("# This file was automatically generated by Mod Organizer.\r\n" + "\r\n".join(plugins) + "\r\n").encode("utf-8"))
-    # plugins.txt keeps each plugin's enabled state: '*' where it was active before, new ones active
-    active = set()
+    # plugins.txt: every plugin left in a mod's root is active - what must not load now sits in optional - except the
+    # game's forced masters and CC content, which MO2 lists without a star and which keep the line they had
     p = os.path.join(prof, "plugins.txt")
+    forced_line = {}
     if os.path.isfile(p):
         for line in open(p, encoding="utf-8-sig"):
             line = line.strip()
-            if line.startswith("*"):
-                active.add(line[1:].lower())
+            k = line.lstrip("*").lower()
+            if k in BASE_MASTERS or k.startswith("cc"):
+                forced_line[k] = line
     open(p, "wb").write(("# This file was automatically generated by Mod Organizer.\r\n"
-                         + "\r\n".join(("*" if f.lower() in active or not active else "") + f for f in plugins) + "\r\n").encode("utf-8"))
+                         + "\r\n".join(forced_line.get(f.lower(), "*" + f) for f in plugins) + "\r\n").encode("utf-8"))
     ours, _ = load_rules(prof)
     ours["auto_master_rules"] = result["rules"]          # the facts the order was built on, for reading; never edited
     save_rules(prof, ours)
@@ -1119,6 +1247,8 @@ if mobase is not None:
             cl.addWidget(b_keep)
             self.tabs.addTab(conf_page, "Review")
             self.tabs.addTab(self.t_place, "Every placement")
+            self.t_plug = self._table(["Plugin", "Mod", "Action", "Why"])
+            self.tabs.addTab(self.t_plug, "Plugins")
             self.tabs.addTab(self._rules_tab(), "Rules")
             opts = QHBoxLayout()
             opts.addWidget(QLabel("Order:"))
@@ -1171,7 +1301,7 @@ if mobase is not None:
             v.addWidget(self.t_rules, 1)
             form = QHBoxLayout()
             self.r_kind = QComboBox()
-            self.r_kind.addItems(["after", "before", "first", "last", "pin", "plugin after", "plugin before", "plugin first", "plugin last"])
+            self.r_kind.addItems(["after", "before", "first", "last", "pin", "plugin after", "plugin before", "plugin first", "plugin last", "plugin off"])
             self.r_mod = QLineEdit()
             self.r_mod.setPlaceholderText("mod name - or plugin file name for a plugin rule")
             self.r_target = QLineEdit()
@@ -1288,6 +1418,8 @@ if mobase is not None:
                 f"{len(r['facts']['created'])} separator(s) created, {len(r['facts']['retired'])} retired - "
                 f"{len(r['facts']['absorbed'])} in a block of another category, {len(r['facts']['displaced'])} displaced by a master or a kept winner - "
                 f"{len(r['facts']['flips'])} override winner(s) would flip - {len(r['plugins'])} plugins ordered"
+                f" ({len(r.get('plugin_state', {}).get('activate', []))} to activate, {len(r.get('plugin_state', {}).get('to_optional', []))} to Optional ESPs, "
+                f"{len(r.get('plugin_state', {}).get('from_optional', []))} back from Optional ESPs)"
                 + (f" into {len(set(r.get('plugin_groups', {}).values()))} BPM groups" if r.get("bpm") else " (no Bethesda Plugin Manager: no groups)"))
             self._fill(self.t_moves, [(n, (o or "")[:-len("_separator")] if o else "", (w or "")[:-len("_separator")] if w else "", a, b) for n, o, w, a, b in r["moves"]])
             self._fill(self.t_seps, [(s[:-len("_separator")], "created") for s in r["facts"]["created"]] + [(s[:-len("_separator")], "retired (folder moved to the backup)") for s in r["facts"]["retired"]])
@@ -1295,7 +1427,13 @@ if mobase is not None:
             self._fill(self.t_conf, r["facts"]["flips"] + r["facts"]["advice"])
             self._fill(self.t_place, [(m.name, f"{index_tier(m.category, m)} " + TIER_HEADERS.get(index_tier(m.category, m), "NoDelete").strip("- ").title(), m.category, m.why) for m in mods])
             self._fill(self.t_rules, self._rules_rows())
-            self.b_apply.setEnabled(bool(r["moves"] or r["facts"]["created"] or r["facts"]["retired"]))
+            ps = r.get("plugin_state", {})
+            self._fill(self.t_plug, [(f, m, "activate", w) for f, m, w in ps.get("activate", [])]
+                       + [(f, m, "move to Optional ESPs", w) for f, m, w in ps.get("to_optional", [])]
+                       + [(f, m, "back from Optional ESPs, activate", w) for f, m, w in ps.get("from_optional", [])])
+            n_plug = sum(len(ps.get(k, [])) for k in ("activate", "to_optional", "from_optional"))
+            self.tabs.setTabText(self.tabs.indexOf(self.t_plug), f"Plugins ({n_plug})" if n_plug else "Plugins")
+            self.b_apply.setEnabled(bool(r["moves"] or r["facts"]["created"] or r["facts"]["retired"] or n_plug))
             self.status.setText("Nothing is written until Apply. Apply backs up modlist.txt, plugins.txt, loadorder.txt and the retired separators first.")
 
         def update_categories(self):
@@ -1537,8 +1675,12 @@ if __name__ == "__main__" and mobase is None:       # offline dry run: python MO
            "plugin_groups": res["plugin_groups"],
            "rows": res["rows"], "placements": [(m.name, m.category, m.why) for m in res["mods"] if not is_sep(m.name)]}
     json.dump(out, open(os.path.join(cache, "dry-run.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    out["plugin_state"] = res["plugin_state"]
+    json.dump(out, open(os.path.join(cache, "dry-run.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    ps = res["plugin_state"]
     print(res["nexus"]); print("moves", len(res["moves"]), "created", len(res["facts"]["created"]), "retired", len(res["facts"]["retired"]),
-                               "fixes", len(res["facts"]["fixes"]), "plugins", len(res["plugins"]))
+                               "fixes", len(res["facts"]["fixes"]), "plugins", len(res["plugins"]),
+                               "| activate", len(ps["activate"]), "to optional", len(ps["to_optional"]), "from optional", len(ps["from_optional"]))
 
 
 # --- fault handling (standing rule, 2026-09-23: every MO2 plugin of ours logs and arms faulthandler) ---------------
