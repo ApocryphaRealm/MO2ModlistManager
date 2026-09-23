@@ -1500,7 +1500,11 @@ if mobase is not None:
             self._fill(self.t_seps, [(s[:-len("_separator")], "created") for s in r["facts"]["created"]] + [(s[:-len("_separator")], "retired (folder moved to the backup)") for s in r["facts"]["retired"]])
             self._fill(self.t_disp, [(a, b, c, "") for a, b, c in r["facts"]["absorbed"]] + r["facts"]["displaced"])
             self._fill(self.t_conf, r["facts"]["flips"] + r["facts"]["advice"])
-            self.t_conf.selectAll()               # every review row selected by default; Keep then rules them all
+            # the box and the selection agree: ticked = every review row selected, unticked = none (the owner, 2026-09-23)
+            if self.c_keep.isChecked():
+                self.t_conf.selectAll()
+            else:
+                self.t_conf.clearSelection()
             self._fill(self.t_place, [(m.name, f"{index_tier(m.category, m)} " + TIER_HEADERS.get(index_tier(m.category, m), "NoDelete").strip("- ").title(), m.category, m.why) for m in mods])
             self._fill(self.t_rules, self._rules_rows())
             ps = r.get("plugin_state", {})
