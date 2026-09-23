@@ -1306,9 +1306,17 @@ if mobase is not None:
             cl.addWidget(QLabel("Where today's order disagrees with the index. Each row is a call to make once: keep today's "
                                 "winner (written as an 'after' rule, so it holds on every run) or let the index decide."))
             cl.addWidget(self.t_conf, 1)
+            row = QHBoxLayout()
+            b_all = QPushButton("Select all")
+            b_all.clicked.connect(self.t_conf.selectAll)
+            b_none = QPushButton("Select none")
+            b_none.clicked.connect(self.t_conf.clearSelection)
             b_keep = QPushButton("Keep today's winner for the selected rows (add rules)")
             b_keep.clicked.connect(self._keep_selected_winners)
-            cl.addWidget(b_keep)
+            row.addWidget(b_all)
+            row.addWidget(b_none)
+            row.addWidget(b_keep, 1)
+            cl.addLayout(row)
             self.tabs.addTab(conf_page, "Review")
             self.tabs.addTab(self.t_place, "Every placement")
             self.t_plug = self._table(["Plugin", "Mod", "Action", "Why"])
@@ -1427,8 +1435,11 @@ if mobase is not None:
                 return
             r = self._p.rules()
             table = self._result["facts"]["flips"] + self._result["facts"]["advice"]
+            have = {(x.get("type"), x.get("mod"), x.get("target")) for x in r.get("rules", [])}
             for i in rows:
                 w, l, _n, _k = table[i]
+                if ("after", w, l) in have:
+                    continue
                 r.setdefault("rules", []).append({"type": "after", "mod": w, "target": l, "enabled": True,
                                                   "comment": "kept today's winner (review)"})
             self._p.save_rules(r)
