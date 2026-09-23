@@ -651,6 +651,28 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     # --- displaced mods take the category they land in (blocks mode) ------------------------------------------------
     displaced = []
     absorbed = []
+    # displacement first, so the run merging below sees every mod's final category
+    displaced = []
+    cur = None
+    for m in (ordered if mode in ("blocks", "index") else []):
+        if m.category == NODELETE_SEP or norm(m.category) in FIXED_BLOCKS:
+            continue
+        gi = rank(m)[0]
+        if cur is None:
+            cur = m
+            continue
+        if gi < rank(cur)[0]:
+            # held here by an edge: name the latest predecessor that holds it
+            holders = [x for x in above.get(m.name, ()) if x in by_name]
+            why = ""
+            if holders:
+                h = max(holders, key=lambda x: ordered.index(by_name[x]))
+                why = reason.get((h, m.name), "")
+            displaced.append((m.name, m.category, cur.category, why))
+            m.category, m.why = cur.category, f"displaced under '{cur.category}': {why} ({m.why})"
+        else:
+            cur = m
+
     if mode in ("spine", "index"):
         # runs of one category over the kept order; the SHORTEST run is merged into the larger of its two neighbours
         # (whatever their category) until every run has at least min_run mods - so the separators stay few and each
@@ -713,30 +735,14 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             counts = Counter(m.category for m in run[1])
             label = counts.most_common(1)[0][0]
             run[0] = label
+            tier = run_tier(run)
             for m in run[1]:
+                # the whole run sits under one tier header: re-deriving the tier per mod from the block's label split a
+                # 16-mod tier-3 'Weapons' run in two when a member with a plugin re-derived as tier 4 (2026-09-22)
+                m.group = tier
                 if norm(m.category) != norm(label):
                     absorbed.append((m.name, m.category, label))
                     m.category, m.why = label, f"in a '{label}' block; its own category is different ({m.why})"
-    cur = None
-    for m in (ordered if mode in ("blocks", "index") else []):
-        if m.category == NODELETE_SEP or norm(m.category) in FIXED_BLOCKS:
-            continue
-        gi = rank(m)[0]
-        if cur is None:
-            cur = m
-            continue
-        if gi < rank(cur)[0]:
-            # held here by an edge: name the latest predecessor that holds it
-            holders = [x for x in above.get(m.name, ()) if x in by_name]
-            why = ""
-            if holders:
-                h = max(holders, key=lambda x: ordered.index(by_name[x]))
-                why = reason.get((h, m.name), "")
-            displaced.append((m.name, m.category, cur.category, why))
-            m.category, m.why = cur.category, f"displaced under '{cur.category}': {why} ({m.why})"
-        else:
-            cur = m
-
     # --- separators (a group header is written whenever the group changes; the learned order may interleave) --------
     rows = []
     cur_header, cur_cat = None, None
@@ -746,7 +752,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
         if k == NODELETE_SEP.lower():
             header = None
         elif mode == "index":
-            header = TIER_HEADERS[index_tier(m.category, m)]
+            header = TIER_HEADERS[m.group if m.group in TIER_HEADERS else index_tier(m.category, m)]
         else:
             gi = order.get(k, (other, 0))[0]
             header = headers[gi]
