@@ -268,7 +268,8 @@ def scan(mods_dir, rows, progress=None):
             for f in os.listdir(d):
                 if f.lower().endswith(PLUGIN_EXT) and os.path.isfile(os.path.join(d, f)):
                     masters, _desc, esm = read_header(os.path.join(d, f))
-                    m.plugins.append((f, masters, esm or f.lower().endswith(".esm")))
+                    # a .esl-EXTENSION file loads in the master block whatever its header says, as does a .esm
+                    m.plugins.append((f, masters, esm or f.lower().endswith((".esm", ".esl"))))
             if enabled:
                 m.files = scan_files(d)
         except OSError:
@@ -535,10 +536,15 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             return
         above.setdefault(y.name, set()).add(x.name)
         reason.setdefault((x.name, y.name), why)
+    # the owner of a plugin is the mod MO2 actually takes it from: the LOWEST enabled mod that ships it (a patch
+    # collection re-shipping a main plugin, "Cleaned Plugin" variants); anchoring to the upper copy put the child's
+    # edge on a mod whose file never loads (2026-09-22 audit: 25 plugins out of pane order for this reason)
     owner = {}
     for m in real:
         for f, _masters, _esm in m.plugins:
-            owner.setdefault(f.lower(), m)
+            k = f.lower()
+            if m.enabled or k not in owner:
+                owner[k] = m
     fixes = []
     for m in real:
         for f, masters, _esm in m.plugins:
@@ -806,19 +812,18 @@ def plugin_order(rows, mods_by_name, ruler_user_rules=()):
     """Plugins in pane order (ESMs first among themselves), then a stable topological pass so every master loads
     before its dependents and the generator's own before/after/first/last plugin rules hold."""
     import heapq
-    esm, esp, masters_of = [], [], {}
-    for nm, en in rows:
+    # a plugin shipped by two enabled mods is placed where its WINNING copy sits (the lower mod, the one MO2 loads),
+    # and that copy's header decides whether it is a master-block plugin (SGEyebrows.esp: flagged in one mod only)
+    winning, masters_of = {}, {}
+    for pos, (nm, en) in enumerate(rows):
         m = mods_by_name.get(nm)
         if not m or not en:
             continue
         for f, masters, is_esm in m.plugins:
-            (esm if is_esm else esp).append(f)
+            winning[f.lower()] = (pos, f, is_esm)
             masters_of[f.lower()] = [x.lower() for x in masters]
-    seen, base = set(), []
-    for f in esm + esp:
-        if f.lower() not in seen:
-            seen.add(f.lower())
-            base.append(f)
+    ordered = sorted(winning.values())
+    base = [f for _pos, f, is_esm in ordered if is_esm] + [f for _pos, f, is_esm in ordered if not is_esm]
     present = {f.lower(): f for f in base}
     edges = {}            # edges[y] = {x}: x loads before y
     for f in base:
