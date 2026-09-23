@@ -760,6 +760,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     rows = []
     cur_header, cur_cat = None, None
     written_headers = set()
+    block_uses = {}          # a category that heads more than one block gets a numbered name from its second block on
     for m in ordered:
         k = norm(m.category)
         if k == NODELETE_SEP.lower():
@@ -779,7 +780,11 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                 existing = [x.name for x in mods if is_sep(x.name) and re.sub(r"[\s\[\]\-_.]", "", x.name[:-len("_separator")]).lower() == "nodelete"]
                 rows.append((existing[0] if existing else sep_name(NODELETE_SEP), False))
             else:
-                rows.append((sep_name(m.category), False))
+                # the same category can head several blocks (five 'Utilities' runs in tier 0, split by masters); a
+                # repeated name is numbered - the owner, 2026-09-23: "there are duplicate plugin group names" - so every
+                # block, and so every BPM group made from it, has a name of its own
+                n = block_uses[norm(m.category)] = block_uses.get(norm(m.category), 0) + 1
+                rows.append((sep_name(m.category if n == 1 else f"{m.category} ({n})"), False))
             cur_cat = m.category
         rows.append((m.name, m.enabled))
     for m in mods:
@@ -1032,8 +1037,13 @@ def plugin_groups(rows, mods_by_name):
         m = mods_by_name.get(nm)
         if not m or not en or block is None:
             continue
-        for f, _masters, _esm in m.plugins:
-            groups.setdefault(f, block)
+        for f, _masters, is_esm in m.plugins:
+            # the game hoists every master-block plugin (.esm, .esl, ESM flag) above the first .esp, so a block's
+            # masters and its .esp files can never sit together; giving the masters their own group keeps each
+            # group in one piece instead of the same name heading two places in the right pane
+            # the LOWEST enabled mod shipping a plugin is the one MO2 loads, so its block is the plugin's group;
+            # taking the first (upper) mod's block put a one-plugin island of another group inside a block
+            groups[f] = block + " - Masters" if is_esm else block
     return groups
 
 
