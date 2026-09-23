@@ -31,6 +31,7 @@ import struct
 import zlib
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 # --- the taxonomy: group header -> the Nexus category names under it, in load order ----------------------------------
@@ -229,6 +230,24 @@ def index_tier(category, mod=None):
     return INDEX_TIER.get(k, 3)
 
 
+# --- COMMUNITY VERDICTS (the owner, 2026-09-23: a "send rules" feature - users share the verdicts they hold for mods we
+# do not have, and the classifier's weighting learns from them; his own copy carries the receiving end). Rule 67: a
+# verdict is scoring material, never an exception - it enters as ONE MORE VOTE SOURCE, weighted by how many users
+# agree, and the Placement tab shows it beside the others. What leaves a user's machine is exactly DISCLOSURE below.
+VERDICTS_REPO = "ApocryphaRealm/MO2ModlistManager"
+VERDICTS_LABEL = "verdicts"
+VERDICTS_ISSUES_API = f"https://api.github.com/repos/{VERDICTS_REPO}/issues"
+VERDICTS_ISSUE_NEW = f"https://github.com/{VERDICTS_REPO}/issues/new"
+VERDICTS_FILE = "community-verdicts.json"        # the pooled counts the owner's copy reads: {core name: {leaf: users}}
+VERDICTS_INBOX = "community-inbox"               # a folder of dropped-in payload files, read by the fetch as well
+W_COMMUNITY_EACH, W_COMMUNITY_CAP = 1.0, 3.0     # one user is a hint, three agreeing users weigh like a strong record vote
+DISCLOSURE = ("Share verdicts sends this and nothing else: for each mod whose MO2 category you set yourself and the "
+              "evidence alone would have placed elsewhere - the mod's name, its Nexus id, the category you chose, the "
+              "category the evidence chose with its top votes, and a coarse summary of that evidence (how many plugins, "
+              "whether it ships a DLL or animations, how many files, which record kinds). No file paths, no user names, "
+              "no machine or account identity. It is off unless you turn it on, and you see every row before it goes. "
+              "Without a drop-box address in the plugin settings it opens a GitHub issue in your browser, prefilled, "
+              "for you to post yourself.")
 GRAPHQL = "https://api.nexusmods.com/v2/graphql"
 BATCH = 20
 GAME_IDS = {"skyrimspecialedition": 1704, "skyrim": 110, "fallout4": 1151, "starfield": 4187, "oblivion": 101, "falloutnv": 130}
@@ -911,7 +930,7 @@ def decide(m, votes, nexus_cat=""):
         best_reason.setdefault(k, cat)
     if not totals:
         return None, "", votes
-    prio = {"mo2": 0, "structure": 1, "scope": 2, "records": 3, "rule": 4, "paths": 5, "files": 6, "text": 7, "tag": 8}
+    prio = {"mo2": 0, "community": 1, "structure": 1, "scope": 2, "records": 3, "rule": 4, "paths": 5, "files": 6, "text": 7, "tag": 8}
     def first_src(k):
         return min((prio.get(v[0], 9) for v in votes if norm(v[1]) == k), default=9)
     win = max(totals, key=lambda k: (round(totals[k], 3), -first_src(k)))
@@ -1200,7 +1219,7 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 class Mod:
     __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records",
-                 "votes", "text", "decided", "refs")
+                 "votes", "text", "decided", "refs", "raw_votes")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
@@ -1210,6 +1229,7 @@ class Mod:
         self.twin = None                                            # a test build: the name of the copy it supersedes
         self.records = {}                                           # {record type: new records its plugins add} for the types below
         self.votes = []                                             # the evidence model: [(source, category, weight, reason)]
+        self.raw_votes = []                                         # the same before decide()'s rules, for the verdict comparison
         self.decided = None                                         # the category the evidence decided, before any displacement or merge
         self.refs = None                                            # what the plugins reference: cells, worldspaces (plugin_refs)
         self.text = ""                                              # what the mod says about itself (plugin descriptions, readme, FOMOD, Nexus description)
@@ -1369,8 +1389,9 @@ def fetch_categories(mod_ids, cache_path, domain="skyrimspecialedition", progres
 
 
 # --- placing every mod ----------------------------------------------------------------------------------------------------
-def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=None):
-    """Set .category / .why on every mod. Returns nothing; every decision is a fact the dialog can show."""
+def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=None, community=None):
+    """Set .category / .why on every mod. Returns nothing; every decision is a fact the dialog can show.
+    community: {core name: {leaf: users}} pooled from other users' verdicts (fetch_community_verdicts) - one more vote."""
     order, _headers = category_order()
     pins = pins or {}
     owner_of = {}                      # plugin file -> the mod MO2 takes it from (the lowest enabled one that ships it)
@@ -1422,6 +1443,13 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             continue
         # THE EVIDENCE MODEL: every signal votes, the rules adjust, the heaviest category wins (the owner, 2026-09-23)
         m.votes = gather_votes(m, cat, mo2_category_names, structural_patch_reason(m, owner_of, framework_masters, owner_tier), nexus_names)
+        m.raw_votes = [tuple(v) for v in m.votes]
+        cv = (community or {}).get(_core_name(m.name))
+        if cv:
+            leaf, users = max(cv.items(), key=lambda kv: kv[1])
+            if norm(leaf) in {norm(x) for x in LEAVES}:
+                m.votes = list(m.votes) + [("community", canonical(leaf), min(W_COMMUNITY_CAP, W_COMMUNITY_EACH * users),
+                                            f"{users} user(s) filed this leaf")]
         if any(f.lower() in framework_masters for f, _, _ in m.plugins):
             n_dep = max(len(dependents.get(f.lower(), ())) for f, _, _ in m.plugins)
             m.votes = list(m.votes) + [("structure", "__framework__", 0.0, f"a framework: {n_dep} mods depend on its plugin")]
@@ -2347,6 +2375,189 @@ def check_expectations(mods):
     return out
 
 
+def collect_verdicts(mods, mo2_names):
+    """The user's verdicts: every mod whose MO2 category HE set (one of the tree's leaves, not a Nexus name - the same
+    test gather_votes applies) and which the evidence alone - every vote but his - would have placed elsewhere. Each row
+    is exactly what DISCLOSURE says and nothing more."""
+    out = []
+    for m in mods:
+        if is_sep(m.name) or not m.raw_votes:
+            continue
+        user = next((v for v in m.raw_votes if v[0] == "mo2" and norm(v[1]) != norm("Test Builds")), None)
+        if user is None:
+            continue
+        evidence = [v for v in m.raw_votes if v[0] not in ("mo2", "community")]
+        cat, why, adjusted = decide(m, evidence)
+        if not cat or norm(cat) == norm(user[1]):
+            continue
+        rec = m.records or {}
+        top = sorted(adjusted, key=lambda v: -v[2])[:4]
+        out.append({
+            "mod": m.name, "nexus_id": m.nexus_id or 0, "user_leaf": canonical(user[1]), "evidence_leaf": cat,
+            "evidence": [f"{v[0]} {v[1]} {v[2]:.1f} - {v[3]}" for v in top],
+            "summary": {"plugins": len(m.plugins), "dll": any(f.endswith(".dll") for f in m.files or ()),
+                        "hkx": any(f.endswith(".hkx") for f in m.files or ()), "files": len(m.files or ()),
+                        "records": dict(sorted(rec.items(), key=lambda kv: -kv[1])[:6])},
+        })
+    return out
+
+
+def verdicts_payload(rows):
+    return {"plugin": "MO2 Modlist Manager", "version": __version__, "taxonomy": len(LEAVES),
+            "sent": time.strftime("%Y-%m-%d"), "verdicts": rows}
+
+
+def _issue_url(payload, limit=2500):
+    """A prefilled GitHub issue for the browser: as many rows as fit the URL, the rest in the saved file."""
+    rows = payload["verdicts"]
+    keep = []
+    for r in rows:
+        trial = dict(payload, verdicts=keep + [r])
+        if len(json.dumps(trial, ensure_ascii=False, separators=(",", ":"))) > limit:
+            break
+        keep.append(r)
+    body = (f"Verdicts from MO2 Modlist Manager {__version__}: {len(keep)} of {len(rows)} mod(s)"
+            + ("" if len(keep) == len(rows) else " - the rest are in the saved file the plugin named; drag it into this issue")
+            + "\n\n```json\n" + json.dumps(dict(payload, verdicts=keep), ensure_ascii=False, separators=(",", ":")) + "\n```")
+    q = urllib.parse.urlencode({"labels": VERDICTS_LABEL, "title": f"Verdicts: {len(rows)} mod(s)", "body": body})
+    return VERDICTS_ISSUE_NEW + "?" + q, len(keep)
+
+
+def send_verdicts(rows, cache_dir, endpoint="", log=None):
+    """Save the payload beside the cache, then either POST it to the drop box (an https address the user set) or
+    build the GitHub issue URL for the browser. Returns (mode, message, url): mode is 'posted', 'browser' or 'failed'."""
+    payload = verdicts_payload(rows)
+    folder = os.path.join(cache_dir, "verdicts-sent")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, time.strftime("verdicts-%Y%m%d-%H%M%S.json"))
+    json.dump(payload, open(path, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    if endpoint and endpoint.lower().startswith("https://"):
+        try:
+            req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"),
+                                         headers={"Content-Type": "application/json", "User-Agent": "MO2ModlistManager/" + __version__})
+            with urllib.request.urlopen(req, timeout=20) as fh:
+                code = fh.status
+            if log:
+                log(f"verdicts: {len(rows)} row(s) posted to the drop box (HTTP {code}); copy at {path}")
+            return "posted", f"{len(rows)} verdict(s) sent (HTTP {code}). A copy is at {path}.", ""
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            if log:
+                log(f"verdicts: post failed ({exc!r}); copy at {path}")
+            return "failed", f"Sending failed: {exc}. The file is at {path} - post it as a GitHub issue instead.", ""
+    url, kept = _issue_url(payload)
+    if log:
+        log(f"verdicts: {len(rows)} row(s) saved to {path}; GitHub issue prepared with {kept} of them")
+    note = "" if kept == len(rows) else f" Only {kept} of {len(rows)} fit the prefilled issue - drag the saved file into it."
+    return "browser", f"A GitHub issue opens in your browser with the verdicts prefilled; post it to send.{note} Saved: {path}", url
+
+
+_JSON_BLOCK = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
+_ATTACHMENT = re.compile(r"https://github\.com/user-attachments/files/[^\s)\]]+\.json", re.I)
+
+
+def _get_json(url, log=None):
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "MO2ModlistManager/" + __version__, "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=30) as fh:
+            return json.loads(fh.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        if log:
+            log(f"verdicts: fetch {url[:80]} failed ({exc!r})")
+        return None
+
+
+def _payload_rows(obj):
+    """Rows from a payload, a bare list of rows, or a drop box's {"payloads": [...]} / [...]."""
+    if isinstance(obj, dict):
+        if isinstance(obj.get("verdicts"), list):
+            return [r for r in obj["verdicts"] if isinstance(r, dict) and r.get("mod") and r.get("user_leaf")]
+        if isinstance(obj.get("payloads"), list):
+            return [r for pl in obj["payloads"] for r in _payload_rows(pl)]
+    if isinstance(obj, list):
+        rows = []
+        for x in obj:
+            if isinstance(x, dict) and x.get("mod") and x.get("user_leaf"):
+                rows.append(x)
+            else:
+                rows.extend(_payload_rows(x))
+        return rows
+    return []
+
+
+def fetch_community_verdicts(cache_dir, endpoint="", log=None):
+    """The receiving end (the owner's copy): read every 'verdicts' issue on the repo, the drop box if one is set, and
+    any payload file dropped into the inbox folder; pool them as {core name: {leaf: distinct submitters}} and write
+    VERDICTS_FILE. Submitters are counted, never stored. Returns a summary line."""
+    pooled = {}          # core -> leaf -> set(submitter key)
+    n_items = 0
+
+    def add(rows, who):
+        nonlocal n_items
+        for r in rows:
+            leaf = canonical(str(r.get("user_leaf", "")))
+            if norm(leaf) not in {norm(x) for x in LEAVES}:
+                continue
+            core = _core_name(str(r.get("mod", "")))
+            if len(core) < 4:
+                continue
+            pooled.setdefault(core, {}).setdefault(leaf, set()).add(who)
+            n_items += 1
+    issues = _get_json(f"{VERDICTS_ISSUES_API}?labels={VERDICTS_LABEL}&state=all&per_page=100", log) or []
+    n_issues = 0
+    for it in issues if isinstance(issues, list) else []:
+        body = it.get("body") or ""
+        who = f"issue:{it.get('number')}"
+        rows = []
+        for blk in _JSON_BLOCK.findall(body):
+            try:
+                rows.extend(_payload_rows(json.loads(blk)))
+            except ValueError:
+                continue
+        for url in _ATTACHMENT.findall(body):
+            rows.extend(_payload_rows(_get_json(url, log) or {}))
+        if rows:
+            n_issues += 1
+            add(rows, who)
+    n_box = 0
+    if endpoint and endpoint.lower().startswith("https://"):
+        got = _get_json(endpoint, log)
+        if got is not None:
+            items = got.get("payloads") if isinstance(got, dict) and isinstance(got.get("payloads"), list) else (got if isinstance(got, list) else [got])
+            for i, pl in enumerate(items):
+                rows = _payload_rows(pl)
+                if rows:
+                    n_box += 1
+                    add(rows, f"box:{i}")
+    n_files = 0
+    inbox = os.path.join(cache_dir, VERDICTS_INBOX)
+    if os.path.isdir(inbox):
+        for f in sorted(os.listdir(inbox)):
+            if f.lower().endswith(".json"):
+                try:
+                    rows = _payload_rows(json.load(open(os.path.join(inbox, f), encoding="utf-8")))
+                except (OSError, ValueError):
+                    continue
+                if rows:
+                    n_files += 1
+                    add(rows, f"file:{f}")
+    out = {core: {leaf: len(who) for leaf, who in leaves.items()} for core, leaves in pooled.items()}
+    os.makedirs(cache_dir, exist_ok=True)
+    json.dump(out, open(os.path.join(cache_dir, VERDICTS_FILE), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    msg = (f"Community verdicts: {len(out)} mod(s) from {n_issues} issue(s), {n_box} drop-box payload(s), {n_files} inbox file(s) "
+           f"- {n_items} row(s) pooled into {VERDICTS_FILE}")
+    if log:
+        log(msg)
+    return msg
+
+
+def load_community(cache_dir):
+    try:
+        d = json.load(open(os.path.join(cache_dir, VERDICTS_FILE), encoding="utf-8"))
+        return {k: v for k, v in d.items() if isinstance(v, dict)} if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, min_run=2):
     """Everything up to (not including) writing. Returns a dict the dialog and the offline runner both use."""
     mods_dir = os.path.join(instance_dir, "mods")
@@ -2364,9 +2575,13 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
             under.add(nm)
     ours, theirs = load_rules(os.path.join(instance_dir, "profiles", profile))
     plugin_state = plan_plugin_state(mods, os.path.join(instance_dir, "profiles", profile), theirs)
-    place(mods, cats, read_mo2_categories(instance_dir), under, ours.get("pins"))
+    community = load_community(cache_dir)
+    mo2_names = read_mo2_categories(instance_dir)
+    place(mods, cats, mo2_names, under, ours.get("pins"), community)
     new_rows, facts = build(mods, ours.get("rules"), min_run)
     facts["expectations"] = check_expectations(mods)
+    facts["community"] = len(community)
+    facts["verdicts"] = collect_verdicts(mods, mo2_names)
     by_name = {m.name: m for m in mods}
     plugins = plugin_order(new_rows, by_name, theirs)
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
@@ -2455,19 +2670,78 @@ except ImportError:      # the offline runner
 
 if mobase is not None:
     try:
-        from PyQt6.QtCore import QSize, Qt, QTimer
-        from PyQt6.QtGui import QAction, QIcon, QKeySequence, QShortcut
+        from PyQt6.QtCore import QSize, Qt, QTimer, QUrl
+        from PyQt6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QShortcut
         from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView,
-                                     QLabel, QLineEdit, QMenu, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
+                                     QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
                                      QToolButton, QTreeView, QVBoxLayout, QWidget)
     except ImportError:
-        from PyQt5.QtCore import QSize, Qt, QTimer
-        from PyQt5.QtGui import QIcon, QKeySequence
+        from PyQt5.QtCore import QSize, Qt, QTimer, QUrl
+        from PyQt5.QtGui import QDesktopServices, QIcon, QKeySequence
         from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView,
-                                     QLabel, QLineEdit, QMenu, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
+                                     QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
                                      QToolButton, QTreeView, QVBoxLayout, QWidget)
         from PyQt5.QtWidgets import QAction
+
+    class VerdictsDialog(QDialog):
+        """Share verdicts: the disclosure, every row that would leave, one Send. Nothing is sent from anywhere else."""
+        def __init__(self, plugin, rows, parent=None):
+            super().__init__(parent)
+            self._p, self._rows = plugin, rows
+            self.setWindowTitle("Share verdicts")
+            self.resize(900, 560)
+            v = QVBoxLayout(self)
+            note = QLabel(DISCLOSURE)
+            note.setWordWrap(True)
+            v.addWidget(note)
+            self.t = QTableWidget(0, 3)
+            self.t.setHorizontalHeaderLabels(["Mod", "Your category", "The evidence said"])
+            self.t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self.t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            self.t.setRowCount(len(rows))
+            for i, r in enumerate(rows):
+                for j, val in enumerate((r["mod"], r["user_leaf"], r["evidence_leaf"])):
+                    self.t.setItem(i, j, QTableWidgetItem(str(val)))
+            v.addWidget(self.t, 1)
+            self.cb_auto = QCheckBox("Share automatically after each Apply")
+            self.cb_auto.setChecked(bool(self._p.setting("share_after_apply", False)))
+            v.addWidget(self.cb_auto)
+            self.status = QLabel("" if rows else "No verdicts: every category you set yourself agrees with the evidence, or none is set.")
+            self.status.setWordWrap(True)
+            v.addWidget(self.status)
+            b = QHBoxLayout()
+            b.addStretch(1)
+            self.b_copy = QPushButton("Copy JSON")
+            self.b_copy.setToolTip("Copy the full payload to the clipboard, to paste into an issue yourself")
+            self.b_send = QPushButton("Send")
+            self.b_cancel = QPushButton("Close")
+            for x in (self.b_copy, self.b_send, self.b_cancel):
+                b.addWidget(x)
+            v.addLayout(b)
+            self.b_copy.clicked.connect(self.copy_json)
+            self.b_send.clicked.connect(self.send)
+            self.b_cancel.clicked.connect(self.close)
+            self.cb_auto.toggled.connect(lambda on: self._p.set_setting("share_after_apply", bool(on)))
+            self.b_send.setEnabled(bool(rows))
+            self.b_copy.setEnabled(bool(rows))
+
+        def copy_json(self):
+            try:
+                QApplication.clipboard().setText(json.dumps(verdicts_payload(self._rows), ensure_ascii=False, indent=1))
+                self.status.setText(f"{len(self._rows)} verdict(s) copied as JSON.")
+            except Exception as exc:  # noqa: BLE001
+                self.status.setText(f"Copy failed: {exc}")
+
+        def send(self):
+            self.b_send.setEnabled(False)
+            self.status.setText("Sending...")
+            QApplication.processEvents()
+            mode, msg, url = self._p.send_verdicts(self._rows)
+            self.status.setText(msg)
+            if mode == "browser" and url:
+                QDesktopServices.openUrl(QUrl(url))
+            self.b_send.setEnabled(mode == "failed")
 
     class RulerDialog(QDialog):
         def __init__(self, plugin, parent=None):
@@ -2522,6 +2796,11 @@ if mobase is not None:
             self.b_cats.setToolTip("Write each mod's DECIDED category (every signal weighed: Nexus, records, files, its own words) into its meta.ini as its MO2 category. A category you set yourself is left alone.")
             self.b_cats.clicked.connect(self.update_categories)
             buttons.addWidget(self.b_cats)
+            self.b_verdicts = QPushButton("Fetch community verdicts" if self._p.is_owner() else "Share verdicts...")
+            self.b_verdicts.setToolTip("Read the verdicts other users have shared and add them to the evidence as a vote" if self._p.is_owner()
+                                       else DISCLOSURE)
+            self.b_verdicts.clicked.connect(self.verdicts)
+            buttons.addWidget(self.b_verdicts)
             self.b_refresh = QPushButton("Compute again")
             self.b_apply = QPushButton("Apply")
             self.b_close = QPushButton("Close")
@@ -2689,7 +2968,9 @@ if mobase is not None:
                 f"{len(r['facts'].get('rules_ignored', []))} rule(s) ignored as contradictory - {len(r['plugins'])} plugins ordered"
                 f" ({len(r.get('plugin_state', {}).get('activate', []))} to activate, {len(r.get('plugin_state', {}).get('to_optional', []))} to Optional ESPs, "
                 f"{len(r.get('plugin_state', {}).get('from_optional', []))} back from Optional ESPs)"
-                + (f" into {len(set(r.get('plugin_groups', {}).values()))} BPM groups" if r.get("bpm") else " (no Bethesda Plugin Manager: no groups)"))
+                + (f" into {len(set(r.get('plugin_groups', {}).values()))} BPM groups" if r.get("bpm") else " (no Bethesda Plugin Manager: no groups)")
+                + (f" - {r['facts'].get('community', 0)} mod(s) carry community verdicts" if r['facts'].get('community') else "")
+                + (f" - {len(r['facts'].get('verdicts', []))} verdict(s) of yours the evidence disagrees with" if r['facts'].get('verdicts') else ""))
             self._fill(self.t_moves, [(n, (o or "")[:-len("_separator")] if o else "", (w or "")[:-len("_separator")] if w else "", a, b) for n, o, w, a, b in r["moves"]])
             self._fill(self.t_seps, [(s[:-len("_separator")], "created") for s in r["facts"]["created"]] + [(s[:-len("_separator")], "retired (folder moved to the backup)") for s in r["facts"]["retired"]])
             self._fill(self.t_disp, [(a, b, c, "") for a, b, c in r["facts"]["absorbed"]] + r["facts"]["displaced"])
@@ -2705,6 +2986,25 @@ if mobase is not None:
             self.tabs.setTabText(self.tabs.indexOf(self.t_plug), f"Plugins ({n_plug})" if n_plug else "Plugins")
             self.b_apply.setEnabled(bool(r["moves"] or r["facts"]["created"] or r["facts"]["retired"] or n_plug))
             self.status.setText("Nothing is written until Apply. Apply backs up modlist.txt, plugins.txt, loadorder.txt and the retired separators first.")
+
+        def verdicts(self):
+            if not self._result:
+                return
+            if self._p.is_owner():
+                self.status.setText("Fetching community verdicts...")
+                QApplication.processEvents()
+                try:
+                    msg = fetch_community_verdicts(self._p._cache_dir(), self._p.setting("verdicts_endpoint", ""), self._p._log)
+                except Exception as exc:  # noqa: BLE001
+                    self._p._log(f"fetch verdicts failed: {exc!r}")
+                    self.status.setText(f"Fetch failed: {exc}")
+                    return
+                self.status.setText(msg + " - computing again with them as a vote.")
+                QApplication.processEvents()
+                self.compute()
+                return
+            rows = self._result["facts"].get("verdicts", [])
+            VerdictsDialog(self._p, rows, self).exec()
 
         def update_categories(self):
             if not self._result:
@@ -2735,6 +3035,13 @@ if mobase is not None:
             except Exception as exc:  # noqa: BLE001
                 self._p._log(f"apply failed: {exc!r}")
                 self.status.setText(f"Failed: {exc}")
+                return
+            rows = self._result["facts"].get("verdicts", [])
+            if rows and not self._p.is_owner() and self._p.setting("share_after_apply", False):
+                mode, msg, url = self._p.send_verdicts(rows)
+                self.status.setText(self.status.text() + " " + msg)
+                if mode == "browser" and url:
+                    QDesktopServices.openUrl(QUrl(url))
 
     class MO2ModlistManager(mobase.IPluginTool):
         def __init__(self):
@@ -2821,7 +3128,47 @@ if mobase is not None:
             return True
 
         def settings(self):
-            return []
+            return [
+                mobase.PluginSetting("role", "user (share your verdicts) or owner (the receiving end: fetch and pool them)", "user"),
+                mobase.PluginSetting("share_after_apply", "Share verdicts automatically after each Apply (off: only from the button)", False),
+                mobase.PluginSetting("verdicts_endpoint", "https address of a drop box to POST verdicts to / to fetch pooled payloads from; "
+                                     "empty: a prefilled GitHub issue opens in your browser instead", ""),
+                mobase.PluginSetting("disclosed", "The sharing disclosure has been shown once at startup", False),
+            ]
+
+        def setting(self, key, default):
+            try:
+                v = self._organizer.pluginSetting(self.name(), key)
+                return default if v is None else v
+            except Exception:  # noqa: BLE001
+                return default
+
+        def set_setting(self, key, value):
+            try:
+                self._organizer.setPluginSetting(self.name(), key, value)
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"setting {key}: {exc!r}")
+
+        def is_owner(self):
+            return str(self.setting("role", "user")).strip().lower() == "owner"
+
+        def send_verdicts(self, rows):
+            try:
+                return send_verdicts(rows, self._cache_dir(), str(self.setting("verdicts_endpoint", "") or ""), self._log)
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"send verdicts failed: {exc!r}")
+                return "failed", f"Sending failed: {exc}", ""
+
+        def disclose_once(self):
+            """The privacy note, once, before the first dialog on a user's copy: sharing is off until turned on."""
+            if self.is_owner() or self.setting("disclosed", False):
+                return
+            try:
+                QMessageBox.information(self._parent, "MO2 Modlist Manager - sharing verdicts",
+                                        DISCLOSURE + "\n\nYou will find it under 'Share verdicts...' in the dialog. Nothing is shared until you press Send there.")
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"disclosure: {exc!r}")
+            self.set_setting("disclosed", True)
 
         def displayName(self):
             return "MO2 Modlist Manager"
@@ -2925,6 +3272,7 @@ if mobase is not None:
 
         def display(self):
             try:
+                self.disclose_once()
                 RulerDialog(self, self._parent).exec()
             except Exception as exc:  # noqa: BLE001
                 self._log(f"display failed: {exc!r}")
