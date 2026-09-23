@@ -930,12 +930,26 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
         if os.path.isfile(p):
             shutil.copy2(p, os.path.join(backup, f))
     mods_dir = result["mods_dir"]
+    # a new separator takes the colour the existing ones use (the most common color= line among them); without it
+    # MO2 draws its default grey - the owner, 2026-09-22: "It changed all the separators' colors to gray instead of
+    # black" after 151 of his black separators were retired and 40 colourless ones created
+    colours = {}
+    for name in os.listdir(mods_dir):
+        if name.endswith("_separator"):
+            try:
+                for line in open(os.path.join(mods_dir, name, "meta.ini"), encoding="utf-8", errors="ignore"):
+                    if line.startswith("color="):
+                        colours[line.strip()] = colours.get(line.strip(), 0) + 1
+            except OSError:
+                pass
+    colour = max(colours, key=colours.get) if colours else None
     for name in result["facts"]["created"]:
         d = os.path.join(mods_dir, name)
         if not os.path.isdir(d):
             os.makedirs(d)
+            head = "[General]\n" + (colour + "\n" if colour else "")
             open(os.path.join(d, "meta.ini"), "w", encoding="utf-8").write(
-                "[General]\nmodid=0\nversion=\nnewestVersion=\ncategory=0\ninstallationFile=\n\n[installedFiles]\nsize=0\n")
+                head + "modid=0\nversion=\nnewestVersion=\ncategory=0\ninstallationFile=\n\n[installedFiles]\nsize=0\n")
     retired_dir = os.path.join(backup, "retired-separators")
     for name in result["facts"]["retired"]:
         d = os.path.join(mods_dir, name)
