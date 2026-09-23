@@ -2401,15 +2401,16 @@ except ImportError:      # the offline runner
 if mobase is not None:
     try:
         from PyQt6.QtCore import QSize, Qt, QTimer
-        from PyQt6.QtGui import QAction, QIcon
+        from PyQt6.QtGui import QAction, QIcon, QKeySequence, QShortcut
         from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView,
-                                     QLabel, QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
+                                     QLabel, QLineEdit, QMenu, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
                                      QToolButton, QTreeView, QVBoxLayout, QWidget)
     except ImportError:
         from PyQt5.QtCore import QSize, Qt, QTimer
-        from PyQt5.QtGui import QIcon
+        from PyQt5.QtGui import QIcon, QKeySequence
+        from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView,
-                                     QLabel, QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
+                                     QLabel, QLineEdit, QMenu, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
                                      QToolButton, QTreeView, QVBoxLayout, QWidget)
         from PyQt5.QtWidgets import QAction
 
@@ -2557,7 +2558,45 @@ if mobase is not None:
             t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
             t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
             t.verticalHeader().setVisible(False)
+            # copy and paste (the owner, 2026-09-23): whole rows select; Ctrl+C copies the selected rows as tab-separated
+            # text; the right-click menu offers the rows, the mod names alone, or the whole table
+            if t.selectionMode() == QAbstractItemView.SelectionMode.SingleSelection:
+                t.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+            t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            t.customContextMenuRequested.connect(lambda pos, tt=t: self._table_menu(tt, pos))
+            sc = QShortcut(QKeySequence.StandardKey.Copy, t)
+            sc.setContext(Qt.ShortcutContext.WidgetShortcut)
+            sc.activated.connect(lambda tt=t: self._copy_table(tt, "rows"))
             return t
+
+        def _copy_table(self, t, what):
+            """what: 'rows' (selected, with the header when several), 'names' (first column of the selection), 'all'."""
+            cols = t.columnCount()
+            header = [t.horizontalHeaderItem(j).text() if t.horizontalHeaderItem(j) else "" for j in range(cols)]
+            rows = sorted({i.row() for i in t.selectedIndexes()}) if what != "all" else list(range(t.rowCount()))
+            if not rows and what != "all":
+                rows = list(range(t.rowCount()))
+
+            def cell(i, j):
+                it = t.item(i, j)
+                return (it.text() if it else "").replace("\t", " ").replace("\r", " ").replace("\n", " ")
+            if what == "names":
+                lines = [cell(i, 0) for i in rows]
+            else:
+                lines = ["\t".join(cell(i, j) for j in range(cols)) for i in rows]
+                if len(rows) > 1 or what == "all":
+                    lines.insert(0, "\t".join(header))
+            QApplication.clipboard().setText("\n".join(lines))
+            self.status.setText(f"Copied {len(rows)} row(s)" + (" (mod names only)" if what == "names" else "") + " to the clipboard.")
+
+        def _table_menu(self, t, pos):
+            menu = QMenu(t)
+            n = len({i.row() for i in t.selectedIndexes()})
+            menu.addAction(f"Copy selected row{'s' if n != 1 else ''} ({n})\tCtrl+C").triggered.connect(lambda _=False: self._copy_table(t, "rows"))
+            menu.addAction(f"Copy mod name{'s' if n != 1 else ''} only").triggered.connect(lambda _=False: self._copy_table(t, "names"))
+            menu.addAction(f"Copy all {t.rowCount()} rows with header").triggered.connect(lambda _=False: self._copy_table(t, "all"))
+            menu.exec(t.viewport().mapToGlobal(pos))
 
         def _fill(self, t, rows):
             t.setRowCount(len(rows))
