@@ -706,8 +706,8 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                     absorbed.append((m.name, m.category, label))
                     m.category, m.why = label, f"in a '{label}' block; its own category is different ({m.why})"
     cur = None
-    for m in (ordered if mode == "blocks" else []):
-        if m.category == NODELETE_SEP:
+    for m in (ordered if mode in ("blocks", "index") else []):
+        if m.category == NODELETE_SEP or norm(m.category) in FIXED_BLOCKS:
             continue
         gi = rank(m)[0]
         if cur is None:
