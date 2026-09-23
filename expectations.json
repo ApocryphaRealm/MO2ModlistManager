@@ -140,5 +140,13 @@
   "Faster Decompression": "Performance Optimization",
   "Load Time Profiler": "Performance Optimization",
   "Custom Difficulty UI": "Gameplay - General",
-  "Fix Note icon for SkyUI (SKSE64 plugin)": "Bug Fixes"
+  "Fix Note icon for SkyUI (SKSE64 plugin)": "Bug Fixes",
+  "Simple Dual Sheath for": "Equipment Positioning",
+  "Immersive Equipment Displays": "Equipment Positioning",
+  "Sell Unusual Gems - Stones of Barenziah": "Quests and Adventures",
+  "Acquisitive Soul Gems Multithreaded": "Gameplay - General",
+  "Simple Degradation - A Durability Mod": [
+    "Gameplay - General",
+    "Gameplay - Combat"
+  ]
 }

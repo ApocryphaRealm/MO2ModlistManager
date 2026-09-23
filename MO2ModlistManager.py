@@ -69,7 +69,8 @@ TAXONOMY = [
         ("Magic - Spells & Enchantments", None), ("Class, Perks, Powers and Blessings", None), ("Shouts", None),
         ("Clothing and Accessories", None), ("New Clothing", None), ("Armour", None), ("New Armour", None),
         ("Armour - Shields", None), ("Weapons", None), ("New Weapons", None), ("Weapons and Armour", None),
-        ("New Weapons and Armour", None), ("Shape", None), ("Items and Objects - World", None),
+        ("New Weapons and Armour", None), ("Shape", None), ("Equipment Positioning", None),
+        ("Items and Objects - World", None),
         ("Collectables, Treasure Hunts, and Puzzles", None),
         ("Creatures", ["Appearance", "Behaviour", "Mounts", "New Creatures"]),
         ("NPC", ["Appearance", "AI and Behaviour", "Followers", "Other"]), ("Player", ["Appearance", "Other"]),
@@ -397,8 +398,10 @@ W_NAME_DEFINED = 6.0     # a leaf the owner defined by its name, hit in the mod'
 NAME_DEFINED = {"camera", "dialogue", "improved controls", "physics", "performance optimization", "alternate start", "face", "hair",
                 "pbr textures", "environment - seasons", "lighting", "unofficial patches", "ui overhaul",
                 "essential engine fixes", "frameworks", "models and textures - interiors", "models and textures - clutter",
-                "models and textures - furniture", "environment - architecture", "player homes", "gameplay - general", "utilities"}
+                "models and textures - furniture", "environment - architecture", "player homes", "gameplay - general", "utilities",
+                "equipment positioning"}
 TIER0 = {norm(c) for c in TIERS[0]}            # the leaves a mod's own documents may not vote for: a readme names its requirements
+TARGET_IN_SUBJECT = {"equipment positioning"}  # a "for X" subject naming these is what the mod targets (an IED add-on), not what it is
 TEXT_NAME_HIT, TEXT_DOC_HIT, TEXT_CAP = 1.0, 0.4, 2.5
 
 # (pattern, leaf, weight multiplier) - the words a mod uses about itself. A multiplier of DEFINITIVE (3.6) means one hit
@@ -465,7 +468,8 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(interiors?|snazzy|inn interiors?|tavern|shop|trader|store|rooms?|indoors?)\b", "Models and Textures - Interiors", DEFINITIVE),
     (r"\b(pbr|rmaos|parallax ?gen|pgpatcher|complex material)\b", "PBR Textures", DEFINITIVE),
     (r"\b(sounds?|audio|music|voices?|voiced|soundtrack|ambience|footsteps?|sfx)\b", "Audio", 1.0),
-    (r"\b(gameplay|mechanics?|balance|difficulty|encounters?|survival|needs|hunger|thirst|frostfall|camping|campfire)\b", "Gameplay - General", 1.0),
+    # durability and degradation are a system over gear, not the gear (the owner, 2026-09-23: Simple Degradation)
+    (r"\b(gameplay|mechanics?|balance|difficulty|encounters?|survival|needs|hunger|thirst|frostfall|camping|campfire|durability|degrad(e|es|ation))\b", "Gameplay - General", 1.0),
     # a rule about what the player may do (the owner, 2026-09-23: Item Equip Restrictor is gameplay)
     (r"\b(restrict(s|ion|ions|or|ors|ed)?)\b", "Gameplay - General", 2.0),
     (r"\bpress \w+ to\b", "Gameplay - General", DEFINITIVE),
@@ -487,6 +491,9 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(shields?|bucklers?)\b", "Armour - Shields", 1.0),
     (r"\b(swords?|weapons?|weaponry|bows?|daggers?|axes?|maces?|greatswords?|warhammers?|blades?|arrows?|bolts?|crossbows?|spears?|katanas?|halberds?)\b", "Weapons", 1.0),
     (r"\b(shape data|bodyslide|outfit studio|refits?|conversions?)\b", SHAPE_CAT, 1.5),
+    # where worn and carried gear sits on the body - sheaths, back shields, equipment displays (the owner, 2026-09-23:
+    # Simple Dual Sheath and Immersive Equipment Displays go to an Equipment Positioning separator)
+    (r"\b(dual sheathe?|equipment displays?|immersive equipment displays|ied|all geared up|equipment positioning|shields? on (the )?back|weapons? on (the )?back|back shields?|sheathe? positions?|holsters?)\b", "Equipment Positioning", DEFINITIVE),
     (r"\b(objects?|misc|containers?|chests?|displays?|book ?shel(f|ves)|lootable|placed items?)\b", "Items and Objects - World", 0.8),
     (r"\b(collectables?|collectibles?|treasure|treasure hunts?|puzzles?|collectables helper)\b", "Collectables, Treasure Hunts, and Puzzles", 1.5),
     (r"\b(creatures?|animals?|beasts?|mihail|spiders?|trolls?|giants?|draugr|falmer|dwarven automatons?|monsters?|wildlife|deer|elk|rabbits?|foxes|chickens?|hawks?|birds?|fish)\b", "Creatures - New Creatures", 1.0),
@@ -501,6 +508,9 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(followers?|companions?|hirelings?|inigo|lucien|serana|nether'?s follower|ufo|eff|aft|nff|follower framework)\b", "NPC - Followers", 2.0),
     (r"\b(player (appearance|preset|character)|racemenu presets?|character presets?|my character)\b", "Player - Appearance", 2.0),
     (r"\b(quests?|questing|adventures?|questline|storyline|campaign|quest tracking|quest tracker)\b", "Quests and Adventures", 1.2),
+    # a quest's own items: a mod about what the player may do with them is about the quest (the owner, 2026-09-23: Sell
+    # Unusual Gems lets you sell a quest item)
+    (r"\b(quest items?|unusual gems?|stones of barenziah|crown of barenziah)\b", "Quests and Adventures", 2.0),
     (r"\b(player ?homes?|homes?|houses?|manor|cabin|estate|abode|hideout|residence|cottage|lodge|sanctuary)\b", "Player homes", 1.5),
     (r"\b(vlindrel hall|breezehome|hjerim|honeyside|proudspire|lakeview|windstad|heljarchen|severin manor|myrwatch|tundra homestead|hendraheim|goldenhills)\b", "Player homes", DEFINITIVE),
     (r"\b(inns?|taverns?|temples?|shrines?|farms?|mills?|lighthouses?|forts?|castles?|palaces?|keeps?|stables?|jails?|prisons?|towers?|chapels?|halls?|guildhalls?)\b", "Buildings", 1.0),
@@ -604,6 +614,7 @@ def _records_vote(m):
     magic = new("SPEL", "ENCH", "MGEF", "SCRL")
     shouts = new("SHOU", "WOOP")
     npc, race, perk, qust = new("NPC_"), new("RACE"), new("PERK"), new("QUST")
+    dial = new("DIAL")
     items = new("BOOK", "MISC", "INGR", "ALCH", "KEYM", "SLGM")
     weather = new("WTHR", "CLMT")
     world = r.get("CELL~", 0) + r.get("WRLD~", 0)
@@ -633,6 +644,10 @@ def _records_vote(m):
         cands.append(("Class, Perks, Powers and Blessings", perk, f"{perk} new perk records"))
     if qust >= 3:
         cands.append(("Quests and Adventures", qust * 2, f"{qust} new quest records"))
+    elif qust and dial >= 3:
+        # a quest that speaks: its own dialogue topics make it quest content, however few (the owner, 2026-09-23: Sell
+        # Unusual Gems - one quest, seven topics - is a quest mod)
+        cands.append(("Quests and Adventures", qust * 2, f"{qust} new quest record(s) with {dial} dialogue topics"))
     if items >= 5 and not (armo or weap):
         cands.append(("Items and Objects - World", items, f"{items} new item records"))
     if weather:
@@ -669,6 +684,9 @@ def _text_votes(m):
             hits_d, hits_s = set(), set()
             if subject:
                 hits_n = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(proper))}
+        if norm(cat) in TARGET_IN_SUBJECT and subject:
+            hits_s = set()
+            hits_n = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(proper))}
         # R18 a mod that ships no meshes or textures is not art, whatever its readme mentions ("sitting on a bench")
         if not has_art and cat.startswith(("Models and Textures", "Environment", "PBR")):
             hits_d = set()
@@ -755,7 +773,8 @@ def gather_votes(m, nexus_cat, mo2_names, structural_patch, nexus_names=frozense
         if not name or norm(name) in ("unpublished",):
             continue
         if norm(name) == "test":
-            votes.append(("mo2", "Test Builds", W_MO2_USER, "MO2 category 'test'"))
+            # decisive: a name word the owner defined (IED Key Override says 'ied') never takes a test build out
+            votes.append(("mo2", "Test Builds", 99.0, "MO2 category 'test' (decisive)"))
             break
         if norm(name) in NEXUS_TO_LEAF or norm(name) in nexus_names:
             continue                                  # a Nexus category name (whoever wrote it): not his statement
@@ -869,6 +888,21 @@ def decide(m, votes, nexus_cat=""):
                     if v[0] == "records" and v[1] == "Items and Objects - World":
                         v[2] *= 0.4
                         notes.append("item records are spell tomes: delivery, not the subject")
+    # R22 quests that only hold scripts: quest records with no dialogue of their own, scripts beside them, no meshes and no
+    # menu art - they are how a system runs (start-up and MCM quests), not a quest; the system is gameplay, and its few
+    # spells and effects are its means (the owner, 2026-09-23: Acquisitive Soul Gems is a system for soul gem filling
+    # logic, Simple Degradation is a gameplay system)
+    # the system must act on the game - globals, settings, effects, spells, perks or form lists beside its quests; a
+    # quest, messages and scripts alone is a tool (MCM Recorder)
+    rule_recs = sum(rec.get(k, 0) + rec.get(k + "*", 0) for k in ("GLOB", "GMST", "MGEF", "SPEL", "PERK", "FLST"))
+    if rec.get("QUST", 0) and not rec.get("DIAL", 0) and not rec.get("NPC_", 0) and n_pex >= 3 and rule_recs \
+            and not any(f.endswith((".nif", ".swf")) for f in files):
+        for v in votes:
+            if v[0] == "records" and v[1] == "Quests and Adventures":
+                v[2] *= 0.3
+            if v[0] == "records" and v[1] == "Magic - Spells & Enchantments" and magic_new < 50:
+                v[2] *= 0.4
+        votes.append(["rule", "Gameplay - General", 2.0, f"a scripted system: {rec.get('QUST', 0)} quest(s) holding scripts, no dialogue"])
     # R21 a leveled-list injector is the patch layer: it integrates other mods' items into the lists (the owner,
     # 2026-09-23: Dynamic Leveled Lists goes in Patches)
     if has_dll and re.search(r"\bleveled lists?\b", plain, re.I):
