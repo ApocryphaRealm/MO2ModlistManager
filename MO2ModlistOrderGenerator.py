@@ -1,4 +1,4 @@
-"""MO2 Mod Ruler - a Mod Organizer 2 plugin that generates the left pane.
+"""MO2 Modlist Order Generator - a Mod Organizer 2 plugin that generates the order of the left pane and the right.
 
 The owner, 2026-09-22: "a new plugin for mo2 that generates separators and their names and puts all the mods in the
 right order and separator", after the tier-and-guess sorter on Nexus scattered a hand-built pane.
@@ -13,8 +13,8 @@ What it does, and only from evidence a mod carries:
   * inside a separator the current order is kept, except where a plugin's MASTER (read from the TES4 header) lives
     below it - then the dependent mod moves under its master, and the move is listed;
   * the plugin list follows the pane: plugins in mod order, masters first where the header says so, written to
-    plugins.txt / loadorder.txt; the same facts are written as Plugin Ruler rules (source "auto") when that plugin
-    is present;
+    plugins.txt / loadorder.txt; before/after/first/last rules for plugins and for mods are the generator's own
+    (profiles/<profile>/modlist_order_rules.json), nothing here depends on another plugin;
   * nothing is written until Apply: the dialog lists every separator created and retired and every mod that
     changes separator or order, and backs up the profile's lists and the retired separators first.
 
@@ -291,7 +291,7 @@ def fetch_categories(mod_ids, cache_path, domain="skyrimspecialedition", progres
         query = "{ " + " ".join(f"m{i}: mod(modId: {i}, gameId: {game}) {{ modCategory {{ name }} }}" for i in chunk) + " }"
         try:
             req = urllib.request.Request(GRAPHQL, data=json.dumps({"query": query}).encode("utf-8"),
-                                         headers={"Content-Type": "application/json", "User-Agent": "MO2ModRuler/" + __version__})
+                                         headers={"Content-Type": "application/json", "User-Agent": "MO2ModlistOrderGenerator/" + __version__})
             with urllib.request.urlopen(req, timeout=30) as fh:
                 reply = json.loads(fh.read().decode("utf-8"))
         except (urllib.error.URLError, OSError, ValueError) as exc:
@@ -705,7 +705,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
 
 def plugin_order(rows, mods_by_name, ruler_user_rules=()):
     """Plugins in pane order (ESMs first among themselves), then a stable topological pass so every master loads
-    before its dependents and Plugin Ruler's own before/after/first/last rules hold."""
+    before its dependents and the generator's own before/after/first/last plugin rules hold."""
     import heapq
     esm, esp, masters_of = [], [], {}
     for nm, en in rows:
@@ -730,7 +730,7 @@ def plugin_order(rows, mods_by_name, ruler_user_rules=()):
     for r in ruler_user_rules:
         if not r.get("enabled", True):
             continue
-        p, t, k = str(r.get("plugin", "")).lower(), str(r.get("target", "")).lower(), r.get("rule_type", "")
+        p, t, k = str(r.get("plugin", "")).lower(), str(r.get("target", "")).lower(), r.get("type", r.get("rule_type", ""))
         if p not in present:
             continue
         if k == "before" and t in present:
@@ -768,31 +768,31 @@ def plugin_order(rows, mods_by_name, ruler_user_rules=()):
     return out
 
 
+RULES_FILE = "modlist_order_rules.json"
+
+
 def load_rules(profile_dir):
-    """Our mod rules ({"rules": [...], "pins": {mod: separator}}) and Plugin Ruler's user rules, if either exists."""
-    ours = {"rules": [], "pins": {}}
-    p = os.path.join(profile_dir, "mod_ruler_rules.json")
+    """The generator's own rules: {"rules": [mod rules], "plugin_rules": [plugin rules], "pins": {mod: separator}}.
+    A rule is {"type": after|before|first|last, "mod"|"plugin": name, "target": name, "enabled": bool}."""
+    ours = {"rules": [], "plugin_rules": [], "pins": {}}
+    p = os.path.join(profile_dir, RULES_FILE)
     if os.path.isfile(p):
         try:
             ours.update(json.load(open(p, encoding="utf-8")))
         except (OSError, ValueError):
             pass
-    theirs = []
-    q = os.path.join(profile_dir, "plugin_load_order_rules.json")
-    if os.path.isfile(q):
-        try:
-            theirs = [r for r in json.load(open(q, encoding="utf-8")).get("rules", []) if not str(r.get("source", "")).startswith("auto:")]
-        except (OSError, ValueError):
-            pass
-    return ours, theirs
+    ours.setdefault("rules", [])
+    ours.setdefault("plugin_rules", [])
+    ours.setdefault("pins", {})
+    return ours, ours["plugin_rules"]
 
 
 def save_rules(profile_dir, ours):
-    json.dump(ours, open(os.path.join(profile_dir, "mod_ruler_rules.json"), "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+    json.dump(ours, open(os.path.join(profile_dir, RULES_FILE), "w", encoding="utf-8"), indent=2, ensure_ascii=False)
 
 
 def ruler_rules(mods):
-    """Plugin Ruler rows (source 'auto') from the headers: plugin AFTER each master."""
+    """The master facts as rule rows, for reading: plugin AFTER each master (from the TES4 headers)."""
     rules = []
     for m in mods:
         for f, masters, _esm in m.plugins:
@@ -853,12 +853,12 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
 
 
 def apply(result, instance_dir, profile, cache_dir, log=None):
-    """Write it: backups, separator folders, modlist.txt, plugins.txt/loadorder.txt, Plugin Ruler rules."""
+    """Write it: backups, separator folders, modlist.txt, plugins.txt/loadorder.txt, the rules file."""
     stamp = time.strftime("%Y%m%d-%H%M%S")
     backup = os.path.join(cache_dir, "backups", stamp)
     prof = os.path.join(instance_dir, "profiles", profile)
     os.makedirs(backup, exist_ok=True)
-    for f in ("modlist.txt", "plugins.txt", "loadorder.txt", "plugin_load_order_rules.json"):
+    for f in ("modlist.txt", "plugins.txt", "loadorder.txt", RULES_FILE):
         p = os.path.join(prof, f)
         if os.path.isfile(p):
             shutil.copy2(p, os.path.join(backup, f))
@@ -888,16 +888,9 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
                 active.add(line[1:].lower())
     open(p, "wb").write(("# This file was automatically generated by Mod Organizer.\r\n"
                          + "\r\n".join(("*" if f.lower() in active or not active else "") + f for f in plugins) + "\r\n").encode("utf-8"))
-    rules_path = os.path.join(prof, "plugin_load_order_rules.json")
-    existing = {"rules": [], "groups": []}
-    if os.path.isfile(rules_path):
-        try:
-            existing = json.load(open(rules_path, encoding="utf-8"))
-        except (OSError, ValueError):
-            pass
-    kept = [r for r in existing.get("rules", []) if not str(r.get("source", "")).startswith("auto:")]
-    existing["rules"] = kept + result["rules"]
-    json.dump(existing, open(rules_path, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+    ours, _ = load_rules(prof)
+    ours["auto_master_rules"] = result["rules"]          # the facts the order was built on, for reading; never edited
+    save_rules(prof, ours)
     if log:
         log(f"applied: {len(result['rows'])} rows, {len(result['facts']['created'])} separators created, "
             f"{len(result['facts']['retired'])} retired, {len(plugins)} plugins ordered, {len(result['rules'])} auto rules; backups in {backup}")
@@ -929,7 +922,7 @@ if mobase is not None:
             super().__init__(parent)
             self._p = plugin
             self._result = None
-            self.setWindowTitle("MO2 Mod Ruler")
+            self.setWindowTitle("MO2 Modlist Order Generator")
             self.resize(1100, 720)
             root = QVBoxLayout(self)
             self.summary = QLabel("Reading the list and asking Nexus for categories...")
@@ -1005,11 +998,11 @@ if mobase is not None:
             v.addWidget(self.t_rules, 1)
             form = QHBoxLayout()
             self.r_kind = QComboBox()
-            self.r_kind.addItems(["after", "before", "first", "last", "pin"])
+            self.r_kind.addItems(["after", "before", "first", "last", "pin", "plugin after", "plugin before", "plugin first", "plugin last"])
             self.r_mod = QLineEdit()
-            self.r_mod.setPlaceholderText("mod name, exactly as in the list")
+            self.r_mod.setPlaceholderText("mod name - or plugin file name for a plugin rule")
             self.r_target = QLineEdit()
-            self.r_target.setPlaceholderText("target mod, or separator name for pin")
+            self.r_target.setPlaceholderText("target mod / plugin, or separator name for pin")
             b_add = QPushButton("Add")
             b_del = QPushButton("Remove selected")
             b_sel = QPushButton("Use selected mod")
@@ -1024,6 +1017,7 @@ if mobase is not None:
         def _rules_rows(self):
             r = self._p.rules()
             rows = [(x.get("type", ""), x.get("mod", ""), x.get("target", ""), "yes" if x.get("enabled", True) else "no") for x in r.get("rules", [])]
+            rows += [("plugin " + x.get("type", ""), x.get("plugin", ""), x.get("target", ""), "yes" if x.get("enabled", True) else "no") for x in r.get("plugin_rules", [])]
             rows += [("pin", m, sep, "yes") for m, sep in r.get("pins", {}).items()]
             return rows
 
@@ -1034,6 +1028,8 @@ if mobase is not None:
             r = self._p.rules()
             if kind == "pin":
                 r.setdefault("pins", {})[mod] = target
+            elif kind.startswith("plugin "):
+                r.setdefault("plugin_rules", []).append({"type": kind[7:], "plugin": mod, "target": target, "enabled": True})
             else:
                 r.setdefault("rules", []).append({"type": kind, "mod": mod, "target": target, "enabled": True})
             self._p.save_rules(r)
@@ -1050,6 +1046,8 @@ if mobase is not None:
                 kind, mod, target, _on = table[i]
                 if kind == "pin":
                     r.get("pins", {}).pop(mod, None)
+                elif kind.startswith("plugin "):
+                    r["plugin_rules"] = [x for x in r.get("plugin_rules", []) if not (x.get("type") == kind[7:] and x.get("plugin") == mod and x.get("target", "") == target)]
                 else:
                     r["rules"] = [x for x in r.get("rules", []) if not (x.get("type") == kind and x.get("mod") == mod and x.get("target", "") == target)]
             self._p.save_rules(r)
@@ -1130,7 +1128,7 @@ if mobase is not None:
                 self._p._log(f"apply failed: {exc!r}")
                 self.status.setText(f"Failed: {exc}")
 
-    class MO2ModRuler(mobase.IPluginTool):
+    class MO2ModlistOrderGenerator(mobase.IPluginTool):
         def __init__(self):
             super().__init__()
             self._organizer = None
@@ -1141,7 +1139,7 @@ if mobase is not None:
             return True
 
         def name(self):
-            return "MO2 Mod Ruler"
+            return "MO2 Modlist Order Generator"
 
         def author(self):
             return "ApocryphaRealm"
@@ -1160,20 +1158,20 @@ if mobase is not None:
             return []
 
         def displayName(self):
-            return "MO2 Mod Ruler"
+            return "MO2 Modlist Order Generator"
 
         def tooltip(self):
             return "Generate separators and place every mod in order"
 
         def icon(self):
-            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MO2ModRuler.png")
+            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MO2ModlistOrderGenerator.png")
             return QIcon(p) if os.path.isfile(p) else QIcon()
 
         def setParentWidget(self, widget):
             self._parent = widget
 
         def _cache_dir(self):
-            return os.path.join(self._organizer.basePath(), "plugins", "data", "MO2ModRuler")
+            return os.path.join(self._organizer.basePath(), "plugins", "data", "MO2ModlistOrderGenerator")
 
         def _log(self, msg):
             try:
@@ -1231,14 +1229,14 @@ if mobase is not None:
                 self._log(f"display failed: {exc!r}")
 
     def createPlugin():
-        return MO2ModRuler()
+        return MO2ModlistOrderGenerator()
 
 
-if __name__ == "__main__" and mobase is None:       # offline dry run: python MO2ModRuler.py <instance> <profile> <cache dir>
+if __name__ == "__main__" and mobase is None:       # offline dry run: python MO2ModlistOrderGenerator.py <instance> <profile> <cache dir>
     # (MO2 executes a plugin file with __name__ == "__main__" too - the mobase check keeps this block out of its way)
     import sys
     if len(sys.argv) < 4:
-        raise SystemExit("usage: MO2ModRuler.py <instance dir> <profile> <cache dir> [spine|blocks]")
+        raise SystemExit("usage: MO2ModlistOrderGenerator.py <instance dir> <profile> <cache dir> [spine|blocks]")
     inst, prof, cache = sys.argv[1], sys.argv[2], sys.argv[3]
     mode = sys.argv[4] if len(sys.argv) > 4 else "index"
     res = run(inst, prof, cache, log=print, mode=mode)
