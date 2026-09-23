@@ -1468,12 +1468,47 @@ if mobase is not None:
         def apply(self, result):
             org = self._organizer
             backup = apply(result, org.basePath(), org.profileName(), self._cache_dir(), self._log)
-            org.refresh(True)
+            # refresh WITHOUT saving: refresh(True) first writes MO2's in-memory lists to disk, and Bethesda Plugin
+            # Manager's copy of the groups went down with them - 350 of 1,792 plugins were back in their old
+            # groups after the 2026-09-22 Apply. With False the lists are re-read from the files just written.
+            org.refresh(False)
             try:
                 org.pluginList().setLoadOrder(result["plugins"])
             except Exception as exc:  # noqa: BLE001
                 self._log(f"setLoadOrder skipped: {exc!r}")
+            self._verify_groups_later(result)
             return backup
+
+        def _verify_groups_later(self, result):
+            """A few seconds after Apply, read plugingroups.txt back: if BPM has written older groups over it, put
+            ours back and say so in the log, so a stale in-memory copy is visible rather than silent."""
+            want = result.get("plugin_groups") or {}
+            if not want or not bpm_installed(self._organizer.basePath()):
+                return
+            path = os.path.join(self._organizer.basePath(), "profiles", self._organizer.profileName(), "plugingroups.txt")
+            order = list(result["plugins"])
+
+            def check():
+                try:
+                    have = {}
+                    for line in open(path, encoding="utf-8-sig"):
+                        if "|" in line and not line.startswith("#"):
+                            k, v = line.strip().split("|", 1)
+                            have[k] = v
+                    wrong = [k for k, v in want.items() if have.get(k) not in (None, v)]
+                    if wrong:
+                        write_plugin_groups(path, want, order)
+                        self._log(f"plugin groups: BPM had written {len(wrong)} plugin(s) back into older groups; file rewritten "
+                                  f"(first: {wrong[:3]}). If they revert again, restart MO2 so BPM re-reads the file.")
+                    else:
+                        self._log("plugin groups verified against plugingroups.txt")
+                except Exception as exc:  # noqa: BLE001
+                    self._log(f"plugin group check failed: {exc!r}")
+
+            try:
+                QTimer.singleShot(4000, check)
+            except Exception:  # noqa: BLE001
+                check()
 
         def display(self):
             try:
