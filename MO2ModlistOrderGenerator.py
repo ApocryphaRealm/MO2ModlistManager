@@ -875,7 +875,7 @@ def save_rules(profile_dir, ours):
 def plugin_groups(rows, mods_by_name):
     """{plugin file: group name} for Bethesda Plugin Manager - each plugin takes the block its mod sits under in the
     new pane (the separator's name without "_separator"; a tier header is skipped in favour of the block under it).
-    BPM keeps groups in profiles\<profile>\plugingroups.txt as "plugin|group" lines, one plugin per line."""
+    BPM keeps groups in profiles/<profile>/plugingroups.txt as "plugin|group" lines, one plugin per line."""
     groups = {}
     block = None
     for nm, en in rows:
