@@ -669,12 +669,18 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
         for m in real:
             m.group = rank(m)[0]
 
+        def run_tier(r):
+            # the tier most of the run's mods were ordered by - not its first mod, which is often one a master pulled
+            # down from another tier (a tier-0 fix at the head of a tier-4 run stopped every merge beside it)
+            from collections import Counter
+            return Counter(m.group for m in r[1]).most_common(1)[0][0]
+
         def same_tier(a, b):
             if a is None or b is None:
                 return True
             if norm(a[0]) in FIXED_BLOCKS or norm(b[0]) in FIXED_BLOCKS:
                 return False
-            return mode != "index" or a[1][0].group == b[1][0].group
+            return mode != "index" or run_tier(a) == run_tier(b)
         while len(runs) > 1:
             i = min(range(len(runs)), key=lambda j: (10**6 if (len(runs[j]) > 2 or norm(runs[j][0]) in FIXED_BLOCKS) else len(runs[j][1]), j))
             if len(runs[i][1]) >= min_run or len(runs[i]) > 2 or norm(runs[i][0]) in FIXED_BLOCKS:
