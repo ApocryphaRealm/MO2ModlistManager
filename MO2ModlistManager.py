@@ -1,4 +1,4 @@
-"""MO2 Modlist Manager - a Mod Organizer 2 plugin that generates the order of the left pane and the right.
+﻿"""MO2 Modlist Manager - a Mod Organizer 2 plugin that generates the order of the left pane and the right.
 
 The owner, 2026-09-22: "a new plugin for mo2 that generates separators and their names and puts all the mods in the
 right order and separator", after the tier-and-guess sorter on Nexus scattered a hand-built pane.
@@ -58,7 +58,7 @@ GROUPS = [
 NODELETE_SEP = "[NoDelete]"            # kept as the last separator with its contents untouched (Wabbajack's convention)
 TAG_NODELETE = re.compile(r"^\s*\[nodelete\]", re.I)
 TAG_PATCH = re.compile(r"(^|\s)\[patch\](\s|$)", re.I)      # a prefix (older names) or a suffix (MO2 Keyword Tagger 1.0.2)
-BASE_MASTERS = {"skyrim.esm", "update.esm", "dawnguard.esm", "hearthfires.esm", "dragonborn.esm"}
+BASE_MASTERS = {"skyrim.esm", "update.esm", "dawnguard.esm", "hearthfires.esm", "dragonborn.esm", "_resourcepack.esl"}
 PLUGIN_EXT = (".esp", ".esm", ".esl")
 OUTPUT_TOOLS = re.compile(r"\b(dyndolod|texgen|xlodgen|occlusion|pgpatcher|parallaxgen|nemesis|pandora|synthesis|bodyslide)\b.*\boutput\b"
                           r"|\bsynthesis\.esp\b|\bbashed patch\b|\bsmashed patch\b", re.I)
@@ -114,7 +114,10 @@ def _core_name(name):
 
 
 def _is_patch_mod(m):
-    return bool(TAG_PATCH.search(m.name) or _PATCH_WORD.search(m.name))
+    """A patch is what the evidence DECIDED (structure: masters from other mods), not a word in the name. Until
+    2026-09-23 the tag or the word was enough, and USSEP ('Unofficial ... Patch', Bug Fixes, a master to hundreds) was
+    ordered after everything it shares a file with - 80 mods followed it into a 258-mod Patches block."""
+    return norm(m.category or "") == norm("Patches")
 
 
 def _pbr_kind(files, shared):
@@ -194,23 +197,15 @@ def shape_reason(m, nexus_cat):
 
 
 def index_tier(category, mod=None):
-    """The six-tier index of a category; an unknown category is tier 3 (the middle) and says so in the report.
-
-    With the mod given, one evidence-based refinement: a mod filed under a tier-4 CONTENT category (Buildings, Cities,
-    Armour, ...) that ships no plugin and only meshes/textures cannot add anything - it is a replacer, tier 3. On a
-    tested list 84 of the 218 index-vs-list disagreements were exactly this (farmhouse and city mesh replacers filed
-    under Buildings, which SMIM and the PBR packs then override)."""
+    """The tier of a category; an unknown category is tier 3 (the middle) and says so in the report. (The replacer
+    demotion that used to live here - a content label with only meshes/textures ranked as tier 3 while keeping its
+    label - is now a category decision in the evidence model, rule R4, so a replacer IS Models and Textures.)"""
     k = re.sub(r"\s+", " ", category or "").strip().lower()
     if k == NODELETE_SEP.lower():
         return 8
-    t = INDEX_TIER.get(k, 3)
     if k == SHAPE_CAT.lower():
         return 4                                  # a refit stays with the equipment it refits, plugin or not
-    if t == 4 and mod is not None and not mod.plugins and mod.files:
-        exts = {os.path.splitext(f)[1] for f in mod.files}
-        if exts <= {".nif", ".dds", ".tri", ".hkx", ".bsa", ".txt", ".ini", ".json"} and exts & {".nif", ".dds"}:
-            return 3
-    return t
+    return INDEX_TIER.get(k, 3)
 
 
 GRAPHQL = "https://api.nexusmods.com/v2/graphql"
@@ -299,7 +294,13 @@ def read_header(path):
 # it alters some vanilla records and adds new weapons and enchantments so it goes in new weapons and armor"). The
 # top-level record groups of a plugin say what it adds; a record whose form ID belongs to the plugin itself is new,
 # one that belongs to a master is an override. Only these groups are read, the rest are skipped by their size.
-RECORD_GROUPS = (b"ARMO", b"WEAP", b"AMMO", b"SPEL", b"ENCH", b"MGEF", b"SCRL")
+RECORD_GROUPS = (b"ARMO", b"WEAP", b"AMMO", b"SPEL", b"ENCH", b"MGEF", b"SCRL",
+                 # widened 2026-09-23 for the evidence model: what a plugin adds or alters says what the mod is about
+                 b"NPC_", b"RACE", b"HDPT", b"QUST", b"DIAL", b"BOOK", b"MISC", b"INGR", b"ALCH", b"KEYM", b"SLGM", b"PERK",
+                 b"AVIF", b"SHOU", b"WOOP", b"LSCR", b"STAT", b"ACTI", b"FURN", b"CONT", b"LVLI", b"LVLN", b"ARMA", b"TXST",
+                 b"WTHR", b"CLMT", b"LGTM", b"IMGS", b"MUSC", b"SNDR", b"SOUN", b"GLOB", b"GMST", b"LCTN", b"FLST", b"MESG",
+                 b"IDLE", b"REGN", b"TREE", b"FLOR", b"GRAS", b"LIGH", b"MSTT", b"DOOR", b"PROJ", b"EXPL", b"SPGD", b"HAZD")
+FOOTPRINT_GROUPS = (b"CELL", b"WRLD")          # nested groups: only their byte size is read ("CELL~", "WRLD~")
 
 
 def plugin_new_records(path, n_masters):
@@ -316,6 +317,11 @@ def plugin_new_records(path, n_masters):
                 if len(gh) < 24 or gh[:4] != b"GRUP":
                     break
                 gsize, label, gtype = struct.unpack("<I", gh[4:8])[0], gh[8:12], struct.unpack("<i", gh[12:16])[0]
+                if gtype == 0 and label in FOOTPRINT_GROUPS:
+                    k = label.decode("ascii", "replace") + "~"
+                    out[k] = out.get(k, 0) + max(0, gsize - 24)
+                    fh.seek(gsize - 24, 1)
+                    continue
                 if gtype != 0 or label not in RECORD_GROUPS:
                     fh.seek(gsize - 24, 1)
                     continue
@@ -337,70 +343,360 @@ def plugin_new_records(path, n_masters):
     return out
 
 
-EQUIPMENT_FAMILY = {"magic - spells & enchantments", "magic - gameplay", "armour", "armour - shields", "weapons",
-                    "weapons and armour", "clothing and accessories"}
+# (refine_by_records and its EQUIPMENT_FAMILY table were folded into the evidence model's _records_vote, 2026-09-23)
 
 
-def refine_by_records(m, cat):
-    """(category, why) when the records say the Nexus label is the wrong one of the equipment/magic family."""
-    if norm(cat or "") not in EQUIPMENT_FAMILY or not m.records:
-        return None
+# --- THE EVIDENCE MODEL (the owner, 2026-09-23) ---------------------------------------------------------------------
+# Every signal about a mod becomes a VOTE (source, category, weight, reason); the rules below adjust the votes; the
+# category with the most weight wins and the dialog shows every vote. Sources: the Nexus category, an MO2 category the
+# user set himself, the TES4 record groups the plugins add or alter, what the folder ships, the words the mod uses
+# about itself (its name, plugin descriptions, readme, FOMOD info, the Nexus description MO2 cached), the [Patch] tag
+# and the structure of its masters. Nothing here is a mode: a new signal is a new source of votes, a new placement is a
+# rule over the votes.
+W_NEXUS, W_MO2_USER, W_RECORDS_STRONG, W_RECORDS_WEAK, W_FILES, W_TAG = 3.0, 6.0, 3.5, 1.2, 1.5, 1.0
+TEXT_NAME_HIT, TEXT_DOC_HIT, TEXT_CAP = 1.0, 0.4, 2.5
+
+# (pattern, category, weight multiplier) - the words a mod uses about itself. Tune here.
+TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
+    (r"\b(followers?|companions?|hirelings?)\b", "Followers & Companions", 1.0),
+    (r"\b(player ?homes?|homes?|houses?|manor|cabin|estate|abode|hideout|residence|cottage|lodge|sanctuary)\b", "Player homes", 1.0),
+    (r"\b(quests?|adventures?|questline|storyline|campaign)\b", "Quests and Adventures", 1.0),
+    (r"\b(re-?textures?|textures?|[1248]k|pbr|parallax|meshes?|hd|uhd|remesh|remodel|models?)\b", "Models and Textures", 1.0),
+    (r"\b(weather|weathers|climate|lod|grass|trees?|flora|landscapes?|water|seasons?|snow|fog|clouds?)\b", "Environmental", 1.0),
+    (r"\b(enb|reshade)\b", "Presets - ENB and ReShade", 1.5),
+    (r"\b(lighting|lights?|shadows?|volumetric|bloom|lut|colou?r ?grading|hdr|shaders?|community shaders|ambient)\b", "Visuals and Graphics", 1.0),
+    (r"\b(animations?|animated|dar|oar|behaviou?rs?|idles?|mco|bfco|skysa|adxp|nemesis|pandora|locomotion|jump|dodge ?animations?)\b", "Animation", 1.0),
+    (r"\b(armou?rs?|cuirass|helmets?|boots|gauntlets|greaves|pauldrons|plate|mail)\b", "Armour", 1.0),
+    (r"\b(shields?|bucklers?)\b", "Armour - Shields", 1.0),
+    (r"\b(swords?|weapons?|weaponry|bows?|daggers?|axes?|maces?|greatswords?|warhammers?|blades?|arrows?|bolts?|crossbows?|spears?|katanas?|halberds?|staffs|staves)\b", "Weapons", 1.0),
+    (r"\b(clothing|clothes|outfits?|dress(es)?|robes?|cloaks?|capes?|jewell?ery|amulets?|rings?|necklaces?|circlets?|earrings?|glasses|hoods?|scarf|scarves)\b", "Clothing and Accessories", 1.0),
+    (r"\b(spells?|magic|magicka|enchant(ments?|ing)?|scrolls?|wards?|destruction|conjuration|illusion|restoration|alteration|summon(s|ing)?|rituals?|tomes?)\b", "Magic - Spells & Enchantments", 1.0),
+    (r"\b(shouts?|thu'?um|word walls?|dragon ?souls?)\b", "Shouts", 1.5),
+    (r"\b(perks?|skills?|level(l)?ing|experience|xp|skill ?trees?|standing stones?|attributes?)\b", "Skills and Leveling", 1.0),
+    (r"\b(combat|parry|block(ing)?|stagger|killmoves?|poise|stamina ?regen|hit ?stop|impact|melee|archery)\b", "Combat", 1.0),
+    (r"\b(stealth|sneak(ing)?|thie(f|ves)|pickpocket(ing)?|lockpick(ing)?|detection)\b", "Stealth", 1.0),
+    (r"\b(alchemy|potions?|poisons?|ingredients?|apothecary|brewing)\b", "Alchemy", 1.0),
+    (r"\b(craft(ing)?|smithing|forge|tanning|cooking|recipes?|tempering|workbench)\b", "Crafting", 1.0),
+    (r"\b(guilds?|factions?|thieves guild|dark brotherhood|college of winterhold|bards? college|dawnguard|stormcloaks?|imperial legion|civil war)\b", "Guilds/Factions", 1.0),
+    (r"\b(ui|hud|menus?|interface|widgets?|fonts?|map markers?|compass|minimap|mcm|cursor|loading screens?|main menu|inventory ?(menu|ui))\b", "User Interface", 1.0),
+    (r"\b(sounds?|audio|music|voices?|voiced|soundtrack|ambience|footsteps|sfx)\b", "Audio", 1.0),
+    (r"\b(fix(es|ed)?|bug ?fix(es)?|corrections?|navmesh)\b", "Bug Fixes", 0.8),
+    (r"\b(patch(es|ed)?|compatibility|synergy|consistency)\b", "Patches", 1.0),
+    (r"\b(skse|dll|framework|library|engine|plugin loader|address library|papyrus extender|tweaks?|utilit(y|ies)|tool)\b", "Utilities", 1.0),
+    (r"\b(cit(y|ies)|towns?|villages?|hamlets?|settlements?|whiterun|riften|solitude|windhelm|markarth|falkreath|dawnstar|morthal|winterhold|riverwood|rorikstead|ivarstead|shor'?s stone|kynesgrove|dragon bridge|karthwasten|helgen|raven rock|skaal)\b", "Cities, Towns, Villages, and Hamlets", 1.0),
+    (r"\b(dungeons?|caves?|ruins?|tombs?|barrows?|crypts?|mines?|nordic ruins?|dwemer ruins?)\b", "Dungeons", 1.0),
+    (r"\b(inns?|taverns?|temples?|shrines?|farms?|mills?|lighthouses?|forts?|castles?|palaces?|keeps?|docks?|stables?|jails?|prisons?|towers?|bridges?|walls?|chapels?)\b", "Buildings", 1.0),
+    (r"\b(npcs?|faces?|face ?gen|bijin|citizens|villagers|guards|jarls?|overhauled npcs|character overhaul|children)\b", "NPC", 1.0),
+    (r"\b(creatures?|mounts?|horses?|dragons?|wolves|wolf|bears?|animals?|beasts?|mihail|spiders?|trolls?|giants?|draugr|falmer|dwarven automatons?)\b", "Creatures and Mounts", 1.0),
+    (r"\b(bod(y|ies)|skins?|hair(s|styles)?|eyes|brows|beards?|cbbe|himbo|unp|3ba|bhunp|racemenu|presets?|sliders?|complexion|makeup|warpaint|tattoos?)\b", "Body, Face, and Hair", 1.0),
+    (r"\b(races?|khajiit|argonians?|orcs?|orsimer|dunmer|altmer|bosmer|nords?|imperials?|bretons?|redguards?|birthsigns?|classes?)\b", "Races, Classes, and Birthsigns", 1.0),
+    (r"\b(immersive|immersion|realistic|survival|camping|campfire|needs|frostfall|hunterborn|hunting|bathing|sleep|eating|drinking|wearable|lanterns?|torches?)\b", "Immersion", 1.5),
+    (r"\b(overhaul(s|ed)?|rework(ed)?|redone|remastered|revamp(ed)?)\b", "Overhauls", 0.5),
+    (r"\b(cheats?|god ?(mode|items?)|infinite|unlimited|op)\b", "Cheats and God items", 1.0),
+    (r"\b(saves?|autosaves?|save ?games?)\b", "Save Games", 1.0),
+    (r"\b(collectables?|collectibles?|treasure|treasure hunts?|puzzles?)\b", "Collectables, Treasure Hunts, and Puzzles", 1.0),
+    (r"\b(items?|objects?|misc|clutter|furniture|displays?|books?|containers?|chests?|coins?|gold|currency|food|drinks?|ingots?|gems?|soul ?gems?)\b", "Items and Objects - World", 0.8),
+    (r"\b(worldspace|new lands?|island|province|beyond skyrim|bruma|wyrmstooth|falskaar|expansion)\b", "Locations - New", 1.2),
+    (r"\b(vanilla locations?|location overhaul|landmarks?|points? of interest|poi|environs)\b", "Locations - Vanilla", 1.0),
+    (r"\b(gameplay|mechanics?|systems?|balance|difficulty|economy|loot|encounters?|ai)\b", "Gameplay", 0.8),
+    (r"\b(shape data|bodyslide|outfit studio|refits?|conversions?)\b", SHAPE_CAT, 1.5),
+)]
+
+# which record groups a category's own label predicts; a plugin-bearing mod whose plugins hold NONE of them contradicts
+# its label (Campfire: Nexus says NPC, its ESM has no NPC_ record at all)
+LABEL_RECORDS = {
+    "npc": ("NPC_",), "followers & companions": ("NPC_",), "followers & companions - creatures": ("NPC_", "RACE"),
+    "creatures and mounts": ("NPC_", "RACE"), "weapons": ("WEAP", "AMMO"), "armour": ("ARMO",), "armour - shields": ("ARMO",),
+    "clothing and accessories": ("ARMO",), "weapons and armour": ("ARMO", "WEAP", "AMMO"),
+    "magic - spells & enchantments": ("SPEL", "ENCH", "MGEF", "SCRL"), "shouts": ("SHOU", "WOOP"),
+    "quests and adventures": ("QUST",), "races, classes, and birthsigns": ("RACE", "HDPT"), "skills and leveling": ("PERK", "AVIF"),
+}
+ART_EXTS = {".nif", ".dds", ".tri", ".bsa", ".txt", ".ini", ".json", ".png", ".jpg", ".xml"}
+CONTENT_TIER4 = {norm(c) for c in TIERS[4]} - {norm(SHAPE_CAT)}
+_CANON = {}
+
+
+def canonical(cat):
+    """The table's spelling of a category (Nexus writes 'Locations -  New' with two spaces)."""
+    if not cat:
+        return cat
+    if not _CANON:
+        for _h, names in GROUPS:
+            for n in names:
+                _CANON[norm(n)] = n
+        for names in TIERS.values():
+            for n in names:
+                _CANON.setdefault(norm(n), n)
+    return _CANON.get(norm(cat), re.sub(r"\s+", " ", cat).strip())
+
+
+def _records_vote(m):
+    """(category, weight, reason) from what the plugins add or alter, or None. The equipment/magic thresholds are the
+    owner's rules of 2026-09-23 (refine_by_records kept them); the other groups were added with the evidence model."""
     r = m.records
-    # new records say what a mod adds; altered ones say what it is about - up to a point. An enchanting overhaul
-    # alters every enchanted item in the game (Thaumaturgy: 4,800 armour, 4,900 weapons) without being an equipment
-    # mod, so altered equipment counts only up to a hundred records.
-    armo_new, weap_new = r.get("ARMO", 0), r.get("WEAP", 0) + r.get("AMMO", 0)
-    armo_alt, weap_alt = r.get("ARMO*", 0), r.get("WEAP*", 0) + r.get("AMMO*", 0)
+    if not r:
+        return None
+    new = lambda *ks: sum(r.get(k, 0) for k in ks)
+    alt = lambda *ks: sum(r.get(k + "*", 0) for k in ks)
+    armo_new, weap_new = new("ARMO"), new("WEAP", "AMMO")
+    armo_alt, weap_alt = alt("ARMO"), alt("WEAP", "AMMO")
     alt_total = armo_alt + weap_alt
-    alt_scale = min(1.0, 100.0 / alt_total) if alt_total else 0.0            # altered equipment counts up to a hundred
-    armo = armo_new + int(armo_alt * alt_scale)
-    weap = weap_new + int(weap_alt * alt_scale)
-    magic = r.get("SPEL", 0) + r.get("ENCH", 0) + r.get("MGEF", 0) + r.get("SCRL", 0)   # new only: a magic mod adds
-    # no equipment mod adds five hundred pieces; a mod that does is an overhaul generating enchanted variants
-    # (Thaumaturgy: 2,300 armour, 2,100 weapons) and its Nexus label stands
+    alt_scale = min(1.0, 100.0 / alt_total) if alt_total else 0.0
+    armo, weap = armo_new + int(armo_alt * alt_scale), weap_new + int(weap_alt * alt_scale)
+    magic = new("SPEL", "ENCH", "MGEF", "SCRL")
+    shouts = new("SHOU", "WOOP")
+    npc, race, perk, qust = new("NPC_"), new("RACE"), new("PERK"), new("QUST")
+    items = new("BOOK", "MISC", "INGR", "ALCH", "KEYM", "SLGM")
+    weather = new("WTHR", "CLMT")
+    world = r.get("CELL~", 0) + r.get("WRLD~", 0)
+    parts = []
     if armo_new + weap_new > 500:
-        return None
-    # clothes ARE armour records in Skyrim: a Clothing label is never turned into Armour, only into Weapons/Magic
-    if norm(cat) == norm("Clothing and Accessories") and not weap:
-        return None
-    # a magic overhaul brings bound weapons and the odd robe with its spells (Mysticism: 131 weapons, 1,152 spells),
-    # while a unique weapon brings a dozen enchantment and effect records of its own. Magic is the mod's subject only
-    # when it adds fifty or more magic records AND they outnumber its equipment records six to one.
+        return None                                  # an overhaul generating enchanted variants: its label stands
+    cands = []
     if magic >= 50 and magic >= 5 * (armo + weap):
-        new = "Magic - Spells & Enchantments"          # Mysticism: 1,152 spells against 136 bound weapons - its subject is magic
+        cands.append(("Magic - Spells & Enchantments", magic, f"{magic} new spell/enchantment/effect records"))
     elif armo and weap:
-        new = "Weapons and Armour"
+        cands.append(("Weapons and Armour", armo + weap, f"{armo} armour and {weap} weapon/ammo records (new or altered)"))
     elif armo:
-        new = "Armour"
+        cands.append(("Armour", armo, f"{armo} armour records (new or altered)"))
     elif weap:
-        new = "Weapons"
+        cands.append(("Weapons", weap, f"{weap} weapon/ammo records (new or altered)"))
     elif magic:
-        new = "Magic - Spells & Enchantments"
-    else:
+        cands.append(("Magic - Spells & Enchantments", magic, f"{magic} new spell/enchantment/effect records"))
+    if shouts:
+        cands.append(("Shouts", shouts * 3, f"{shouts} new shout/word records"))
+    if npc >= 3:
+        cands.append(("NPC", npc, f"{npc} new NPC records"))
+    if race:
+        cands.append(("Races, Classes, and Birthsigns", race * 3, f"{race} new race records"))
+    if perk >= 10:
+        cands.append(("Skills and Leveling", perk, f"{perk} new perk records"))
+    if qust >= 3:
+        cands.append(("Quests and Adventures", qust * 2, f"{qust} new quest records"))
+    if items >= 5 and not (armo or weap):
+        cands.append(("Items and Objects - World", items, f"{items} new item records"))
+    if weather:
+        cands.append(("Environmental", weather * 2, f"{weather} new weather/climate records"))
+    if world >= 200_000 and not cands:
+        cands.append(("Locations - New", 10, f"{world // 1024} KB of new cell/world records"))
+    if not cands:
         return None
-    if norm(new) == norm(cat):
+    cat, n, why = max(cands, key=lambda c: c[1])
+    strong = n >= 5
+    return cat, (W_RECORDS_STRONG if strong else W_RECORDS_WEAK), why + (" (strong)" if strong else " (few)")
+
+
+def _text_votes(m):
+    """Votes from the words the mod uses about itself: its name counts fully, its documents at a lower rate."""
+    name, docs = m.name, (m.text or "")
+    scores, reasons = {}, {}
+    for rx, cat, mult in TEXT_SIGNALS:
+        hits_n = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(name))}
+        hits_d = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(docs))} if docs else set()
+        w = (TEXT_NAME_HIT * mult if hits_n else 0.0) + (TEXT_DOC_HIT * mult * min(3, len(hits_d)) if hits_d else 0.0)
+        if w:
+            scores[cat] = scores.get(cat, 0.0) + w
+            reasons.setdefault(cat, []).extend(sorted(hits_n)[:2] + (sorted(hits_d - hits_n)[:1]))
+    return [("text", cat, min(TEXT_CAP, w), "says " + ", ".join(f"'{x}'" for x in reasons[cat][:3])) for cat, w in scores.items()]
+
+
+def _files_vote(m):
+    files = m.files or []
+    if not files:
         return None
-    # a finer or equal Nexus label of the same family stands: Shields are armour, Weapons and Armour covers either,
-    # Magic - Gameplay is magic
+    exts = {os.path.splitext(f)[1].lower() for f in files}
+    tops = {f.split("/", 1)[0].lower() for f in files if "/" in f}
+    if ".dll" in exts:
+        return ("Utilities", W_FILES, "ships a DLL (SKSE plugin)")
+    if "interface" in tops or ".swf" in exts:
+        return ("User Interface", W_FILES, "ships interface files")
+    if ".hkx" in exts:
+        return ("Animation", W_FILES, "ships animations / behaviours")
+    if exts & {".wav", ".xwm", ".fuz"} and not exts & {".dds", ".nif"}:
+        return ("Audio", W_FILES, "ships sound files")
+    if exts & {".dds", ".nif"} and not m.plugins and exts <= ART_EXTS:
+        return ("Models and Textures", W_FILES, "ships only meshes/textures, no plugin")
+    if exts & {".dds", ".nif"}:
+        return ("Models and Textures", 0.6, "ships meshes or textures")
+    if ".pex" in exts and not m.plugins:
+        return ("Utilities", 0.8, "ships scripts and nothing visual")
+    return None
+
+
+def gather_votes(m, nexus_cat, mo2_names, structural_patch):
+    """Every signal as a vote; nothing decided yet."""
+    votes = []
+    nexus_cat = canonical(nexus_cat) if nexus_cat else ""
+    if nexus_cat:
+        votes.append(("nexus", nexus_cat, W_NEXUS, f"Nexus category of mod {m.nexus_id}"))
+    for c in m.mo2_cats or ():
+        name = mo2_names.get(c) if mo2_names else None
+        if not name or norm(name) == "unpublished":
+            continue
+        if norm(name) == "test":
+            votes.append(("mo2", "Test Builds", W_MO2_USER, "MO2 category 'test'"))
+        elif nexus_cat and norm(name) == norm(nexus_cat):
+            votes.append(("mo2", nexus_cat, 0.5, "the same MO2 category"))
+        else:
+            votes.append(("mo2", canonical(name), W_MO2_USER, f"MO2 category '{name}' set by you (differs from Nexus)"))
+        break
+    rv = _records_vote(m)
+    if rv:
+        votes.append(("records", rv[0], rv[1], rv[2]))
+    fv = _files_vote(m)
+    if fv:
+        votes.append(("files", fv[0], fv[1], fv[2]))
+    votes.extend(_text_votes(m))
+    if TAG_PATCH.search(m.name):
+        votes.append(("tag", "Patches", W_TAG, "[Patch] tag"))
+    if structural_patch:
+        votes.append(("structure", "Patches", 2.5, structural_patch))
+    return votes
+
+
+def decide(m, votes, nexus_cat):
+    """The rules over the votes, then the winner. Returns (category, why, adjusted votes)."""
+    votes = [list(v) for v in votes]
+    notes = []
+    framework = next((v for v in votes if v[1] == "__framework__"), None)     # the marker from place(): not a vote
+    if framework is not None:
+        votes.remove(framework)
+        notes.append(framework[3])
+    nexus_k = norm(nexus_cat) if nexus_cat else ""
+    has_label = any(v[0] in ("nexus", "mo2") for v in votes)
+    kinds = LABEL_RECORDS.get(nexus_k)
+    # R1 a label the records contradict: a plugin-bearing mod with none of the records its label predicts
+    if kinds and m.plugins and m.records and not any(m.records.get(k, 0) or m.records.get(k + "*", 0) for k in kinds):
+        for v in votes:
+            if v[0] == "nexus":
+                v[2] *= 0.25
+                notes.append(f"Nexus label '{nexus_cat}' contradicted: its plugins hold no {'/'.join(kinds)} record")
+    # R7 a fixer: under a Bug Fixes / Patches / Overhauls label, a plugin that ALTERS several times more records than it
+    # adds is about the existing game, not new content - its new-content records count little (USSEP: thousands of
+    # altered records, 137 new quest records; the Bug Fixes label stands)
+    if nexus_k in (norm("Bug Fixes"), norm("Patches"), norm("Overhauls")) and m.records:
+        new_total = sum(v for k, v in m.records.items() if not k.endswith("*") and not k.endswith("~"))
+        alt_total = sum(v for k, v in m.records.items() if k.endswith("*"))
+        if alt_total >= 3 * max(1, new_total):
+            for v in votes:
+                if v[0] == "records":
+                    v[2] *= 0.3
+            notes.append(f"a fixer: alters {alt_total} records, adds {new_total}")
+    # R2 clothes are ARMO records: a Clothing label is never turned into Armour by records alone
+    if nexus_k == norm("Clothing and Accessories"):
+        for v in votes:
+            if v[0] == "records" and v[1] == "Armour":
+                v[1] = "Clothing and Accessories"
+                notes.append("armour records under a Clothing label count for Clothing")
+    # R3 a finer or broader label of the same family stands: the records' vote joins it
     compatible = {norm("Armour - Shields"): {"Armour"}, norm("Weapons and Armour"): {"Armour", "Weapons"},
-                  norm("Magic - Gameplay"): {"Magic - Spells & Enchantments"}, norm("Clothing and Accessories"): {"Armour"}}
-    if new in compatible.get(norm(cat), set()):
-        return None
-    parts = [f"{n} {k}" for k, n in (("armour (new or altered)", armo), ("weapon/ammo (new or altered)", weap), ("new spell/enchantment/effect", magic)) if n]
-    return new, f"its plugins add {', '.join(parts)} (Nexus said {cat})"
+                  norm("Magic - Gameplay"): {"Magic - Spells & Enchantments"}}
+    for v in votes:
+        if v[0] == "records" and v[1] in compatible.get(nexus_k, set()):
+            v[1] = canonical(nexus_cat)
+    # R4 a replacer: no plugin, only meshes/textures, under a content label - it is art, not content
+    if not m.plugins and m.files and {os.path.splitext(f)[1].lower() for f in m.files} <= ART_EXTS \
+            and any(norm(v[1]) in CONTENT_TIER4 for v in votes if v[0] in ("nexus", "mo2")):
+        votes.append(["rule", "Models and Textures", 3.5, "a replacer: ships only meshes/textures under a content label"])
+    # R5 a patch is a patch by structure; the word alone counts little against a real label (USSEP is 'Bug Fixes')
+    if has_label and not any(v[0] == "structure" for v in votes):
+        for v in votes:
+            if v[0] in ("tag", "text") and v[1] == "Patches":
+                v[2] *= 0.3
+    # R6 scripts-and-systems: a plugin with many scripts (or a DLL) is a system; the equipable items it adds (Campfire's
+    # tents and backpacks are ARMO records) are its props, not its subject - equipment records count half, and with no
+    # content records at all it leans Gameplay
+    scripted = framework is not None or (m.plugins and m.files and (sum(1 for f in m.files if f.endswith(".pex")) >= 20 or any(f.endswith(".dll") for f in m.files)))
+    if scripted and m.records:
+        for v in votes:
+            if v[0] == "records" and v[1] in ("Armour", "Weapons", "Weapons and Armour", "Clothing and Accessories") and (m.records.get("ARMO", 0) + m.records.get("WEAP", 0)) < 100:
+                v[2] *= 0.5
+                notes.append("a scripted system: its equipment records count half")
+        if not any(m.records.get(k, 0) for k in ("NPC_", "ARMO", "WEAP", "QUST", "RACE")) and not (m.records.get("CELL~", 0) + m.records.get("WRLD~", 0) > 200_000):
+            votes.append(["rule", "Gameplay", 1.0, "a scripted system: many scripts, no content records"])
+    totals, best_reason = {}, {}
+    for src, cat, w, why in votes:
+        k = norm(cat)
+        totals[k] = totals.get(k, 0.0) + w
+        best_reason.setdefault(k, cat)
+    if not totals:
+        return None, "", votes
+    prio = {"mo2": 0, "nexus": 1, "records": 2, "structure": 3, "rule": 4, "files": 5, "text": 6, "tag": 7}
+    def first_src(k):
+        return min((prio.get(v[0], 9) for v in votes if norm(v[1]) == k), default=9)
+    win = max(totals, key=lambda k: (round(totals[k], 3), -first_src(k)))
+    cat = canonical(best_reason[win])
+    shown = sorted(votes, key=lambda v: -v[2])[:4]
+    why = f"{cat} ({totals[win]:.1f}): " + "; ".join(f"{v[0]} {v[1]} {v[2]:.1f} - {v[3]}" for v in shown)
+    if notes:
+        why += " | " + "; ".join(notes)
+    return cat, why, votes
+
+
+def structural_patch_reason(m, owner_of, framework_masters=frozenset(), owner_tier=None):
+    """A plugin whose masters belong to two or more other CONTENT mods is a patch by construction; one such master plus
+    the word 'patch' in the name proper is too. Not patch evidence: a framework master (ten or more dependents:
+    Campfire, the magic overhauls, USSEP) and a master owned by a tier-0/1 mod (SkyUI, MCM Helper, a fix) - those are
+    dependencies. The [Patch] tag alone is not the word: the Keyword Tagger writes it from plugin descriptions too."""
+    own = {f.lower() for f, _, _ in m.plugins + m.optional}
+    foreign = set()
+    for _f, masters, _esm in m.plugins:
+        for mast in masters:
+            k = mast.lower()
+            if k in BASE_MASTERS or k in own or k in framework_masters:
+                continue
+            o = owner_of.get(k)
+            if o is None or o is m:
+                continue
+            if owner_tier is not None and owner_tier(o) <= 1:
+                continue
+            foreign.add(o.name)
+    if len(foreign) >= 2:
+        return f"its plugins take masters from {len(foreign)} other mods ({', '.join(sorted(foreign)[:3])})"
+    plain = TAG_PATCH.sub(" ", m.name)
+    if len(foreign) == 1 and _PATCH_WORD.search(plain):
+        return f"named a patch and takes its master from {next(iter(foreign))}"
+    return ""
 
 
 def read_meta(mod_dir):
-    """(nexus mod id or 0, MO2 category ids) from meta.ini."""
+    """(nexus mod id or 0, MO2 category ids, the mod's own text from meta.ini: nexus description, notes, comments)."""
     p = os.path.join(mod_dir, "meta.ini")
     cp = configparser.RawConfigParser(strict=False)
     try:
         cp.read(p, encoding="utf-8")
         modid = int(str(cp.get("General", "modid", fallback="0")).strip('" ') or 0)
         cats = [c for c in str(cp.get("General", "category", fallback="")).strip('" ').split(",") if c and c not in ("0", "-1")]
+        text = " ".join(str(cp.get("General", k, fallback="")).strip('" ') for k in ("nexusDescription", "notes", "comments"))
+        text = re.sub(r"<[^>]+>", " ", text)[:4000]
     except (configparser.Error, ValueError):
-        modid, cats = 0, []
-    return modid, cats
+        modid, cats, text = 0, [], ""
+    return modid, cats, text
+
+
+_README_RE = re.compile(r"(?i)^(read ?me|description|info|about|instructions?)\b.*\.(txt|md)$")
+
+
+def read_self_text(mod_dir):
+    """What the folder says about itself: a readme at the top level and the FOMOD info.xml (name + description)."""
+    out = []
+    try:
+        for f in os.listdir(mod_dir):
+            if _README_RE.match(f):
+                try:
+                    out.append(open(os.path.join(mod_dir, f), encoding="utf-8", errors="ignore").read(4000))
+                except OSError:
+                    pass
+        info = os.path.join(mod_dir, "fomod", "info.xml")
+        if os.path.isfile(info):
+            t = open(info, encoding="utf-8", errors="ignore").read(8000)
+            for tag in ("Name", "Description", "Groups"):
+                mm = re.search(rf"<{tag}>(.*?)</{tag}>", t, re.S | re.I)
+                if mm:
+                    out.append(re.sub(r"<[^>]+>", " ", mm.group(1)))
+    except OSError:
+        pass
+    return " ".join(out)
 
 
 ASSET_EXTS = (".dds", ".nif", ".hkx", ".dll", ".esl", ".esp", ".esm", ".bsa", ".pex", ".seq", ".ini", ".json", ".swf",
@@ -410,7 +706,8 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 
 class Mod:
-    __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records")
+    __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records",
+                 "votes", "text")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
@@ -419,6 +716,8 @@ class Mod:
         self.category, self.why, self.group, self.flags, self.files = None, "", None, set(), []
         self.twin = None                                            # a test build: the name of the copy it supersedes
         self.records = {}                                           # {record type: new records its plugins add} for the types below
+        self.votes = []                                             # the evidence model: [(source, category, weight, reason)]
+        self.text = ""                                              # what the mod says about itself (plugin descriptions, readme, FOMOD, Nexus description)
 
     @property
     def tier(self):
@@ -492,11 +791,14 @@ def scan(mods_dir, rows, progress=None):
         if not os.path.isdir(d):
             m.flags.add("missing")
             continue
-        m.nexus_id, m.mo2_cats = read_meta(d)
+        m.nexus_id, m.mo2_cats, meta_text = read_meta(d)
+        texts = [meta_text, read_self_text(d)]
         try:
             for f in os.listdir(d):
                 if f.lower().endswith(PLUGIN_EXT) and os.path.isfile(os.path.join(d, f)):
                     masters, _desc, esm = read_header(os.path.join(d, f))
+                    if _desc:
+                        texts.append(_desc)
                     # a .esl-EXTENSION file loads in the master block whatever its header says, as does a .esm
                     m.plugins.append((f, masters, esm or f.lower().endswith((".esm", ".esl"))))
                     for k, v in plugin_new_records(os.path.join(d, f), len(masters)).items():
@@ -511,6 +813,7 @@ def scan(mods_dir, rows, progress=None):
                 m.files = scan_files(d)
         except OSError:
             pass
+        m.text = " ".join(t for t in texts if t)[:12000]
         if progress and not progress(i, len(rows), name):
             break
     return mods
@@ -565,6 +868,24 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
     """Set .category / .why on every mod. Returns nothing; every decision is a fact the dialog can show."""
     order, _headers = category_order()
     pins = pins or {}
+    owner_of = {}                      # plugin file -> the mod MO2 takes it from (the lowest enabled one that ships it)
+    dependents = {}
+    for m in mods:
+        if is_sep(m.name) or "missing" in m.flags:
+            continue
+        for f, masters, _esm in m.plugins:
+            k = f.lower()
+            if m.enabled or k not in owner_of:
+                owner_of[k] = m
+            for mast in masters:
+                dependents.setdefault(mast.lower(), set()).add(m.name)
+    framework_masters = frozenset(k for k, ds in dependents.items() if len(ds) >= 10)
+
+    def owner_tier(o):
+        if o.category:                                   # decided already (the list is walked top-down, masters first)
+            return index_tier(o.category)
+        c = categories.get(str(o.nexus_id), "") if o.nexus_id else ""
+        return index_tier(c) if c else 3
     for m in mods:
         if is_sep(m.name):
             continue
@@ -593,36 +914,45 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
         if why_shape:
             m.category, m.why = SHAPE_CAT, "Shape: " + why_shape
             continue
-        if cat:
-            refined = refine_by_records(m, cat)
-            if refined:
-                m.category, m.why = refined[0], refined[1]
-                continue
-            m.category, m.why = cat, f"Nexus category of mod {m.nexus_id}"
-            continue
-        # the [Patch] prefix only places a mod Nexus could not: USSEP is tagged [Patch] by name yet is "Bug Fixes" on
-        # Nexus and a master to dozens of mods - filing it under Patches dragged them all below it
-        if TAG_PATCH.search(n):
-            m.category, m.why = "Patches", "[Patch] prefix (MO2 Patch Tagger), no Nexus category"
-            continue
-        if m.mo2_cats and mo2_category_names:
-            for c in m.mo2_cats:
-                name = mo2_category_names.get(c)
-                if not name or norm(name) == "unpublished":      # "unpublished" is a state, not a place (the owner's rule)
-                    continue
-                if norm(name) == "test":
-                    m.category, m.why = "Test Builds", "MO2 category 'test'"
-                else:
-                    m.category, m.why = name, f"MO2 category '{name}'"
-                break
-            if m.category:
-                continue
-        cat, why = class_from_files(m)
-        if cat:
-            m.category, m.why = cat, why
+        # THE EVIDENCE MODEL: every signal votes, the rules adjust, the heaviest category wins (the owner, 2026-09-23)
+        m.votes = gather_votes(m, cat, mo2_category_names, structural_patch_reason(m, owner_of, framework_masters, owner_tier))
+        if any(f.lower() in framework_masters for f, _, _ in m.plugins):
+            n_dep = max(len(dependents.get(f.lower(), ())) for f, _, _ in m.plugins)
+            m.votes = list(m.votes) + [("structure", "__framework__", 0.0, f"a framework: {n_dep} mods depend on its plugin")]
+        decided, why, m.votes = decide(m, m.votes, cat)
+        if decided:
+            m.category, m.why = decided, why
             continue
         m.category, m.why = "Uncategorised", ("no Nexus page" if not m.nexus_id else f"Nexus has no category for mod {m.nexus_id}")
     by_name_ = {m.name: m for m in mods}
+    # ADDONS (second pass): a mod named for another - "Northern Concept - Northern Roads", "Utenlands Nordic Tents -
+    # Campfire Addon" - sits with that mod, so it takes the parent's category as a strong vote and is decided again.
+    # A patch by structure stays a patch; the hard gates above are untouched.
+    decided_names = {m.name: m for m in mods if m.category and not is_sep(m.name)}
+    cores = {}
+    for m in decided_names.values():
+        c = _core_name(m.name)
+        if len(c) >= 6:
+            cores.setdefault(c, []).append(m)
+    for m in mods:
+        if is_sep(m.name) or not m.votes or norm(m.category or "") in (norm("Patches"), norm(SHAPE_CAT), norm("Test Builds"), norm("Base Game"), norm("Generated Outputs"), NODELETE_SEP.lower()):
+            continue
+        if m.why.startswith(("pinned", "carries the [NoDelete]", "name starts", "every plugin", "no Nexus page and", "Shape:")):
+            continue
+        mine = _core_name(m.name)
+        parent = None
+        for c, ms in cores.items():
+            if c != mine and mine.startswith(c) and (parent is None or len(c) > len(_core_name(parent.name))):
+                cand = min(ms, key=lambda x: len(x.name))
+                if cand is not m and norm(cand.category or "") not in (norm("Patches"), norm("Test Builds"), NODELETE_SEP.lower()):
+                    parent = cand
+        if parent is None:
+            continue
+        cat = categories.get(str(m.nexus_id), "") if m.nexus_id else ""
+        votes = [tuple(v) for v in m.votes] + [("addon", parent.category, 3.0, f"named for {parent.name}, which is {parent.category}")]
+        decided, why, m.votes = decide(m, votes, cat)
+        if decided:
+            m.category, m.why = decided, why
     for m in mods:
         if m.twin and by_name_.get(m.twin) is not None and by_name_[m.twin].category:
             t = by_name_[m.twin]
@@ -632,29 +962,6 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
     for m in mods:
         if m.category:
             m.group = tier_of(m.category)
-
-
-def class_from_files(m):
-    """(category, why) from what a mod ships, for a mod Nexus cannot place. Ordered by how much a hit proves: a DLL is
-    an SKSE plugin whatever else is in the folder; a texture only says 'art'. ("", "") when nothing decisive."""
-    files = m.files or []
-    if not files:
-        return "", ""
-    exts = {os.path.splitext(f)[1] for f in files}
-    tops = {f.split("/", 1)[0] for f in files if "/" in f}
-    if ".dll" in exts:
-        return "Utilities", "ships a DLL (SKSE plugin)"
-    if "interface" in tops or ".swf" in exts:
-        return "User Interface", "ships interface files"
-    if ".hkx" in exts:
-        return "Animation", "ships animations / behaviours"
-    if exts & {".wav", ".xwm", ".fuz"} and not exts & {".dds", ".nif"}:
-        return "Audio", "ships sound files"
-    if exts & {".dds", ".nif"}:
-        return "Models and Textures", "ships meshes or textures"
-    if ".pex" in exts:
-        return "Utilities", "ships scripts and nothing visual"
-    return "", ""
 
 
 def read_nexus_catmap(instance_dir):
@@ -679,13 +986,27 @@ def plan_mo2_category_updates(mods, categories, instance_dir):
     catmap = read_nexus_catmap(instance_dir)
     mods_dir = os.path.join(instance_dir, "mods")
     out = []
+    # 2026-09-23: the DECIDED category (every signal weighed), not the bare Nexus one; a mod whose MO2 category the user
+    # set himself is left alone, one the updater wrote earlier from Nexus is corrected when the decision differs
+    names = read_mo2_categories(instance_dir)
     for m in mods:
-        if is_sep(m.name) or not m.nexus_id or m.mo2_cats:
+        if is_sep(m.name) or "missing" in m.flags or not m.category:
             continue
-        cat = categories.get(str(m.nexus_id), "")
-        mo2_id = catmap.get(norm(cat)) if cat else None
-        if mo2_id:
-            out.append((m.name, os.path.join(mods_dir, m.name, "meta.ini"), mo2_id, cat))
+        if norm(m.category) in (norm(SHAPE_CAT), norm("Test Builds"), norm("Base Game"), norm("Generated Outputs"), NODELETE_SEP.lower(), norm("Uncategorised")):
+            continue
+        if m.category.startswith("displaced") or " block; " in (m.why or ""):
+            continue
+        mo2_id = catmap.get(norm(m.category))
+        if not mo2_id:
+            continue
+        current = [names.get(c, "") for c in (m.mo2_cats or [])]
+        if any(norm(c) == norm(m.category) for c in current):
+            continue
+        nexus_cat = categories.get(str(m.nexus_id), "") if m.nexus_id else ""
+        user_set = any(c and norm(c) not in (norm(nexus_cat), "unpublished", "test") for c in current)
+        if user_set:
+            continue
+        out.append((m.name, os.path.join(mods_dir, m.name, "meta.ini"), mo2_id, m.category))
     return out
 
 
@@ -736,44 +1057,26 @@ def read_mo2_categories(instance_dir):
     return names
 
 
-def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
+def build(mods, rules=None, min_run=5):
     """The new pane: [(name, enabled)] top-first, plus the facts.
 
-    The order is a topological sort (Kahn, with a heap): every edge is a fact - a MASTER must load above its
-    dependent, and with keep_winners today's winner of every shared file stays below its loser - and the tie-break is
-    the taxonomy (group, category, then today's position), so mods fall into their category's block unless an edge
-    holds them lower. A mod held below its group is DISPLACED: it is relabelled to the category it lands in, with the
-    reason, so the separators stay whole and the dialog says why. The owner's rules (after/before/first/last) are
-    edges and pins on top of that. Without keep_winners the flips are only reported.
-
-    mode "spine" (the default for a list that has been played): today's order is the tie-break for EVERY mod, so the
-    sort changes only what a master, a winner or a rule demands, and the separators are generated over that order -
-    a run of one category becomes its separator, and a run shorter than min_run inside a longer run of another
-    category is absorbed into it (listed as "absorbed"). No block is imposed, so nothing is displaced.
-    mode "blocks": the category blocks are imposed in the list's own tier order and today's winners are kept by
-    displacing mods below their block (listed as "displaced"). On the owner's list this moved ~500 mods."""
+    ONE WAY TO ORDER (2026-09-23, the owner: "clean up the plugin from previous versions' logic so it is not biased"):
+    every mod ranks by (tier, its category's place in the tier, today's position); a topological sort (Kahn, with a
+    heap) then keeps every FACTUAL edge - a master above its dependent, a generated output last, a settings loader
+    below its target, a shape refit below what it refits, the resolver's evidence about a shared file, and the user's
+    own before/after/first/last rules. A mod an edge holds below its block is DISPLACED and relabelled to the block it
+    lands in, with the reason. Nothing else moves a mod: no kept winners, no learned category order, no rules written
+    by a previous run."""
     import heapq
-    order, headers = category_order()
-    other = headers.index(OTHER_GROUP_HEADER)
-    rules = rules or []
+    rules = [r for r in (rules or []) if "review" not in str(r.get("comment", ""))]
     real = [m for m in mods if not is_sep(m.name) and "missing" not in m.flags]
     by_name = {m.name: m for m in real}
 
-    def taxonomy_rank(cat):
-        k = norm(cat)
-        if k == NODELETE_SEP.lower():
-            return (len(GROUPS) + 1, 0)
-        return order.get(k, (other, 0))
-
-    cat_rank = {}          # filled by learn_order() once the edges are known; taxonomy order until then
-
     def rank(m):
         k = norm(m.category)
-        if mode == "spine":
-            if k == NODELETE_SEP.lower():
-                return (1, 0, m.index)              # NoDelete stays the tail
-            return (0, 0, m.index)
-        if mode == "index":
+        if k == NODELETE_SEP.lower():
+            return (index_tier(NODELETE_SEP), 0, m.index)
+        if True:
             # tier, then the category's place in that tier's own list, then today's position. Until 2026-09-23 the
             # order inside a tier was today's position alone, and the blocks were labels stamped over runs of it -
             # 496 of 2,191 mods sat in a block of another category (the owner: "many mods seem out of place").
@@ -782,15 +1085,11 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             if m.twin and m.twin in by_name and by_name[m.twin] is not m:
                 base = rank(by_name[m.twin])
                 return (base[0], base[1], base[2] + 0.5)      # directly behind the copy it supersedes
-            t = index_tier(m.category, m)
+            t = index_tier(m.category)
             names = TIERS.get(t, ())
             k = norm(m.category)
             ci = next((i for i, n in enumerate(names) if norm(n) == k), len(names))
             return (t, ci, m.index)
-        if k in cat_rank:
-            return (cat_rank[k], 0, m.index)
-        gi, ci = taxonomy_rank(m.category)
-        return (gi * 1000 + ci, 0, m.index)
 
     # --- edges: x above y ----------------------------------------------------------------------------------------
     above = {}                     # above[y] = {x}
@@ -821,12 +1120,11 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                     edge(o, m, f"{f} needs its master {mast}")
                     if o.index > m.index:
                         fixes.append((m.name, o.name))
-    if mode == "index":
-        outputs = [m for m in real if norm(m.category) == norm("Generated Outputs")]
-        for o in outputs:
-            for m in real:
-                if m is not o and m.enabled and norm(m.category) not in (norm("Generated Outputs"), norm("Test Builds"), NODELETE_SEP.lower()):
-                    edge(m, o, "generated output loads last")
+    outputs = [m for m in real if norm(m.category) == norm("Generated Outputs")]
+    for o in outputs:
+        for m in real:
+            if m is not o and m.enabled and norm(m.category) not in (norm("Generated Outputs"), norm("Test Builds"), NODELETE_SEP.lower()):
+                edge(m, o, "generated output loads last")
     def would_cycle(x, y):
         """True when y is already (transitively) above x, so 'x above y' would close a loop. Rules are the only edges
         that can be inconsistent with the structural ones (masters, outputs last, settings loaders, kept winners), so
@@ -914,8 +1212,8 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                     continue
                 edge(a, b, f"rule: before {b.name}")
                 rule_moves.append((a.name, f"before {b.name}"))
-    # hand-written rules first: they outrank the resolver's heuristics (never a master, output or loader edge)
-    apply_rules([r for r in rules if "review" not in str(r.get("comment", ""))])
+    # the user's own rules outrank the resolver's heuristics (never a master, output or loader edge)
+    apply_rules(rules)
     # a Shape mod (a refit) must win the files it shares with the armour, weapon and clothing mods it refits
     shape_pairs = set()
     for a_mod in real:
@@ -950,11 +1248,14 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
         if (loser, winner) in loader_pairs or (winner, loser) in loader_pairs or (loser, winner) in shape_pairs or (winner, loser) in shape_pairs:
             continue                  # a settings loader's or a shape refit's pair is settled above
         ma, mb = by_name[a], by_name[b]
-        same_tier_pair = index_tier(ma.category, ma) == index_tier(mb.category, mb)
+        same_tier_pair = index_tier(ma.category) == index_tier(mb.category)
+        same_cat_pair = norm(ma.category) == norm(mb.category)
         verdict = resolve_conflict(ma, mb, shared, files_of)
         # name dependency and patch evidence hold across tiers (a "for X" mod belongs under X whatever their
-        # categories); PBR and specificity only inside a tier, where the hierarchy has nothing to say
-        if verdict is not None and not same_tier_pair and not (verdict[2].startswith("named for") or verdict[2].startswith("a patch")):
+        # categories); PBR and specificity only between mods of the SAME category, where nothing else orders them -
+        # across categories the category order is the stronger evidence (2026-09-23: More Accurate Collision, an
+        # Immersion mod of 4,192 files, had pulled 36 texture packs under Immersion by size alone)
+        if verdict is not None and not same_cat_pair and not (verdict[2].startswith("named for") or verdict[2].startswith("a patch")):
             verdict = None
         if verdict is not None:
             w, l, why = verdict
@@ -966,56 +1267,11 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
             continue
         if not same_tier_pair:
             continue                  # the hierarchy decides a cross-tier pair
-        undecided.append((winner, loser, n, "no evidence either way - category order decides" + ("" if not keep_winners else "; today's winner kept")))
-        if keep_winners:
-            # the box now covers only pairs with no evidence: today's winner stays unless a master or loader says otherwise
-            if would_cycle(loser, winner):
-                winners_yielded.append((winner, loser, n, reason.get((winner, loser), "a master or loader edge says the opposite")))
-                continue
-            edge(by_name[loser], by_name[winner], f"keeps winning {n} shared file(s) over {loser}")
-    # the Review tab's auto-written rules ("kept today's winner") rank BELOW the resolver's evidence and go in here;
-    # rules written by hand went in before the resolver (above), so they rank above it
-    apply_rules([r for r in rules if "review" in str(r.get("comment", ""))])
+        undecided.append((winner, loser, n, "no evidence either way - category order decides"))
     firsts = {r.get("mod") for r in rules if r.get("type") == "first" and r.get("enabled", True)}
     lasts = {r.get("mod") for r in rules if r.get("type") == "last" and r.get("enabled", True)}
 
-    # --- the category order, learned from the winners ------------------------------------------------------------
-    # Between two categories, count (in shared files) how often the list says "A above B" against "B above A".
-    # Start from the taxonomy order and swap neighbours while a swap lowers the total weight of contradicted pairs:
-    # the tier order the list itself has been tested with, with the table deciding only where the list is silent.
-    cats = sorted({norm(m.category) for m in real}, key=lambda c: taxonomy_rank(c))
-    weight = {}
-    for (a, b), n in ((k, len(v)) for k, v in pairs.items()):
-        ma, mb = by_name[a], by_name[b]
-        loser, winner = (ma, mb) if ma.index < mb.index else (mb, ma)
-        ca, cb = norm(loser.category), norm(winner.category)
-        if ca != cb and ca != NODELETE_SEP.lower() and cb != NODELETE_SEP.lower():
-            weight[(ca, cb)] = weight.get((ca, cb), 0) + n       # ca must come before cb, n files say so
-    def cost(seq):
-        pos = {c: i for i, c in enumerate(seq)}
-        return sum(n for (a, b), n in weight.items() if pos[a] > pos[b])
-    # The list's own tier order: each category takes the MEDIAN of its members' positions today, so the order of
-    # blocks is the order the tested list already uses (base game at the top, outputs at the bottom, meshes where
-    # the list keeps them). A pure minimum-feedback-arc order over shared-file weights was tried and put
-    # "Miscellaneous" first and "Base Game" thirty-eighth - a handful of big mesh packs outweighed everything.
-    # Insertion sweeps on the shared-file weight were tried too and undid the shape (Utilities to the tail).
-    import statistics
-    members = {}
-    for m in real:
-        members.setdefault(norm(m.category), []).append(m.index)
-    seq = sorted(cats, key=lambda c: (statistics.median(members[c]) if members.get(c) else 10**9, taxonomy_rank(c)))
-    # the fixed ends stay fixed: base game first, outputs and test builds last, whatever the medians say
-    for c, front in ((norm("Base Game"), True), (norm("Generated Outputs"), False), (norm("Test Builds"), False)):
-        if c in seq:
-            seq.remove(c)
-            seq.insert(0, c) if front else seq.append(c)
-    best = cost(seq)          # the weight the block order cannot satisfy: those pairs become displacements
-    for i, c in enumerate(seq):
-        cat_rank[c] = i
-    learned = [(c, taxonomy_rank(c)) for c in seq]
-    moved_cats = [c for i, (c, _t) in enumerate(learned) if i != sorted(range(len(learned)), key=lambda j: learned[j][1]).index(i)]
-
-    # --- Kahn with a heap on the learned rank -----------------------------------------------------------------------
+    # --- Kahn with a heap on the rank ---------------------------------------------------------------------------------
     def key(m):
         gi, ci, idx = rank(m)
         return (gi, ci, 0 if m.name in firsts else 2 if m.name in lasts else 1, idx)
@@ -1041,21 +1297,21 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     cycle_edges = [(x, y, reason.get((x, y), "")) for y in cycle_names for x in above.get(y, ()) if x in cycle_names]
     ordered += sorted(cycles, key=key)          # a cycle among edges: those mods keep today's relative order
 
-    # --- displaced mods take the category they land in (blocks mode) ------------------------------------------------
-    displaced = []
+    # --- displaced mods take the category they land in --------------------------------------------------------------
     absorbed = []
-    # displacement first, so the run merging below sees every mod's final category
-    displaced = []
+    displaced = []                     # displacement first, so the run merging below sees every mod's final category
     cur = None
-    for m in (ordered if mode in ("blocks", "index") else []):
+    for m in ordered:
         if m.category == NODELETE_SEP or norm(m.category) in FIXED_BLOCKS:
             continue
         gi = rank(m)[0]
         if cur is None:
             cur = m
             continue
-        if gi < rank(cur)[0]:
-            # held here by an edge: name the latest predecessor that holds it
+        if rank(m)[:2] < rank(cur)[:2] and norm(m.category) != norm(cur.category):
+            # held here by an edge (a lower tier, or an earlier category of the same tier): name the latest
+            # predecessor that holds it. Until 2026-09-23 only a tier change counted, so a texture pack held under
+            # Northern Roads was listed as a nameless minority of the Audio block instead of a displacement with its reason
             holders = [x for x in above.get(m.name, ()) if x in by_name]
             why = ""
             if holders:
@@ -1066,7 +1322,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
         else:
             cur = m
 
-    if mode in ("spine", "index"):
+    if True:
         # runs of one category over the kept order; the SHORTEST run is merged into the larger of its two neighbours
         # (whatever their category) until every run has at least min_run mods - so the separators stay few and each
         # absorbed mod is listed with the category it really has
@@ -1121,7 +1377,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                 return True
             if norm(a[0]) in FIXED_BLOCKS or norm(b[0]) in FIXED_BLOCKS:
                 return False
-            return mode != "index" or run_tier(a) == run_tier(b)
+            return run_tier(a) == run_tier(b)
         while len(runs) > 1:
             def pick_key(j):
                 r = runs[j]
@@ -1172,22 +1428,19 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
                 if norm(m.category) != norm(label):
                     absorbed.append((m.name, m.category, label))
                     m.category, m.why = label, f"in a '{label}' block; its own category is different ({m.why})"
-    # --- separators (a group header is written whenever the group changes; the learned order may interleave) --------
+    # --- separators: one tier header per tier, one block per category ------------------------------------------------
     rows = []
     cur_header, cur_cat = None, None
     written_headers = set()
-    block_uses = {}          # a category that heads more than one block gets a numbered name from its second block on
+    block_uses = {}
     for m in ordered:
         k = norm(m.category)
         if k == NODELETE_SEP.lower():
             header = None
-        elif mode == "index":
-            header = TIER_HEADERS[m.group if m.group in TIER_HEADERS else index_tier(m.category, m)]
         else:
-            gi = order.get(k, (other, 0))[0]
-            header = headers[gi]
+            header = TIER_HEADERS[m.group if m.group in TIER_HEADERS else index_tier(m.category)]
         if header != cur_header and header is not None:
-            if header not in written_headers:           # the learned order can interleave groups: one header each
+            if header not in written_headers:           # a displaced mod can bring a tier back: one header each
                 rows.append((sep_name(header), False))
                 written_headers.add(header)
             cur_header = header
@@ -1216,7 +1469,7 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     flips = []
     for (l, w), n in winners.items():
         if new_pos.get(w, 0) < new_pos.get(l, 0):
-            tw, tl = index_tier(by_name[w].category, by_name[w]), index_tier(by_name[l].category, by_name[l])
+            tw, tl = index_tier(by_name[w].category), index_tier(by_name[l].category)
             if tw != tl:
                 kind = f"hierarchy: tier {tl} ({by_name[l].category}) over tier {tw} ({by_name[w].category})"
             else:
@@ -1228,14 +1481,13 @@ def build(mods, rules=None, keep_winners=True, mode="index", min_run=8):
     advice = []
     for (l, w), n in winners.items():
         ml, mw = by_name[l], by_name[w]
-        if index_tier(ml.category, ml) == index_tier(mw.category, mw) and len(mw.files) > len(ml.files) and mw.files and ml.files:
+        if index_tier(ml.category) == index_tier(mw.category) and len(mw.files) > len(ml.files) and mw.files and ml.files:
             advice.append((w, l, n, f"the larger mod ({len(mw.files)} files) wins over the smaller ({len(ml.files)}) - check it is meant to"))
     advice.sort(key=lambda x: -x[2])
     new_seps = {nm for nm, _ in rows if is_sep(nm)}
     old_seps = {m.name for m in mods if is_sep(m.name)}
     return rows, {"fixes": fixes, "rule_moves": rule_moves, "flips": flips, "conflict_pairs": len(pairs),
-                  "displaced": displaced, "absorbed": absorbed, "advice": advice, "mode": mode, "cycles": [m.name for m in cycles], "cycle_edges": cycle_edges, "rules_ignored": rules_ignored, "winners_yielded": winners_yielded, "resolved": resolved, "undecided": undecided,
-                  "category_order": seq, "category_moves": moved_cats, "contradicted_files": best,
+                  "displaced": displaced, "absorbed": absorbed, "advice": advice, "cycles": [m.name for m in cycles], "cycle_edges": cycle_edges, "rules_ignored": rules_ignored, "winners_yielded": winners_yielded, "resolved": resolved, "undecided": undecided,
                   "created": sorted(new_seps - old_seps), "retired": sorted(old_seps - new_seps)}
 
 
@@ -1435,6 +1687,23 @@ def load_rules(profile_dir):
     ours.setdefault("rules", [])
     ours.setdefault("plugin_rules", [])
     ours.setdefault("pins", {})
+    # rules an earlier build's Review tab wrote ("kept today's winner") are retired to a file beside the live one and
+    # never applied again: the order stands on evidence (the owner, 2026-09-23). Nothing is deleted.
+    review = [r for r in ours["rules"] if "review" in str(r.get("comment", ""))]
+    if review:
+        try:
+            rp = os.path.join(profile_dir, RULES_FILE.replace(".json", ".review-retired.json"))
+            old = []
+            if os.path.isfile(rp):
+                try:
+                    old = json.load(open(rp, encoding="utf-8"))
+                except (OSError, ValueError):
+                    old = []
+            json.dump(old + review, open(rp, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+            ours["rules"] = [r for r in ours["rules"] if "review" not in str(r.get("comment", ""))]
+            json.dump(ours, open(p, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+        except OSError:
+            pass
     for key_ in ("rules", "plugin_rules"):          # an older build let "Keep" write the same rule twice
         seen, kept = set(), []
         for r in ours[key_]:
@@ -1532,7 +1801,7 @@ def diff(mods, rows):
     return out
 
 
-def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, keep_winners=False, mode="index", min_run=8):
+def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, min_run=5):
     """Everything up to (not including) writing. Returns a dict the dialog and the offline runner both use."""
     mods_dir = os.path.join(instance_dir, "mods")
     ml = os.path.join(instance_dir, "profiles", profile, "modlist.txt")
@@ -1550,7 +1819,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     ours, theirs = load_rules(os.path.join(instance_dir, "profiles", profile))
     plugin_state = plan_plugin_state(mods, os.path.join(instance_dir, "profiles", profile), theirs)
     place(mods, cats, read_mo2_categories(instance_dir), under, ours.get("pins"))
-    new_rows, facts = build(mods, ours.get("rules"), keep_winners, mode, min_run)
+    new_rows, facts = build(mods, ours.get("rules"), min_run)
     by_name = {m.name: m for m in mods}
     plugins = plugin_order(new_rows, by_name, theirs)
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
@@ -1678,50 +1947,31 @@ if mobase is not None:
             conf_page = QWidget()
             cl = QVBoxLayout(conf_page)
             cl.addWidget(QLabel("Every file conflict the resolver could not decide from evidence (top), then the ones it "
-                                "flipped against today's order. Keep today's winner for a row to write it as an 'after' rule."))
+                                "flipped against today's order. Information only: nothing here writes a rule. A pair the "
+                                "category order gets wrong is a missing piece of evidence - add it to the model, or write "
+                                "a rule of your own on the Rules tab."))
             cl.addWidget(self.t_conf, 1)
-            row = QHBoxLayout()
-            b_all = QPushButton("Select all")
-            b_all.clicked.connect(self.t_conf.selectAll)
-            b_none = QPushButton("Select none")
-            b_none.clicked.connect(self.t_conf.clearSelection)
-            b_keep = QPushButton("Keep today's winner for the selected rows (add rules)")
-            b_keep.clicked.connect(self._keep_selected_winners)
-            row.addWidget(b_all)
-            row.addWidget(b_none)
-            row.addWidget(b_keep, 1)
-            cl.addLayout(row)
             self.tabs.addTab(conf_page, "Review")
             self.tabs.addTab(self.t_place, "Every placement")
             self.t_plug = self._table(["Plugin", "Mod", "Action", "Why"])
             self.tabs.addTab(self.t_plug, "Plugins")
             self.tabs.addTab(self._rules_tab(), "Rules")
             opts = QHBoxLayout()
-            opts.addWidget(QLabel("Order:"))
-            self.cb_mode = QComboBox()
-            self.cb_mode.addItem("the six-tier index - tier by evidence, general before specific, masters and outputs enforced; today's winners reported", "index")
-            self.cb_mode.addItem("keep today's order - separators generated over it", "spine")
-            self.cb_mode.addItem("category blocks in the list's own tier order - winners kept by displacing", "blocks")
-            opts.addWidget(self.cb_mode, 3)
+            opts.addWidget(QLabel("Order: tier by evidence, general before specific; masters, outputs, loaders, refits and your rules enforced."), 3)
             opts.addWidget(QLabel("Smallest block:"))
             self.sp_run = QSpinBox()
             self.sp_run.setRange(1, 60)
-            self.sp_run.setValue(8)
+            self.sp_run.setValue(5)
             opts.addWidget(self.sp_run)
-            self.c_keep = QCheckBox("keep today's winner where there is no evidence")
-            self.c_keep.setChecked(False)         # the resolver decides from evidence; this only covers what it cannot (2026-09-23)
-            opts.addWidget(self.c_keep)
             root.insertLayout(1, opts)
-            self.cb_mode.currentIndexChanged.connect(lambda _i: self.compute())
             self.sp_run.valueChanged.connect(lambda _v: self.compute())
-            self.c_keep.toggled.connect(lambda _c: self.compute())
             self.status = QLabel()
             self.status.setWordWrap(True)
             root.addWidget(self.status)
             buttons = QHBoxLayout()
             buttons.addStretch(1)
-            self.b_cats = QPushButton("Update MO2 categories from Nexus")
-            self.b_cats.setToolTip("Write each mod's Nexus category into its meta.ini as its MO2 category, for mods that have none")
+            self.b_cats = QPushButton("Write decided categories to MO2")
+            self.b_cats.setToolTip("Write each mod's DECIDED category (every signal weighed: Nexus, records, files, its own words) into its meta.ini as its MO2 category. A category you set yourself is left alone.")
             self.b_cats.clicked.connect(self.update_categories)
             buttons.addWidget(self.b_cats)
             self.b_refresh = QPushButton("Compute again")
@@ -1803,24 +2053,6 @@ if mobase is not None:
             self._fill(self.t_rules, self._rules_rows())
             self.compute()
 
-        def _keep_selected_winners(self):
-            rows = sorted({i.row() for i in self.t_conf.selectedIndexes()})
-            if not rows or not self._result:
-                return
-            r = self._p.rules()
-            f = self._result["facts"]
-            table = f.get("undecided", []) + [(w, l, n, why) for w, l, n, why, tag in f.get("resolved", []) if tag != "as today"]
-            have = {(x.get("type"), x.get("mod"), x.get("target")) for x in r.get("rules", [])}
-            for i in rows:
-                w, l, _n, _k = table[i]
-                if ("after", w, l) in have:
-                    continue
-                r.setdefault("rules", []).append({"type": "after", "mod": w, "target": l, "enabled": True,
-                                                  "comment": "kept today's winner (review)"})
-            self._p.save_rules(r)
-            self._fill(self.t_rules, self._rules_rows())
-            self.compute()
-
         def _rule_pick(self):
             """The mod selected in MO2's list goes into the form."""
             name = self._p.selected_mod()
@@ -1855,7 +2087,7 @@ if mobase is not None:
                         self.summary.setText(f"Reading the list: {done} of {total}...")
                     QApplication.processEvents()
                     return True
-                self._result = self._p.compute(progress, self.c_keep.isChecked(), self.cb_mode.currentData(), self.sp_run.value())
+                self._result = self._p.compute(progress, self.sp_run.value())
             except Exception as exc:  # noqa: BLE001
                 self._p._log(f"compute failed: {exc!r}")
                 self.summary.setText(f"Failed: {exc}")
@@ -1866,7 +2098,7 @@ if mobase is not None:
             self.summary.setText(
                 f"{len(mods)} mods - {r['nexus']} - {len(r['moves'])} mod(s) change separator or line - "
                 f"{len(r['facts']['created'])} separator(s) created, {len(r['facts']['retired'])} retired - "
-                f"{len(r['facts']['absorbed'])} in a block of another category, {len(r['facts']['displaced'])} displaced by a master or a kept winner - "
+                f"{len(r['facts']['absorbed'])} in a block of another category, {len(r['facts']['displaced'])} displaced by a master, loader, refit or rule - "
                 f"{len(r['facts'].get('resolved', []))} file conflicts decided by evidence, {len(r['facts'].get('undecided', []))} left to category order, "
                 f"{len(r['facts'].get('rules_ignored', []))} rule(s) ignored as contradictory - {len(r['plugins'])} plugins ordered"
                 f" ({len(r.get('plugin_state', {}).get('activate', []))} to activate, {len(r.get('plugin_state', {}).get('to_optional', []))} to Optional ESPs, "
@@ -1877,12 +2109,7 @@ if mobase is not None:
             self._fill(self.t_disp, [(a, b, c, "") for a, b, c in r["facts"]["absorbed"]] + r["facts"]["displaced"])
             f = r["facts"]
             self._fill(self.t_conf, f.get("undecided", []) + [(w, l, n, "resolver flipped today's order: " + why) for w, l, n, why, tag in f.get("resolved", []) if tag != "as today"])
-            # the box and the selection agree: ticked = every review row selected, unticked = none (the owner, 2026-09-23)
-            if self.c_keep.isChecked():
-                self.t_conf.selectAll()
-            else:
-                self.t_conf.clearSelection()
-            self._fill(self.t_place, [(m.name, f"{index_tier(m.category, m)} " + TIER_HEADERS.get(index_tier(m.category, m), "NoDelete").strip("- ").title(), m.category, m.why) for m in mods])
+            self._fill(self.t_place, [(m.name, f"{index_tier(m.category)} " + TIER_HEADERS.get(index_tier(m.category), "NoDelete").strip("- ").title(), m.category, m.why) for m in mods])
             self._fill(self.t_rules, self._rules_rows())
             ps = r.get("plugin_state", {})
             self._fill(self.t_plug, [(f, m, "activate", w) for f, m, w in ps.get("activate", [])]
@@ -2034,7 +2261,7 @@ if mobase is not None:
             except OSError:
                 pass
 
-        def compute(self, progress=None, keep_winners=True, mode="index", min_run=8):
+        def compute(self, progress=None, min_run=5):
             org = self._organizer
             org.refresh(True)      # so modlist.txt on disk is what the pane shows
             domain = "skyrimspecialedition"
@@ -2042,7 +2269,7 @@ if mobase is not None:
                 domain = org.managedGame().gameNexusName() or domain
             except Exception:  # noqa: BLE001
                 pass
-            return run(org.basePath(), org.profileName(), self._cache_dir(), domain, progress, self._log, keep_winners, mode, min_run)
+            return run(org.basePath(), org.profileName(), self._cache_dir(), domain, progress, self._log, min_run)
 
         def rules(self):
             return load_rules(os.path.join(self._organizer.basePath(), "profiles", self._organizer.profileName()))[0]
@@ -2124,13 +2351,13 @@ if __name__ == "__main__" and mobase is None:       # offline dry run: python MO
     # (MO2 executes a plugin file with __name__ == "__main__" too - the mobase check keeps this block out of its way)
     import sys
     if len(sys.argv) < 4:
-        raise SystemExit("usage: MO2ModlistManager.py <instance dir> <profile> <cache dir> [spine|blocks]")
+        raise SystemExit("usage: MO2ModlistManager.py <instance dir> <profile> <cache dir>")
     inst, prof, cache = sys.argv[1], sys.argv[2], sys.argv[3]
-    mode = sys.argv[4] if len(sys.argv) > 4 else "index"
-    res = run(inst, prof, cache, log=print, mode=mode)
+    res = run(inst, prof, cache, log=print)
     out = {"summary": res["nexus"], "moves": res["moves"], "facts": res["facts"], "plugins": res["plugins"],
            "plugin_groups": res["plugin_groups"],
-           "rows": res["rows"], "placements": [(m.name, m.category, m.why) for m in res["mods"] if not is_sep(m.name)]}
+           "rows": res["rows"], "placements": [(m.name, m.category, m.why) for m in res["mods"] if not is_sep(m.name)],
+           "votes": {m.name: m.votes for m in res["mods"] if not is_sep(m.name) and m.votes}}
     json.dump(out, open(os.path.join(cache, "dry-run.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     out["plugin_state"] = res["plugin_state"]
     out["test_pairs"] = res.get("test_pairs", [])
