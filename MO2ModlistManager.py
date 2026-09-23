@@ -372,7 +372,7 @@ def plugin_new_records(path, n_masters):
 # rule over the votes.
 W_NEXUS, W_MO2_USER, W_RECORDS_STRONG, W_RECORDS_WEAK, W_FILES, W_TAG = 3.0, 3.5, 3.5, 1.2, 1.5, 1.0
 W_NAME_DEFINED = 6.0     # a leaf the owner defined by its name, hit in the mod's NAME: decisive over a label plus its files
-NAME_DEFINED = {"camera", "dialogue", "improved controls", "physics", "performance optimization", "alternate start",
+NAME_DEFINED = {"camera", "dialogue", "improved controls", "physics", "performance optimization", "alternate start", "face", "hair",
                 "pbr textures", "environment - seasons", "lighting", "unofficial patches", "ui overhaul",
                 "essential engine fixes", "frameworks", "models and textures - interiors", "models and textures - clutter",
                 "models and textures - furniture", "environment - architecture", "player homes", "gameplay - general"}
@@ -401,8 +401,8 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     # tier 2
     (r"\b(smp|hdt|cbpc|fsmp|physics|collision|jiggle|bounce|cloth physics)\b", "Physics", DEFINITIVE),
     (r"\b(bod(y|ies)|skins?|cbbe|himbo|unp|3ba|bhunp|tbd|muscle|nipple|feet|hands|complexion|bodypaint|tattoos?|texture ?set)\b", "Body", 1.0),
-    (r"\b(faces?|heads?|eyes?|brows?|eyebrows?|teeth|mouth|freckles?|scars?|warpaints?|makeup|tint|high poly head|expressions?|lips)\b", "Face", 1.0),
-    (r"\b(hairs?|hairdos?|hairstyles?|beards?|khisartan|ks hairdos|apachii|salt and wind|hairline)\b", "Hair", 1.5),
+    (r"\b(faces?|heads?|eyes?|brows?|eyebrows?|teeth|mouth|freckles?|scars?|warpaints?|makeup|blush(ing)?|tint|high poly head|expressions?|lips|complexions?|overlays?|tattoos?|bodypaints?|facegen|horns?)\b", "Face", DEFINITIVE),
+    (r"\b(hairs?|hairdos?|hairstyles?|beards?|khisart[ai]n|stubble|ks hairdos|apachii|salt and wind|hairline)\b", "Hair", DEFINITIVE),
     (r"\b(races?|khajiit|argonians?|orcs?|orsimer|dunmer|altmer|bosmer|nords?|imperials?|bretons?|redguards?|birthsigns?|racial)\b", "Races, Classes, and Birthsigns", 1.0),
     (r"\b(animations?|animated|idles?|mco|bfco|skysa|adxp|locomotion|movement|dodge|tk dodge|true directional|tdm|diving|dive|swim|sprint animation|attack animations?|combos?|behaviou?rs?)\b", "Animation - General", 1.0),
     (r"\b(player animations?|first person animations?|pca)\b", "Animation - Player", 2.0),
@@ -492,7 +492,8 @@ PATH_SIGNALS = [(re.compile(p), c) for p, c in (
     (r"(^|/)clutter/", "Models and Textures - Clutter"),
     (r"(^|/)furniture/", "Models and Textures - Furniture"),
     (r"(^|/)(armor|weapons|clothes)/", "__equipment__"),
-    (r"(^|/)actors/character/(hair|facegendata|facetint)/|(^|/)hair/", "__hairface__"),
+    (r"(^|/)hair/|(^|/)hairline|(^|/)beards?/|/hair[a-z0-9_]*\.(nif|dds|tri)$", "Hair"),
+    (r"(^|/)(eyes|brows|eyebrows|teeth|mouth|facegendata|facetint|face|tintmasks|makeup|warpaint|overlays)/|/(eye|brow|teeth|mouth|face|head|tint)[a-z0-9_]*\.(nif|dds|tri)$", "Face"),
     (r"(^|/)actors/character/(female|male|character assets)/|(^|/)actors/character/.*(body|skin|hands|feet)", "Body"),
     (r"(^|/)actors/character/(eyes|brows|teeth|mouth|facegendata|facetint|face)", "Face"),
     (r"(^|/)actors/character/(animations|behaviors)/", "Animation - General"),
