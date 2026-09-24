@@ -72,7 +72,7 @@ TAXONOMY = [
         ("New Weapons and Armour", None), ("Shape", None), ("Equipment Positioning", None),
         ("Items and Objects - World", None),
         ("Collectables, Treasure Hunts, and Puzzles", None),
-        ("Creatures", ["Appearance", "Behaviour", "Mounts", "Animals", "New Creatures"]),
+        ("Creatures", ["Appearance", "Monster Appearance", "Behaviour", "Mounts", "Animals", "New Creatures"]),
         ("NPC", ["Appearance", "AI and Behaviour", "Followers", "Other"]), ("Player", ["Appearance", "Other"]),
         ("Quests and Adventures", None), ("Player homes", None), ("Buildings", None),
         ("Location Overhauls", ["City", "Town", "Interior", "General"]), ("Dungeons", None), ("Locations - New", None),
@@ -827,6 +827,12 @@ ANIMAL_NOUNS = re.compile(r"\b(crows?|ravens?|birds?|hawks?|eagles?|owls?|seagul
                           r"dragonfl(y|ies)|critters?|wildlife|fauna|predators?|prey)\b", re.I)
 
 
+MONSTER_NOUNS = re.compile(r"\b(trolls?|draugr|falmer|spiders?|chaurus|spriggans?|hagravens?|giants?|dragons?|werewol(f|ves)|"
+                           r"werebears?|atronachs?|wisps?|wispmothers?|ice wraiths?|gargoyles?|netch|lurkers?|seekers?|"
+                           r"ash ?hoppers?|ash spawn|rieklings?|skeletons?|ghosts?|liches?|dragon priests?|nix-?hounds?|"
+                           r"goblins?|centurions?|dwarven spheres?|dwarven spiders?|automatons?|dremora|daedra|monsters?)\b", re.I)
+
+
 def decide(m, votes, nexus_cat=""):
     """The rules over the votes, then the winner. Returns (category, why, adjusted votes). No rule reads a label."""
     votes = [list(v) for v in votes]
@@ -965,6 +971,14 @@ def decide(m, votes, nexus_cat=""):
         elif art_target == "Models and Textures - General" and any(v[0] == "text" and v[1] == "Creatures - New Creatures" and v[2] >= 1.0 for v in votes):
             art_target = "Creatures - Appearance"       # a creature replacer: art for an animal the game already has
         votes.append(["rule", art_target, 2.0, f"a replacer: only meshes/textures; {'its name says' if eq_word and art_target == eq_word else 'its paths say'} {art_target}"])
+    # R28 a BSA loader - a plugin that holds no records, shipped beside a BSA - is an art mod: a creature it names is that
+    # creature's appearance (the owner, 2026-09-23: Trolls SE is monster appearance, not new creatures)
+    bsa_loader = bool(m.plugins) and not rec and any(f.endswith(".bsa") for f in files)
+    if bsa_loader:
+        for v in votes:
+            if v[0] == "text" and v[1] == "Creatures - New Creatures":
+                v[1] = "Creatures - Appearance"
+                notes.append("a BSA loader: art for a creature it names")
     # R24 a mod that calls itself a replacer or retexture of a creature it names is that creature's appearance, plugin
     # or not (the owner, 2026-09-23: Felidae - A Sabrecat Replacer)
     if re.search(r"\b(replacers?|retextures?|remodels?|re-?textures?)\b", plain, re.I):
@@ -1035,6 +1049,13 @@ def decide(m, votes, nexus_cat=""):
         new_eq = rec.get("ARMO", 0) + rec.get("WEAP", 0) + rec.get("AMMO", 0)
         cat = NEW_OF[fam] if (m.plugins and new_eq >= 3) else canonical(fam)
         notes.append(f"{'new' if cat.startswith('New') else 'edited'} equipment: {new_eq} new armour/weapon records")
+    # R29 the appearance of a MONSTER has its own block (the owner, 2026-09-23: Trolls - "creatures - monster
+    # appearance"); an animal's appearance stays Creatures - Appearance
+    if cat == "Creatures - Appearance":
+        own = re.sub(r"(?i)\bmonsters and animals\b", " ", plain)
+        if MONSTER_NOUNS.search(own) and not ANIMAL_NOUNS.search(own):
+            cat = "Creatures - Monster Appearance"
+            notes.append("a monster's appearance")
     # R27 a new creature that is an animal - wildlife by its own noun - goes to Animals; monsters stay New Creatures
     # (the owner, 2026-09-23: Crows go to Animals). The series tag "Monsters and Animals" is not an animal noun.
     if cat == "Creatures - New Creatures":
