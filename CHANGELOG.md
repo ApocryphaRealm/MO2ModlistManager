@@ -30,6 +30,11 @@ names - "for Y" is the recipients (R23); follower-gathering words (NPC friends, 
 Followers; "living AI" / routines define NPC AI and spells beside scripts and an MCM are its means; a replacer of a
 creature it names is creature appearance (R24).
 
+The UI overhaul wins every UI element (the owner, 2026-09-24): the UI Overhaul block is the last content block, after
+Maps and before Patches, so Norden UI's restyled SWFs and fontconfig.txt outrank QuickLoot, BTPS, TDM, Alternate
+Perspective, the minimap and every other mod shipping the same interface files; a mod that ships fonts or its own
+fontconfig.txt is a UI addition (R37: User Interface) and a font mod always sits above every UI overhaul (an edge).
+
 Sixth batch: a mod follows another mod in the pane only when ALL its plugins need that mod as a master - a
 bundled compatibility plugin or a patch hub's patches follow their masters in the plugin order alone, and the mod
 keeps its own block; a Creatures - Animals sub-separator for wildlife (R27); a distribution-only mod handing out gear

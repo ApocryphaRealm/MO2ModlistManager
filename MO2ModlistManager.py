@@ -52,7 +52,7 @@ TAXONOMY = [
         ("Base Game", None), ("Unofficial Patches", None), ("Essential Engine Fixes", None), ("Frameworks", None),
         ("Utilities", None), ("Bug Fixes", None), ("Performance Optimization", None), ("Uncategorised", None)]),
     (1, "--- 1 INTERFACE & INTERACTION ---", [
-        ("User Interface", None), ("UI Overhaul", None), ("Improved Controls", None), ("Camera", None),
+        ("User Interface", None), ("Improved Controls", None), ("Camera", None),
         ("Dialogue", None), ("Alternate Start", None), ("Save Games", None)]),
     (2, "--- 2 CHARACTERS & ANIMATION ---", [
         ("Physics", None), ("Body", None), ("Face", None), ("Hair", None), ("Races, Classes, and Birthsigns", None),
@@ -80,7 +80,12 @@ TAXONOMY = [
         ("Guilds/Factions", None), ("Cheats and God items", None),
         # every map-related mod in one block toward the end (the owner, 2026-09-23): markers, paper and world maps,
         # local maps, minimaps - they load late so their markers and map art win
-        ("Maps", None)]),
+        ("Maps", None),
+        # THE UI OVERHAUL WINS EVERY UI ELEMENT (the owner, 2026-09-24: "the point of having a separator for ui overhaul
+        # alone is so that it always overwrites the ui elements"). Norden UI restyles QuickLoot, BTPS, the dialogue menu,
+        # Alternate Perspective's start menu, TDM and the minimap - mods filed in tiers 1-4 - so its block is the LAST
+        # content block, after Maps and before Patches; fontconfig.txt included.
+        ("UI Overhaul", None)]),
     (5, "--- 5 PATCHES ---", [("Patches", None)]),
     (6, "--- 6 TEST BUILDS ---", [("Test Builds", None)]),
     (7, "--- 7 GENERATED OUTPUTS ---", [("Generated Outputs", None)]),
@@ -1051,6 +1056,15 @@ def decide(m, votes, nexus_cat=""):
             if v[0] == "scope":
                 v[2] *= 0.3
         votes.append(["rule", "User Interface", 4.0, f"{rec.get('ACTI', 0)} activators with message boxes: text read in a UI menu"])
+    # R37 a font mod is a UI addition: a mod that ships its own fontconfig.txt or font libraries belongs in User
+    # Interface, the block BELOW UI Overhaul, so the overhaul's fontconfig wins (the owner, 2026-09-24: "the font mods
+    # in lower priority than the ui overhaul"; Oblivion Interaction Icons). An overhaul named as one keeps its block -
+    # its name votes 6.0.
+    # Its files outweigh any name word except one naming an overhaul ("Oblivion Interaction Icons" says 'interaction',
+    # a controls word, and is an icon font).
+    if any(re.match(r"^interface[\\/](fontconfig\.txt|fonts?_[^\\/]*\.swf|[^\\/]*font[^\\/]*\.swf)$", f, re.I) for f in files) \
+            and not any(v[0] == "text" and v[1] == "UI Overhaul" and v[2] >= W_NAME_DEFINED for v in votes):
+        votes.append(["rule", "User Interface", W_NAME_DEFINED + 1.0, "ships fonts / fontconfig.txt: a UI addition that loads below the UI overhaul"])
     # R22 quests that only hold scripts: quest records with no dialogue of their own, scripts beside them, no meshes and no
     # menu art - they are how a system runs (start-up and MCM quests), not a quest; the system is gameplay, and its few
     # spells and effects are its means (the owner, 2026-09-23: Acquisitive Soul Gems is a system for soul gem filling
@@ -2018,6 +2032,21 @@ def build(mods, rules=None, min_run=2):
         loader_pairs.update((a_mod.name, b) for b in shared)
         if shared:
             loaders += 1
+    # FONT MODS BELOW THE UI OVERHAUL (the owner, 2026-09-24: "the mm plugin always puts the font mods in lower priority
+    # than the ui overhaul"). A mod that ships its own fontconfig.txt or font libraries - Oblivion Interaction Icons, a
+    # font replacer - sits ABOVE every UI Overhaul mod in the pane, so the overhaul's fontconfig.txt wins. In the Test
+    # profile Oblivion Interaction Icons' fontconfig outranked Norden UI's and pointed every $Everywhere font at a
+    # Sovngarde font the list does not have: every message box rendered as blank boxes.
+    font_re = re.compile(r"^interface[\\/](fontconfig\.txt|fonts?_[^\\/]*\.swf|[^\\/]*font[^\\/]*\.swf)$", re.I)
+    overhauls = [m for m in real if m.enabled and norm(m.category) == norm("UI Overhaul")]
+    font_edges = 0
+    for m in real:
+        if not m.enabled or norm(m.category) == norm("UI Overhaul"):
+            continue
+        if any(font_re.match(f) for f in (m.files or ())):
+            for o in overhauls:
+                edge(m, o, f"a font mod loads below the UI overhaul {o.name}")
+                font_edges += 1
     rule_moves = []
     rules_ignored = []
 
