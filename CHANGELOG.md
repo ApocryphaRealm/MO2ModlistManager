@@ -54,3 +54,11 @@ Sharing verdicts: a user's copy sends the verdicts it holds - mods whose MO2 cat
 would have placed elsewhere - behind a one-time disclosure and an explicit Send (a prefilled GitHub issue, or an https
 drop box from the settings); the owner's copy (`role = owner`) fetches and pools them, and the pooled leaf is one more
 vote weighted by how many users agree.
+
+The order passes the launch audit (2026-09-24). Two ordering edges the category order did not know: a mod that ships a
+"for Skyrim 1.5" port of an SKSE DLL sits below the AE build of the same DLL so the port wins it (Magic Fixes and
+Tweaks for Skyrim 1.5 had landed in Bug Fixes above Magic Tweaks SKSE - spells), and a framework's own mod wins its
+DLL over a copy bundled in another mod (PapyrusUtil SE over Campfire's); DynDOLOD's output (DynDOLOD.esp,
+Occlusion.esp) is the last of the generated outputs (PGPatcher's PG_1.esp had landed after it). `tools\selfcheck.py`
+dry-runs every Njordlinger profile, audits the proposed order with nj-order-audit.py and meets every ruling; gate rule
+modlist-manager-order-passes-the-launch-audit runs it before the plugin is packaged.

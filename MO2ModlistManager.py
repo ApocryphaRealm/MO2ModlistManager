@@ -1968,6 +1968,14 @@ def build(mods, rules=None, min_run=2):
         for m in real:
             if m is not o and m.enabled and norm(m.category) not in (norm("Generated Outputs"), norm("Test Builds"), NODELETE_SEP.lower()):
                 edge(m, o, "generated output loads last")
+    # DYNDOLOD'S OUTPUT IS THE LAST OF THE OUTPUTS (2026-09-24): DynDOLOD.esp, then Occlusion.esp, end the plugin order -
+    # DynDOLOD generates against everything before it. The main-profile plan put PGPatcher's PG_1.esp after them, which
+    # nj-order-audit.py fails a launch on ("active plugin(s) load after DynDOLOD.esp / Occlusion.esp").
+    lod = [o for o in outputs if any(f.lower() in ("dyndolod.esp", "occlusion.esp") for f, _m, _e in o.plugins)]
+    for d in lod:
+        for o in outputs:
+            if o is not d and o not in lod and o.enabled:
+                edge(o, d, "DynDOLOD's output loads after every other generated output")
     def would_cycle(x, y):
         """True when y is already (transitively) above x, so 'x above y' would close a loop. Rules are the only edges
         that can be inconsistent with the structural ones (masters, outputs last, settings loaders, kept winners), so
@@ -2049,6 +2057,43 @@ def build(mods, rules=None, min_run=2):
                 font_edges += 1
     rule_moves = []
     rules_ignored = []
+    # WHO MUST WIN AN SKSE DLL (2026-09-24). Two enabled mods shipping the same SKSE\Plugins DLL: the one lower in the
+    # pane wins, and two cases have a right answer the category order does not know. (1) A "for Skyrim 1.5" port wins
+    # over the AE build beside it - the Test profile apply put Magic Fixes and Tweaks for Skyrim 1.5 in Bug Fixes, above
+    # Magic Tweaks SKSE - spells, and the AE magictweaks.dll won on 1.5.97. (2) A framework's own mod wins over another
+    # mod's bundled copy - Campfire's 2018 PapyrusUtil.dll beat PapyrusUtil SE's and OBody crashed. The same two tests
+    # nj-order-audit.py fails a launch on. An edge that would close a loop is skipped and reported, never obeyed.
+    def _squash(s):
+        return re.sub(r"[^a-z0-9]", "", s.lower())
+    dll_owners = {}
+    for m in real:
+        if m.enabled:
+            for f in m.files or ():
+                if f.startswith("skse/plugins/") and f.endswith(".dll") and f.count("/") == 2:
+                    dll_owners.setdefault(f, []).append(m)
+    dll_edges = 0
+    for f, ms in dll_owners.items():
+        if len(ms) < 2:
+            continue
+        ports = [m for m in ms if "1.5" in m.name]
+        if ports and len(ports) < len(ms):
+            winners, why = ports, "the 1.5 port wins {dll} over the AE build {loser}"
+        else:
+            stem = _squash(f.rsplit("/", 1)[1].rsplit(".", 1)[0])
+            winners = [m for m in ms if len(stem) >= 5 and stem in _squash(m.name)]
+            if not winners or len(winners) == len(ms):
+                continue
+            why = "the framework's own mod wins {dll} over the copy bundled in {loser}"
+        dll = f.rsplit("/", 1)[1]
+        for w in winners:
+            for loser in ms:
+                if loser in winners:
+                    continue
+                if would_cycle(w.name, loser.name):
+                    rules_ignored.append((w.name, f"below {loser.name}", f"{dll}: would loop through other edges"))
+                    continue
+                edge(loser, w, why.format(dll=dll, loser=loser.name))
+                dll_edges += 1
 
     def apply_rules(which):
         for r in which:
