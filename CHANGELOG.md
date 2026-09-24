@@ -9,7 +9,7 @@ groups and the cells and worldspaces they reference, the mod's own words, its st
 himself), rules over the votes carry the owner's reasoning, and the heaviest category wins; the owner's taxonomy as
 data (tiers, empty mains with sub-separators); the conflict resolver by evidence; plugin order and Bethesda Plugin
 Manager groups following the pane; test builds under their official copy; a Review tab that writes nothing; copy
-from every table. `expectations.json` scores each dry run against the owner's rulings (86 on 2026-09-23).
+from every table. `expectations.json` scores each dry run against the owner's rulings (109 on 2026-09-23).
 
 Third batch of rulings, as weights: an Equipment Positioning separator after Shape (where gear sits on the body -
 Simple Dual Sheath, Immersive Equipment Displays and its presets; an IED word in a "for X" subject is the target, not
@@ -37,6 +37,13 @@ that already exists is NPC - Appearance (R26). A Creatures - Monster Appearance 
 records beside a BSA - is judged as art (R28). A perk overhaul (100+ perks, new or altered, and at least a quarter as many perks as
 spells and effects) is Class, Perks, Powers and Blessings (R30); a collection of two or more plugins, each built on
 another content mod, votes the categories of the mods it tweaks (tweak-collection pass).
+
+Seventh batch: a Maps separator at the end of the content tier for every map-related mod; Overhauls split into
+General and Faction Overhauls (R33: several kinds of change around one faction); new equipment placed in an existing
+place with a quest is a quest mod, with a new location a new-location mod (R31); a new place of interiors (R36); a
+story beat for an existing character (R32) and a small adventure to find (R34) are quests; activators with message
+boxes are UI (R35); quest-expansion and questline names; voiced dialogue; name-only rows for maps, crafting stations,
+huts and followers; alchemy ingredients, auto draw, iHUD, Raven Rock, one-world overhauls, fixes shipped as animations.
 
 Sharing verdicts: a user's copy sends the verdicts it holds - mods whose MO2 category the user set and the evidence
 would have placed elsewhere - behind a one-time disclosure and an explicit Send (a prefilled GitHub issue, or an https

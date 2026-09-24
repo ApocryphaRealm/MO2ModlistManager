@@ -114,7 +114,8 @@
     "Location Overhauls - Interior",
     "Guilds/Factions",
     "Overhauls",
-    "Location Overhauls - General"
+    "Location Overhauls - General",
+    "Overhauls - Faction Overhauls"
   ],
   "JK's Skyrim": "Location Overhauls - Town",
   "Whiterun Has Walls Redone - 3.0": "Location Overhauls - City",
@@ -164,5 +165,34 @@
   "Crows - Mihail Monsters and Animals": "Creatures - Animals",
   "Crows and Ravens- Mihail Monsters and Animals (SE-AE version)": "Creatures - Animals",
   "Trolls SE": "Creatures - Monster Appearance",
-  "Apostasy - Paragon and Adamant Tweaks": "Class, Perks, Powers and Blessings"
+  "Apostasy - Paragon and Adamant Tweaks": "Class, Perks, Powers and Blessings",
+  "Aetherium Armor and Weapons Compilation by lautasantenni": [
+    "New Weapons and Armour",
+    "Weapons and Armour"
+  ],
+  "Artifacts - The Ice Blade of the Monarch [SSE]": "Quests and Adventures",
+  "Dwemer Exoskeleton SE - PORT": "Quests and Adventures",
+  "Legends of Aetherium - New Dungeon - Quest - Armour - Weapons": "Locations - New",
+  "Stendarr Rising - The Hall of the Vigilant Rebuild": "Overhauls - Faction Overhauls",
+  "Stendarr Rising - Carcette Returns": "Quests and Adventures",
+  "Silverguard": "Quests and Adventures",
+  "Smite the Wicked - Eola's Namira Cult": "Quests and Adventures",
+  "Skyking Alchemy Ingredients": "Alchemy - Ingredients",
+  "Murder Harvesting ( Enemies Drop Alchemy Ingredients )": "Alchemy - Ingredients",
+  "Northern Roads": "Environment - Roads",
+  "Atlas Map Markers Overhaul": "Maps",
+  "Atlas Map Markers SE - Updated with MCM": "Maps",
+  "Followers Ride Horses": "NPC - Followers",
+  "Njordlinger - ImmersiveHUD Settings": "User Interface",
+  "Auto Draw": "Improved Controls",
+  "First Person Sneak Strafe-Walk Stutter Fix": "Bug Fixes",
+  "Better Atronach Forge Offering Box": "Crafting - General",
+  "Raven Rock Building Tweaks": "Location Overhauls - Town",
+  "Praedy's Soul Cairn - SE": "Location Overhauls - General",
+  "Hagraven Houses - Animated": "Environment - Architecture",
+  "Dragon Wall Wisdom - Readable Dragon Walls": "User Interface",
+  "Cultist masks for Beast races": [
+    "Armour",
+    "New Armour"
+  ]
 }

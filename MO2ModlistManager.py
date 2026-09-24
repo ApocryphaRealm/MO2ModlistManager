@@ -64,7 +64,8 @@ TAXONOMY = [
         ("PBR Textures", None), ("Audio", None),
         ("Gameplay", ["General", "Combat", "Stealth", "Economy"]), ("Immersion", None),
         ("Alchemy", ["Potions", "Ingredients"]), ("Crafting", ["General", "Armour", "Weapons"]),
-        ("Enchanting", ["General", "Enchantments"]), ("Overhauls", None), ("Miscellaneous", None)]),
+        ("Enchanting", ["General", "Enchantments"]), ("Overhauls", ["General", "Faction Overhauls"]),
+        ("Miscellaneous", None)]),
     (4, "--- 4 CONTENT ---", [
         ("Magic - Spells & Enchantments", None), ("Class, Perks, Powers and Blessings", None), ("Shouts", None),
         ("Clothing and Accessories", None), ("New Clothing", None), ("Armour", None), ("New Armour", None),
@@ -76,7 +77,10 @@ TAXONOMY = [
         ("NPC", ["Appearance", "AI and Behaviour", "Followers", "Other"]), ("Player", ["Appearance", "Other"]),
         ("Quests and Adventures", None), ("Player homes", None), ("Buildings", None),
         ("Location Overhauls", ["City", "Town", "Interior", "General"]), ("Dungeons", None), ("Locations - New", None),
-        ("Guilds/Factions", None), ("Cheats and God items", None)]),
+        ("Guilds/Factions", None), ("Cheats and God items", None),
+        # every map-related mod in one block toward the end (the owner, 2026-09-23): markers, paper and world maps,
+        # local maps, minimaps - they load late so their markers and map art win
+        ("Maps", None)]),
     (5, "--- 5 PATCHES ---", [("Patches", None)]),
     (6, "--- 6 TEST BUILDS ---", [("Test Builds", None)]),
     (7, "--- 7 GENERATED OUTPUTS ---", [("Generated Outputs", None)]),
@@ -105,7 +109,7 @@ NEXUS_TO_LEAF = {
     "uncategorised": "Uncategorised", "user interface": "User Interface", "save games": "Save Games",
     "body, face, and hair": "Body", "animation": "Animation - General", "models and textures": "Models and Textures - General",
     "visuals and graphics": "Visual Effects", "environmental": "Environment - Landscape", "audio": "Audio",
-    "overhauls": "Overhauls", "gameplay": "Gameplay - General", "immersion": "Immersion", "combat": "Gameplay - Combat",
+    "overhauls": "Overhauls - General", "gameplay": "Gameplay - General", "immersion": "Immersion", "combat": "Gameplay - Combat",
     "stealth": "Gameplay - Stealth", "skills and leveling": "Class, Perks, Powers and Blessings",
     "magic - gameplay": "Magic - Spells & Enchantments", "alchemy": "Alchemy - Potions", "crafting": "Crafting - General",
     "items and objects - player": "Items and Objects - World", "npc": "NPC - Appearance",
@@ -399,10 +403,13 @@ NAME_DEFINED = {"camera", "dialogue", "improved controls", "physics", "performan
                 "pbr textures", "environment - seasons", "lighting", "unofficial patches", "ui overhaul",
                 "essential engine fixes", "frameworks", "models and textures - interiors", "models and textures - clutter",
                 "models and textures - furniture", "environment - architecture", "player homes", "gameplay - general", "utilities",
-                "equipment positioning"}
+                "equipment positioning", "maps"}
 TIER0 = {norm(c) for c in TIERS[0]}            # the leaves a mod's own documents may not vote for: a readme names its requirements
 TARGET_IN_SUBJECT = {"equipment positioning"}  # a "for X" subject naming these is what the mod targets (an IED add-on), not what it is
 TEXT_NAME_HIT, TEXT_DOC_HIT, TEXT_CAP = 1.0, 0.4, 2.5
+# rows (by leaf and weight) whose words count from the NAME only - every weapon readme mentions a forge, and a UI
+# framework's readme talks about maps (2026-09-23)
+NAME_ONLY_ROWS = {("Maps", 3.6), ("Crafting - General", 2.0), ("Environment - Architecture", 3.0), ("NPC - Followers", 3.6)}
 
 # (pattern, leaf, weight multiplier) - the words a mod uses about itself. A multiplier of DEFINITIVE (3.6) means one hit
 # in the NAME outweighs a Nexus label on its own: those are the words the owner named as decisive (camera, dialogue,
@@ -424,11 +431,14 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(load ?times?|loadscreens?|loading (times?|screens?)|profilers?|cell lookups?|decompression|file copy|game start|ini file cacher)\b", "Performance Optimization", 2.0),
     (r"\b(unofficial .*patch|ussep|usmp)\b", "Unofficial Patches", DEFINITIVE),
     # tier 1
-    (r"\b(ui|hud|menus?|interface|widgets?|fonts?|map markers?|compass|minimap|mcm|cursor|loading screens?|main menu|bestiary|character menu|follower stats|stats? menu|journal|inventory ?(menu|ui)|icons?|paper maps?|world map|fwmf|flat world map)\b", "User Interface", 1.0),
+    (r"\b(ui|hud|menus?|interface|widgets?|fonts?|compass|mcm|cursor|loading screens?|main menu|bestiary|character menu|follower stats|stats? menu|journal|inventory ?(menu|ui)|icons?)\b", "User Interface", 1.0),
+    (r"\b(immersive ?hud|ihud)\b", "User Interface", DEFINITIVE),
+    # every map-related mod (the owner, 2026-09-23: "there should be a map separator toward the end of the list")
+    (r"\b(?<!cube )(?<!normal )(?<!detail )(?<!parallax )(?<!height )(?<!shadow )(?<!environment )(maps?|map markers?|world maps?|paper maps?|local maps?|minimaps?|mini maps?|atlas|cartograph(y|ers?)|fwmf|flat world map)\b", "Maps", DEFINITIVE),
     (r"\b(ui overhaul|nordic ui|untarnished ui|norden ui|dear diary|edge ui|skyhud|interface overhaul|reskin|smooth ui|dragonbreaker|dwemer ui)\b", "UI Overhaul", DEFINITIVE),
     # "Mod Control Panel" is SKSE Menu Framework's menu name, not a controls word; keyboard and window handling is controls
     # (the owner, 2026-09-23: Kill Caps Lock, Better AltTab)
-    (r"\b(read or take|better grabbing|btps|better third person selection|step up|quick ?loot|(?<!mod )controls?(?! panel)|controller|gamepad|hotkeys?|keybinds?|keybinding|grab|activate|activation|interaction|pick ?up|take all|jump|sprint|whistle|auto ?(equip|unequip|loot|sort)|unbind|bindings?|wheeler|wheel menu|back pocket|item explorer)\b", "Improved Controls", DEFINITIVE),
+    (r"\b(read or take|better grabbing|btps|better third person selection|step up|quick ?loot|(?<!mod )controls?(?! panel)|controller|gamepad|hotkeys?|keybinds?|keybinding|grab|activate|activation|interaction|pick ?up|take all|jump|sprint|whistle|auto ?(equip|unequip|loot|sort|draw)|unbind|bindings?|wheeler|wheel menu|back pocket|item explorer)\b", "Improved Controls", DEFINITIVE),
     (r"\b(caps ?lock|alt ?-?tab|keyboard|mouse)\b", "Improved Controls", 1.5),
     (r"\b(cam|camera|cameras|smoothcam|fov|field of view|headtracking|head tracking)\b", "Camera", DEFINITIVE),
     (r"\b(dialogue|dialog|persuasion|conversations?|talk|speech|voice ?lines?|subtitles?)\b", "Dialogue", DEFINITIVE),
@@ -451,7 +461,7 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(lights?|lighting|lux|elfx|luminosity|window shadows|torch(es)?|lanterns?|candles?|illumination|shadows?|relighting|enb light)\b", "Lighting", DEFINITIVE),
     (r"\b(effects?|vfx|fx|particles?|blood|fire|smoke|spell effects?|impacts?|embers|lens|flares?|glow|magic effects?|mist|fog|explosions?|footprints|splash(es)?|sparks)\b", "Visual Effects", 1.5),
     (r"\b(enb|reshade)\b", "Presets - ENB and ReShade", 1.5),
-    (r"\b(landscapes?|terrain|ground|rocks?|mountains?|cliffs?|dirt|complex parallax|parallax|tundra|mud|gravel|stones?)\b", "Environment - Landscape", 1.0),
+    (r"\b(landscapes?|terrain|ground|(?<!raven )rocks?|mountains?|cliffs?|dirt|complex parallax|parallax|tundra|mud|gravel|stones?)\b", "Environment - Landscape", 1.0),
     (r"\b(grass|grasses|folkvangr|veydosebrom|cathedral grass|landscape fixes for grass)\b", "Environment - Grass", 2.0),
     (r"\b(trees?|forests?|pines?|aspens?|birch(es)?|bark|happy little trees|nature of the wild lands|dead trees)\b", "Environment - Trees", 2.0),
     (r"\b(plants?|flora|flowers?|mushrooms?|shrubs?|bush(es)?|ferns?|ivy|moss|lichen|nirnroot|saplings?|blooms?|thickets?)\b", "Environment - Plants", 2.0),
@@ -459,6 +469,8 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(weathers?|sky|skies|clouds?|aurora|storms?|rain|climate|obsidian|cathedral weathers|azurite|nat|vivid weathers|wind)\b", "Environment - Weather", 2.0),
     (r"\b(seasons?|seasonal|turn of the seasons|winter|summer|autumn|spring|snowy)\b", "Environment - Seasons", DEFINITIVE),
     (r"\b(architecture|farmhouses?|chimneys?|exteriors?|rooftops|thatch|stonework|windmills?)\b", "Environment - Architecture", DEFINITIVE),
+    # structures that stand in the wilds (the owner, 2026-09-23: Hagraven Houses - Animated)
+    (r"\b((hagraven|witch) (houses?|huts?)|huts?|shacks?|hovels?)\b", "Environment - Architecture", 3.0),
     (r"\b(roofs?|brick|city walls|fences?|docks|bridges?|wells?|signs?|signposts?|market stalls?)\b", "Environment - Architecture", 1.5),
     (r"\b(roads?|northern roads|pathways?|cobblestone|trails?|paths?)\b", "Environment - Roads", 2.0),
     (r"\b(re-?textures?|textures?|[1248]k|meshes?|hd|uhd|remesh|remodel|models?|retex)\b", "Models and Textures - General", 1.0),
@@ -481,9 +493,13 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(immersive|immersion|realistic|wearable|bathing|sleep|eating|drinking|carry weight|carryweight|weight)\b", "Immersion", 1.0),
     (r"\b(alchemy|potions?|poisons?|apothecary|brewing)\b", "Alchemy - Potions", 1.5),
     (r"\b(ingredients?|reagents?|herbs?|harvest(ing)?)\b", "Alchemy - Ingredients", 1.5),
+    # "alchemy ingredients" names the narrower leaf (the owner, 2026-09-23: Skyking Alchemy Ingredients, Murder Harvesting)
+    (r"\b(alchemy ingredients?|alchemical ingredients?|drops? (alchemy )?ingredients?)\b", "Alchemy - Ingredients", 2.0),
     (r"\b(craft(ing)?|smithing|forge|tanning|cooking|recipes?|tempering|workbench|blacksmith)\b", "Crafting - General", 1.5),
+    # a crafting station is crafting, whatever its mesh paths say (the owner, 2026-09-23: Better Atronach Forge Offering Box)
+    (r"\b(atronach forge|forges?|workbench(es)?|tanning racks?|smelters?|grindstones?|crafting stations?|offering box)\b", "Crafting - General", 2.0),
     (r"\b(enchant(ing|ments?|ed)?|disenchant|enchanter)\b", "Enchanting - Enchantments", 1.5),
-    (r"\b(overhaul(s|ed)?|rework(ed)?|redone|remastered|revamp(ed)?)\b", "Overhauls", 0.5),
+    (r"\b(overhaul(s|ed)?|rework(ed)?|redone|remastered|revamp(ed)?)\b", "Overhauls - General", 0.5),
     # tier 4
     (r"\b(spells?|magic|magicka|scrolls?|wards?|destruction|conjuration|illusion|restoration|alteration|summon(s|ing)?|rituals?|tomes?|staff|staves|mysticism|apocalypse|odin|arcanum)\b", "Magic - Spells & Enchantments", 1.0),
     (r"\b(perks?|classes?|standing stones?|blessings?|powers?|shrine blessings?|ordinator|adamant|vokrii|apprentice|mannaz|aetherius|andromeda|paragon|custom skills?|skill trees?|skills?|level(l)?ing|experience|xp|attributes?)\b", "Class, Perks, Powers and Blessings", 1.5),
@@ -512,6 +528,7 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(ai overhaul|ai|behaviou?rs?|behaviou?r edits?|routines?|schedules?|sandbox(ing)?|pathing|combat ai|smart npcs?|reactions?|immersive citizens|npc (ai|behaviou?r)|take cover|circl(e|ing)|attackers?|surround(ing)?|flank(ing)?|take turns|wait your turn)\b", "NPC - AI and Behaviour", 2.0),
     # a living world's AI named as such (the owner, 2026-09-23: Vivid Routines - Lightweight Living AI is NPC AI)
     (r"\b(living ai|npc routines?|daily routines?|vivid routines|lifelike npcs?|living world)\b", "NPC - AI and Behaviour", DEFINITIVE),
+    (r"\b(followers?(?! stats?)|hirelings?)\b", "NPC - Followers", DEFINITIVE),   # a follower stats menu is UI (the owner's ruling)
     (r"\b(followers?|companions?|hirelings?|inigo|lucien|serana|nether'?s follower|ufo|eff|aft|nff|follower framework)\b", "NPC - Followers", 2.0),
     # gathering the NPCs the player has chosen: marking, summoning, recalling friends is follower management (the owner,
     # 2026-09-23: Mark and Summon NPC Friends)
@@ -521,15 +538,19 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     # a quest's own items: a mod about what the player may do with them is about the quest (the owner, 2026-09-23: Sell
     # Unusual Gems lets you sell a quest item)
     (r"\b(quest items?|unusual gems?|stones of barenziah|crown of barenziah)\b", "Quests and Adventures", 2.0),
+    (r"\b(quest expansions?|questlines?|quest mods?|alternate questline)\b", "Quests and Adventures", DEFINITIVE),
     (r"\b(player ?homes?|homes?|houses?|manor|cabin|estate|abode|hideout|residence|cottage|lodge|sanctuary)\b", "Player homes", 1.5),
     (r"\b(vlindrel hall|breezehome|hjerim|honeyside|proudspire|lakeview|windstad|heljarchen|severin manor|myrwatch|tundra homestead|hendraheim|goldenhills)\b", "Player homes", DEFINITIVE),
     (r"\b(inns?|taverns?|temples?|shrines?|farms?|mills?|lighthouses?|forts?|castles?|palaces?|keeps?|stables?|jails?|prisons?|towers?|chapels?|halls?|guildhalls?)\b", "Buildings", 1.0),
-    (r"\b(cit(y|ies)|whiterun|riften|solitude|windhelm|markarth|falkreath|dawnstar|morthal|winterhold|raven rock)\b", "Location Overhauls - City", 1.0),
-    (r"\b(towns?|villages?|hamlets?|settlements?|riverwood|rorikstead|ivarstead|shor'?s stone|kynesgrove|dragon bridge|karthwasten|helgen|skaal|stonehills|darkwater|half-?moon mill|old hroldan|anga'?s mill|mixwater mill)\b", "Location Overhauls - Town", 1.0),
+    (r"\b(cit(y|ies)|whiterun|riften|solitude|windhelm|markarth|falkreath|dawnstar|morthal|winterhold)\b", "Location Overhauls - City", 1.0),
+    (r"\b(towns?|villages?|hamlets?|settlements?|riverwood|rorikstead|ivarstead|shor'?s stone|kynesgrove|dragon bridge|karthwasten|helgen|skaal|stonehills|raven rock|darkwater|half-?moon mill|old hroldan|anga'?s mill|mixwater mill)\b", "Location Overhauls - Town", 1.0),
     (r"\b(dungeons?|caves?|ruins?|tombs?|barrows?|crypts?|mines?|nordic ruins?|dwemer ruins?|delves?)\b", "Dungeons", 1.0),
     (r"\b(worldspace|new lands?|island|province|beyond skyrim|bruma|wyrmstooth|falskaar|expansion)\b", "Locations - New", 1.2),
+    # a mod that calls itself a new place (the owner, 2026-09-23: "if it adds a new location then it's a new location
+    # mod" - Legends of Aetherium - New Dungeon)
+    (r"\bnew (dungeons?|locations?|lands?|areas?|worldspaces?|islands?|caves?|ruins?)\b", "Locations - New", DEFINITIVE),
     (r"\b(vanilla locations?|location overhauls?|landmarks?|points? of interest|poi|environs|lost places)\b", "Location Overhauls - General", 1.0),
-    (r"\b(guilds?|factions?|thieves guild|dark brotherhood|college of winterhold|bards? college|dawnguard|stormcloaks?|imperial legion|civil war|companions guild)\b", "Guilds/Factions", 1.0),
+    (r"\b(guilds?|factions?|vigilants?( of stendarr)?|hall of the vigilant|thieves guild|dark brotherhood|college of winterhold|bards? college|dawnguard|stormcloaks?|imperial legion|civil war|companions guild)\b", "Guilds/Factions", 1.0),
     (r"\b(cheats?|god ?(mode|items?)|infinite|unlimited|op)\b", "Cheats and God items", 1.0),
     (r"\b(patch(es|ed)?|compatibility|synergy|consistency)\b", "Patches", 1.0),
 )]
@@ -539,7 +560,7 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
 # body, creature appearance); a plugin mod's paths count half.
 PATH_SIGNALS = [(re.compile(p), c) for p, c in (
     (r"(^|/)textures/pbr/|_rmaos\.dds$|_cnr\.dds$", "PBR Textures"),
-    (r"(^|/)terrain/[^/]+/[a-z0-9_]+\.dds$", "User Interface"),
+    (r"(^|/)terrain/[^/]+/[a-z0-9_]+\.dds$", "Maps"),
     (r"(^|/)(landscape|terrain)/(?!(grass|trees|plants))", "Environment - Landscape"),
     (r"(^|/)landscape/grass/|(^|/)grass/", "Environment - Grass"),
     (r"(^|/)landscape/trees/|(^|/)trees/|treepine|treeaspen|treereach|treesnow", "Environment - Trees"),
@@ -560,7 +581,8 @@ PATH_SIGNALS = [(re.compile(p), c) for p, c in (
     (r"(^|/)actors/(?!character/)[^/]+/", "Creatures - Appearance"),
     (r"(^|/)(effects|fx|particles|magic)/", "Visual Effects"),
     (r"(^|/)lights?/|(^|/)lighting/", "Lighting"),
-    (r"^interface/|(^|/)(fwmf|maps?)/|paper ?map|worldmap", "User Interface"),
+    (r"(^|/)(fwmf|maps?)/|paper ?map|worldmap|localmap|minimap", "Maps"),
+    (r"^interface/", "User Interface"),
     (r"^(sound|music)/", "Audio"),
     (r"^seq/", "Quests and Adventures"),
     (r"^calientetools/", SHAPE_CAT),
@@ -665,7 +687,7 @@ def _records_vote(m):
         cands.append(("Class, Perks, Powers and Blessings", perk, f"{perk} new perk records"))
     if qust >= 3:
         cands.append(("Quests and Adventures", qust * 2, f"{qust} new quest records"))
-    elif qust and dial >= 3:
+    elif qust and dial >= 2:
         # a quest that speaks: its own dialogue topics make it quest content, however few (the owner, 2026-09-23: Sell
         # Unusual Gems - one quest, seven topics - is a quest mod)
         cands.append(("Quests and Adventures", qust * 2, f"{qust} new quest record(s) with {dial} dialogue topics"))
@@ -698,7 +720,9 @@ def _text_votes(m):
     # names; a "for Y" subject is who receives it (the owner, 2026-09-23: Wolf Armor for The Companions - SPID is armour)
     shipped = [f.lower() for f in (m.files or ()) if not f.lower().endswith(("meta.ini", ".txt", ".md"))]
     distribution_only = bool(shipped) and all(f.endswith(("_distr.ini", "_kid.ini", "_swap.ini", "_flm.ini")) for f in shipped)
-    recipients = distribution_only and bool(subject)
+    fits = bool(subject) and bool(re.search(r"\b(races?|beasts?|khajiit|argonians?|orcs?|elves|men|women)\b", subject, re.I)) \
+        and (any(k in (m.records or {}) for k in ("ARMO", "ARMO*", "ARMA", "ARMA*")) or any("/armor/" in f.lower() for f in (m.files or ())))
+    recipients = (distribution_only or fits) and bool(subject)
     for rx, cat, mult in TEXT_SIGNALS:
         hits_n = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(proper if recipients else name))}
         hits_s = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(subject))} if subject and not recipients else set()
@@ -713,6 +737,8 @@ def _text_votes(m):
         if norm(cat) in TARGET_IN_SUBJECT and subject:
             hits_s = set()
             hits_n = {h.lower() for h in (x if isinstance(x, str) else x[0] for x in rx.findall(proper))}
+        if (cat, mult) in NAME_ONLY_ROWS:
+            hits_d = set()
         # R18 a mod that ships no meshes or textures is not art, whatever its readme mentions ("sitting on a bench")
         if not has_art and cat.startswith(("Models and Textures", "Environment", "PBR")):
             hits_d = set()
@@ -727,7 +753,8 @@ def _text_votes(m):
     out = []
     for cat, w in scores.items():
         if cat in definitive and norm(cat) in NAME_DEFINED:
-            w = max(w, W_NAME_DEFINED)            # the owner defined this leaf by its name: the name decides
+            w = max(w, W_NAME_DEFINED + (0.5 if norm(cat) == "maps" else 0.0))   # the owner defined this leaf by its name: the name decides
+                                                  # (maps over a framework word: "all map related mods", 2026-09-23)
             cap = 99.0
         elif cat in definitive:
             cap = 4.5
@@ -752,8 +779,10 @@ def _path_votes(m):
         votes.append(("files", "Utilities", 0.5, "ships a DLL (SKSE plugin) - weak: a named feature is not a utility"))
     if ".hkx" in exts and not art_only:
         votes.append(("files", "Animation - General", W_FILES, "ships animations / behaviours"))
-    if exts & {".wav", ".xwm", ".fuz"} and not exts & {".dds", ".nif"}:
+    if (exts & {".wav", ".xwm"} or (".fuz" in exts and not m.plugins)) and not exts & {".dds", ".nif"}:
         votes.append(("files", "Audio", W_FILES, "ships sound files"))
+    elif ".fuz" in exts and m.plugins:
+        votes.append(("files", "Dialogue", W_FILES, "ships voiced dialogue (.fuz beside its plugin)"))
     counts = {}
     n_art = 0
     own = {p[0].lower() for p in (m.plugins or [])}
@@ -828,7 +857,7 @@ def gather_votes(m, nexus_cat, mo2_names, structural_patch, nexus_names=frozense
     return votes
 
 
-ANIMAL_NOUNS = re.compile(r"\b(crows?|ravens?|birds?|hawks?|eagles?|owls?|seagulls?|deer|elk|stags?|wol(f|ves)|dogs?|bears?|"
+ANIMAL_NOUNS = re.compile(r"\b(crows?|ravens?(?! rock)|birds?|hawks?|eagles?|owls?|seagulls?|deer|elk|stags?|wol(f|ves)|dogs?|bears?|"
                           r"sabre ?cats?|saber ?cats?|foxes|fox|rabbits?|hares?|goats?|cows?|mammoths?|horkers?|skeevers?|"
                           r"mudcrabs?|fish|salmon|slaughterfish|chickens?|boars?|squirrels?|butterfl(y|ies)|moths?|"
                           r"dragonfl(y|ies)|critters?|wildlife|fauna|predators?|prey)\b", re.I)
@@ -838,6 +867,9 @@ MONSTER_NOUNS = re.compile(r"\b(trolls?|draugr|falmer|spiders?|chaurus|spriggans
                            r"werebears?|atronachs?|wisps?|wispmothers?|ice wraiths?|gargoyles?|netch|lurkers?|seekers?|"
                            r"ash ?hoppers?|ash spawn|rieklings?|skeletons?|ghosts?|liches?|dragon priests?|nix-?hounds?|"
                            r"goblins?|centurions?|dwarven spheres?|dwarven spiders?|automatons?|dremora|daedra|monsters?)\b", re.I)
+
+
+EQUIPMENT_FAMILY = ("Armour", "Weapons", "Weapons and Armour", "Armour - Shields", "Clothing and Accessories")
 
 
 def decide(m, votes, nexus_cat=""):
@@ -887,7 +919,7 @@ def decide(m, votes, nexus_cat=""):
                 notes.append("spells as a mechanism (animations, a DLL or scripts ship with them)")
     # R13 a name that says fix is a fix: its records are the fix's means, not new content (a utility does nothing on
     # its own; USSEP alters thousands of records)
-    if says_fix and (m.plugins or has_dll):          # a DLL that says fix is a fix too (Fix Note icon for SkyUI)
+    if says_fix and (m.plugins or has_dll or has_hkx):          # a DLL that says fix is a fix too (Fix Note icon for SkyUI)
         for v in votes:
             if v[0] == "records":
                 v[2] *= 0.3
@@ -920,7 +952,7 @@ def decide(m, votes, nexus_cat=""):
     if mv:
         before = mv.group(1)
         content = [c for rx, c, _w in TEXT_SIGNALS if rx.search(before) and INDEX_TIER.get(norm(c), 0) >= 3
-                   and norm(c) not in ("patches", "overhauls")]
+                   and norm(c) != "patches" and not norm(c).startswith("overhauls")]
         if content:
             totals0 = {}
             for v in votes:
@@ -940,6 +972,85 @@ def decide(m, votes, nexus_cat=""):
             if v[0] == "records" and v[1] == "NPC - Appearance":
                 v[2] *= 0.5
                 notes.append("its NPCs are the place's inhabitants")
+    refs_ = m.refs or {}
+    new_cells = len(refs_.get("cells_new", ()))
+    new_worlds = list(refs_.get("worlds_new", ()))
+    equip_new = rec.get("ARMO", 0) + rec.get("WEAP", 0) + rec.get("AMMO", 0)
+    place_vote = lambda v: v[0] == "scope" and (v[1].startswith("Location Overhauls") or v[1] == "Dungeons")
+    # R36 a new place of interiors: three or more cells the mod adds hold most of its references, none of them named
+    # for a town (a town overhaul adds new house interiors too - RedBag's Rorikstead), not a home, not a framework's
+    # utility cells (the owner, 2026-09-23: "if it adds a new location then it's a new location mod" - Legends of
+    # Aetherium's new dungeon)
+    refmap = refs_.get("refs", {}) or {}
+    total_refs = sum(refmap.values())
+    own_cells = set(refs_.get("cells_new", ()))
+    in_new = sum(n for k, n in refmap.items() if k in own_cells)
+    named_town = any(w in c.lower() for c in own_cells for w in PLACES) or any(w in plain.replace(" ", "").lower() for w in PLACES)
+    homeish = any(v[1] == "Player homes" for v in votes)
+    if framework is None and len(own_cells) >= 3 and total_refs >= 60 and in_new >= 0.5 * total_refs and not named_town and not homeish:
+        for v in votes:
+            if v[0] == "scope" and v[1].startswith("Location Overhauls"):
+                v[2] *= 0.3
+        votes.append(["rule", "Locations - New", 3.5, f"a new place: {in_new} of {total_refs} references in the {len(own_cells)} cells it adds"])
+    # R31 new equipment put somewhere (the owner, 2026-09-23): placed in an existing place with a quest to get it, it is a
+    # quest mod; with a new location (a worldspace, or a dungeon of three or more new cells) it is a new-location mod -
+    # the location touches ground and roads, the quest and gear interfere with nothing; neither, it is the equipment.
+    # Where it is placed is never an overhaul of that place.
+    equip_alt = rec.get("ARMO*", 0) + rec.get("WEAP*", 0) + rec.get("AMMO*", 0)
+    if framework is None and equip_new >= 3 and equip_new >= rec.get("STAT", 0) and equip_new >= equip_alt \
+            and rec.get("NPC_", 0) <= 10 and any(place_vote(v) for v in votes):
+        for v in votes:
+            if place_vote(v):
+                v[2] *= 0.3
+        if new_worlds or new_cells >= 3:
+            for v in votes:
+                if v[0] == "records" and v[1] in EQUIPMENT_FAMILY:
+                    v[2] *= 0.5
+            votes.append(["rule", "Locations - New", 4.5, f"new equipment with a new location ({new_cells} new cells{', ' + new_worlds[0] if new_worlds else ''})"])
+        elif rec.get("QUST", 0):
+            for v in votes:
+                if v[0] == "records" and v[1] in EQUIPMENT_FAMILY:
+                    v[2] *= 0.5
+            votes.append(["rule", "Quests and Adventures", 4.5, "new equipment placed in an existing place with a quest to get it"])
+        else:
+            notes.append("new equipment placed in an existing place: the equipment decides")
+    # R32 a story beat for an existing character: dialogue and an altered NPC, nothing built (the owner, 2026-09-23:
+    # Carcette Returns is a quest mod)
+    dial_any = rec.get("DIAL", 0) + rec.get("DIAL*", 0)
+    has_art_ = any(f.endswith((".nif", ".dds")) for f in files)
+    small_all = sum(v for k, v in rec.items() if not k.endswith("~")) <= 40
+    if dial_any and 0 < rec.get("NPC_*", 0) <= 3 and not rec.get("NPC_", 0) and not new_cells and not new_worlds and not has_art_ and small_all:
+        for v in votes:
+            if v[0] == "scope":
+                v[2] *= 0.5
+        votes.append(["rule", "Quests and Adventures", 2.5, "a story beat for an existing character: dialogue and an altered NPC"])
+    # R34 a small adventure to find: new NPCs, written notes and a unique piece of gear, no new place (the owner,
+    # 2026-09-23: Silverguard is a quest mod)
+    small = sum(v for k, v in rec.items() if not k.endswith(("*", "~"))) <= 80
+    if small and rec.get("NPC_", 0) and rec.get("BOOK", 0) and (rec.get("WEAP", 0) + rec.get("ARMO", 0)) and not new_cells and not new_worlds:
+        votes.append(["rule", "Quests and Adventures", 2.5, "an adventure to find: new NPCs, notes and a unique piece of gear"])
+    # R33 a faction overhaul does several different things around one faction (the owner, 2026-09-23: Stendarr Rising -
+    # The Hall of the Vigilant Rebuild is "an overhaul of a faction")
+    faction_named = bool(re.search(r"\b(college|guild|brotherhood|companions|vigilants?|hall of the vigilant|thalmor|bards|greybeards?|stormcloaks?|legion|nightingales?|blades|volkihar)\b", plain, re.I)) \
+        or any(v[0] == "scope" and v[1] == "Guilds/Factions" for v in votes)
+    kinds = sum(1 for ok in (rec.get("NPC_", 0) + rec.get("NPC_*", 0), rec.get("QUST", 0), dial_any, new_cells + len(new_worlds),
+                             sum(rec.get(k, 0) for k in ("MISC", "BOOK", "CONT", "ARMO", "WEAP")) >= 5,
+                             sum(rec.get(k, 0) for k in ("SPEL", "MGEF")) >= 5) if ok)
+    says_quest = bool(re.search(r"\b(quest expansions?|questlines?|quest mods?|quest)\b", plain, re.I))
+    if faction_named and kinds >= 3 and not says_quest:
+        for v in votes:
+            if v[0] == "scope":
+                v[2] *= 0.5                        # the faction's own hall is its home, not a place it overhauls
+        votes.append(["rule", "Overhauls - Faction Overhauls", 4.5, f"a faction overhaul: {kinds} kinds of change around one faction"])
+    # R35 activators that open message boxes are text the player reads in a UI menu (the owner, 2026-09-23: Dragon Wall
+    # Wisdom - Readable Dragon Walls is UI)
+    new_all = sum(v for k, v in rec.items() if not k.endswith(("*", "~")))
+    if rec.get("ACTI", 0) >= 10 and rec.get("MESG", 0) >= 0.8 * rec.get("ACTI", 0) \
+            and rec.get("ACTI", 0) + rec.get("MESG", 0) >= 0.7 * max(1, new_all):
+        for v in votes:
+            if v[0] == "scope":
+                v[2] *= 0.3
+        votes.append(["rule", "User Interface", 4.0, f"{rec.get('ACTI', 0)} activators with message boxes: text read in a UI menu"])
     # R22 quests that only hold scripts: quest records with no dialogue of their own, scripts beside them, no meshes and no
     # menu art - they are how a system runs (start-up and MCM quests), not a quest; the system is gameplay, and its few
     # spells and effects are its means (the owner, 2026-09-23: Acquisitive Soul Gems is a system for soul gem filling
@@ -960,7 +1071,8 @@ def decide(m, votes, nexus_cat=""):
     if has_dll and re.search(r"\bleveled lists?\b", plain, re.I):
         votes.append(["rule", "Patches", 2.5, "a leveled-list injector: the patch layer between other mods' items and the lists"])
     # R16 a framework master is a system other mods build on (Campfire)
-    if framework is not None:
+    env_named = any(v[0] == "text" and v[1].startswith("Environment - ") and v[2] >= 2.0 for v in votes)
+    if framework is not None and not env_named:    # a master named for an environment feature is that feature (Northern Roads)
         votes.append(["rule", "Gameplay - General", 2.0, "a system other mods build on"])
     # R2 clothes are ARMO records: armour records with clothing words in the name are clothing
     if any(v[0] == "records" and v[1] == "Armour" for v in votes) and re.search(r"\b(clothing|clothes|outfits?|dress(es)?|robes?|cloaks?|capes?|jewell?ery|amulets?|rings?|necklaces?|circlets?)\b", plain, re.I) \
@@ -1035,7 +1147,7 @@ def decide(m, votes, nexus_cat=""):
         if m.plugins and n_pex:
             votes.append(["files", "Gameplay - General", 0.8, "a scripted plugin, nothing more specific"])
         elif m.plugins and rec_alt and not rec_new:
-            votes.append(["files", "Overhauls", 0.6, "a plugin that only alters existing records"])
+            votes.append(["files", "Overhauls - General", 0.6, "a plugin that only alters existing records"])
         elif n_pex and not m.plugins:
             votes.append(["files", "Utilities", 0.8, "scripts and nothing visual"])
     totals, best_reason = {}, {}
@@ -1204,7 +1316,7 @@ PLACES = {p.replace(" ", "").lower(): p for p in (
     "Whistling Mine", "Fort Dawnguard", "High Hrothgar", "Sky Haven", "Castle Volkihar", "Bthardamz", "Blackreach")}
 HOME_WORDS = re.compile(r"playerhouse|playerhome|breezehome|hjerim|honeyside|proudspire|vlindrel|lakeview|windstad|heljarchenhall|severinmanor|myrwatch|tundrahomestead|hendraheim|goldenhills|bloodchill|shadowfoot|nchuanthumz|elysium", re.I)
 DUNGEON_WORDS = re.compile(r"cave|ruins?|barrow|crypt|mine(?!r)|tomb|grotto|hideout|lair|redoubt|sanctum|depths|nordic|dwemer|dwarven|catacomb|labyrinth|vault|den\b|camp\b|tower", re.I)
-FACTION_WORDS = re.compile(r"college|guild|brotherhood|jorrvaskr|companions|thalmor|dawnguard|bards|greybeard|highhrothgar|penitus|stormcloak|legion|castlevolkihar|nightingale|sanctuary", re.I)
+FACTION_WORDS = re.compile(r"college|guild|vigilant|brotherhood|jorrvaskr|companions|thalmor|dawnguard|bards|greybeard|highhrothgar|penitus|stormcloak|legion|castlevolkihar|nightingale|sanctuary", re.I)
 LANDMARK_WORDS = re.compile(r"shrine|standingstone|waystone|altar|statue|bridge|lighthouse|farm|mill|watchtower|ruin|fort\b", re.I)
 
 
@@ -1235,10 +1347,13 @@ def _scope_votes(m):
         base_edits = sum(rec.get(k + "*", 0) for k in ("STAT", "MSTT", "FURN", "ACTI", "CONT", "MISC", "DOOR", "LIGH", "FLOR", "TREE"))
         own_new = set(r["cells_new"]) | set(r["worlds_new"])
         new_n = sum(n for k, n in refs.items() if k.split("/", 1)[0] in own_new)
-        if n_places >= 20 and total / n_places <= 3 and base_edits <= 30:
+        ext_worlds_ = [w for w in by_world if w != "interior"]
+        one_other_world = len(ext_worlds_) == 1 and not interior_n and ext_worlds_[0].lower() != "tamriel"
+        if n_places >= 20 and total / n_places <= 3 and base_edits <= 30 and not one_other_world:
             votes.append(("scope", "Models and Textures - Clutter", 3.0, f"clutter: {total} references over {n_places} cells, {total / n_places:.1f} each"))
         elif r["worlds_new"] and total >= 60 and new_n >= 0.5 * total:
-            # its references sit in the worldspace and cells it adds: a new land (the owner, 2026-09-23: Wyrmstooth)
+            # its references sit in the worldspace and cells it adds: a new land (the owner, 2026-09-23: Wyrmstooth). New
+            # interior cells alone are not enough - a town overhaul adds new house interiors too (RedBag's Rorikstead)
             votes.append(("scope", "Locations - New", 3.5, f"{new_n} of {total} references in the worldspace and cells it adds"))
         elif total >= 60:
             def place_of(key):
