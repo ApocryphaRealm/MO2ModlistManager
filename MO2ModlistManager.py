@@ -632,7 +632,14 @@ def _records_vote(m):
     if armo_new + weap_new > 500:
         return None                                  # an overhaul generating enchanted variants: its label stands
     cands = []
-    if magic >= 50 and magic >= 5 * (armo + weap):
+    # R30 a perk overhaul: a hundred or more perks, new or altered, and at least a quarter as many perks as spells and
+    # effects - the spells are what the perks do (the owner, 2026-09-23: tweaks of Adamant and Paragon are Class,
+    # Perks, Powers and Blessings; Adamant 427 perks / 546 magic, Paragon 277 / 537; Mysticism 26 / 1152 stays Magic)
+    perk_all = new("PERK") + alt("PERK")
+    perk_overhaul = perk_all >= 100 and 4 * perk_all >= magic
+    if perk_overhaul:
+        cands.append(("Class, Perks, Powers and Blessings", perk_all + magic, f"{perk_all} perk records (new or altered) with {magic} spells and effects: a perk overhaul"))
+    elif magic >= 50 and magic >= 5 * (armo + weap):
         cands.append(("Magic - Spells & Enchantments", magic, f"{magic} new spell/enchantment/effect records"))
     elif armo and weap:
         cands.append(("Weapons and Armour", armo + weap, f"{armo} armour and {weap} weapon/ammo records (new or altered)"))
@@ -654,7 +661,7 @@ def _records_vote(m):
         cands.append(("Creatures - New Creatures", race * 3 + npc, f"{npc} NPC records of {race} new race(s) with no head parts: a creature race"))
     elif race:
         cands.append(("Races, Classes, and Birthsigns", race * 3, f"{race} new race records"))
-    if perk >= 10:
+    if perk >= 10 and not perk_overhaul:
         cands.append(("Class, Perks, Powers and Blessings", perk, f"{perk} new perk records"))
     if qust >= 3:
         cands.append(("Quests and Adventures", qust * 2, f"{qust} new quest records"))
@@ -1038,7 +1045,7 @@ def decide(m, votes, nexus_cat=""):
         best_reason.setdefault(k, cat)
     if not totals:
         return None, "", votes
-    prio = {"mo2": 0, "community": 1, "structure": 1, "scope": 2, "records": 3, "rule": 4, "paths": 5, "files": 6, "text": 7, "tag": 8}
+    prio = {"mo2": 0, "community": 1, "structure": 1, "scope": 2, "records": 3, "tweaks": 3, "rule": 4, "paths": 5, "files": 6, "text": 7, "tag": 8}
     def first_src(k):
         return min((prio.get(v[0], 9) for v in votes if norm(v[1]) == k), default=9)
     win = max(totals, key=lambda k: (round(totals[k], 3), -first_src(k)))
@@ -1612,6 +1619,42 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             continue
         cat = categories.get(str(m.nexus_id), "") if m.nexus_id else ""
         votes = [tuple(v) for v in m.votes] + [("addon", parent.category, 3.0, f"named for {parent.name}, which is {parent.category}")]
+        decided, why, m.votes = decide(m, votes, cat)
+        if decided:
+            m.category, m.why = decided, why
+    # TWEAK COLLECTIONS (third pass): a mod of two or more plugins, each built on another content mod, is about what
+    # it tweaks - each plugin votes the category of the mods it masters (1.0 a plugin, split over its foreign masters,
+    # capped 4.0), and its own records, which serve those masters, count half (the owner, 2026-09-23: Apostasy -
+    # Paragon and Adamant Tweaks is Class, Perks, Powers and Blessings, not Magic). A [Patch]-tagged mod is left to
+    # the patch rules.
+    for m in mods:
+        if is_sep(m.name) or not m.votes or len(m.plugins) < 2 or TAG_PATCH.search(m.name):
+            continue
+        if norm(m.category or "") in (norm("Test Builds"), norm("Base Game"), norm("Generated Outputs"), norm(SHAPE_CAT), NODELETE_SEP.lower()):
+            continue
+        if m.why.startswith(("pinned", "carries the [NoDelete]", "name starts", "every plugin", "no Nexus page and", "Shape:", "test build")):
+            continue
+        tweak = {}
+        every = True
+        for f, masters, _esm in m.plugins:
+            owners = []
+            for mast in masters:
+                o = owner_of.get(mast.lower())
+                if o is None or o is m or mast.lower() in BASE_MASTERS or not o.category or owner_tier(o) <= 1 \
+                        or norm(o.category) in (norm("Patches"), norm("Test Builds")):
+                    continue
+                owners.append(o)
+            if not owners:
+                every = False
+                break
+            for o in owners:
+                tweak[o.category] = tweak.get(o.category, 0.0) + 1.0 / len(owners)
+        if not every or not tweak:
+            continue
+        cat = categories.get(str(m.nexus_id), "") if m.nexus_id else ""
+        votes = [[v[0], v[1], v[2] * (0.5 if v[0] == "records" else 1.0), v[3]] for v in m.votes]
+        for c, w in tweak.items():
+            votes.append(["tweaks", c, min(4.0, w), f"tweaks mods that are {c} ({w:.1f} of its {len(m.plugins)} plugins)"])
         decided, why, m.votes = decide(m, votes, cat)
         if decided:
             m.category, m.why = decided, why
