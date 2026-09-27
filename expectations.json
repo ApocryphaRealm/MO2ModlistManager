@@ -12,7 +12,8 @@
   "Quest Journal Limit Bug Fixer - Recover Disappeared Quests": "Bug Fixes",
   "unpublished TK Dodge AIO": [
     "Animation - Player",
-    "Animation - General"
+    "Animation - Character",
+    "Animation - Combat"
   ],
   "Read Or Take SKSE": "Improved Controls",
   "Better Grabbing": "Improved Controls",
@@ -65,11 +66,11 @@
   "Follower Stats": "User Interface",
   "True Directional Movement - Modernized Third Person Gameplay": [
     "Animation - Player",
-    "Animation - General"
+    "Animation - Character"
   ],
   "Simple Diving System (SDS) - Dive Into Water Animations and Modder Resource": [
     "Animation - Player",
-    "Animation - General"
+    "Animation - Character"
   ],
   "Ryn's Riverwood Trader": [
     "Location Overhauls - Interior",
@@ -208,8 +209,77 @@
     "Weapons and Armour"
   ],
   "Auto Skeleton Patch - Universal Behaviour Runtime [Patch]": [
-    "Animation - General",
+    "Animation - Character",
     "Animation - Player",
     "Animation - NPC"
-  ]
+  ],
+  "SkyUI": "User Interface",
+  "RaceMenu": "User Interface",
+  "MCM Helper": "User Interface",
+  "Nemesis Creature Behaivour - WereWolf Addon": [
+    "Animation - Character",
+    "Animation - Creature"
+  ],
+  "Spear of Skyrim BFCO-OAR-SkyUI Version": [
+    "Animation - Character",
+    "Animation - Combat"
+  ],
+  "HS Resources": [
+    "Models and Textures - General",
+    "Environment - Architecture"
+  ],
+  "The Great Cities- Resources": [
+    "Models and Textures - General",
+    "Environment - Architecture"
+  ],
+  "Intellightent": "Lighting",
+  "Security Overhaul SKSE - Lock Variations": "Models and Textures - General",
+  "Weightless NG": "Gameplay - General",
+  "SkyPatcher": "Frameworks",
+  "Auto Audio Output Switch": "Audio",
+  "Carryweight on Level Up": "Gameplay - General",
+  "Light Placer": "Lighting",
+  "Model Swapper": "Models and Textures - General",
+  "One Click Power Attack - Edited DLL": "Improved Controls",
+  "Smooth Terrain": "Environment - Landscape",
+  "Texture Downscaler": "Performance Optimization",
+  "Grass Cache Helper NG": "Environment - Grass",
+  "Classic Paralysis - spells": "Magic - Spells & Enchantments",
+  "Follower Combat Leash - Less lethal fights": "NPC - Followers",
+  "NPCs Learn to Aim": "NPC - AI and Behaviour",
+  "Skyrim Revoiced": "Audio",
+  "Vanilla Scripting Enhancements": "Script Fixes",
+  "Simple Skyrim Special Edition Bethesda Logo Remover": "Essential Engine Fixes",
+  "Skip Bethesda Logo": "Essential Engine Fixes",
+  "Knotwork": "User Interface",
+  "NoCamColl_2_SE": "Camera",
+  "No Camera Collision (..no Fade out any more)": "Camera",
+  "HFs - StrongBox Diversification": "Models and Textures - Furniture",
+  "Goetia Animations - Momentum Whirlwind Sprint": "Animation - Character",
+  "Leviathan Animations II - Sprint": "Animation - Character",
+  "Vanargand Animations II - Sprint": "Animation - Character",
+  "Item Explorer": "User Interface",
+  "Whistle SmoothCam Preset": "Camera",
+  "Kabu's Argonian Fins": "Face",
+  "Argonian Crests": "Face",
+  "K.C.C.E Khajiit Character Creation Extended": "Face",
+  "Apprentice - A Class Overhaul": "Races, Classes, and Birthsigns",
+  "Inverse Kinematics - Feet of Skyrim": "Animation - Character",
+  "Load Screen Shading Fix": "User Interface",
+  "Heritage - Race Overhaul": "Races, Classes, and Birthsigns",
+  "Freyr - Integrated Standing Stones of Skyrim": "Races, Classes, and Birthsigns",
+  "GoT HotD - Diverse Dragons": "Creatures - Monster Appearance",
+  "Diverse Dragons Collection SE (DDCse)": [
+    "Creatures - Monster Appearance",
+    "Creatures - New Creatures"
+  ],
+  "HFs - War horns - remodel": [
+    "Models and Textures - Clutter",
+    "Models and Textures - General",
+    "Models and Textures - Items"
+  ],
+  "Conditional Dog Barking": "NPC - AI and Behaviour",
+  "Conditional Werewolf Howl": "NPC - AI and Behaviour",
+  "Vanargand Animations - Sneak Strike Attacks": "Animation - Combat",
+  "Leviathan Animations II - Female Idle Walk And Run": "Animation - Character"
 }

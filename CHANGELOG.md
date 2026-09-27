@@ -2,7 +2,61 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
-## 1.0.3 - 2026-09-27 - untested
+## 1.0.4 - 2026-09-27 - untested
+
+- SkyUI, RaceMenu, MCM Helper and UIExtensions, and mods named for them, go to User Interface, not Frameworks. A "for
+  SkyUI" at the end of a name names the target, so "Fix Note icon for SkyUI" stays a fix.
+- The animation engines (Nemesis, Pandora, FNIS, Open Animation Replacer, Dynamic Animation Replacer, Behavior Data
+  Injector, BFCO) and the mods named for them go to Animation.
+- Security Overhaul and its lock mods go to Models and Textures. Weightless and carry-weight mods go to Gameplay.
+  SkyPatcher is a framework.
+- These name words count from the mod's name only. A readme saying "requires SkyUI" or "carry weight" does not make
+  a mod a UI or gameplay mod.
+- A "resources" pack that ships meshes and textures is a model and texture pack, not a utility. When mods in an
+  earlier block build on its plugin, it goes to the world tier's architecture block, before them.
+- A mod that is only an SKSE plugin, and whose name and documents say nothing, is read from its own config: keys are
+  split into words, and it counts when one theme repeats at least four times. Intellightent's config says "light"
+  seven times, so it is a lighting mod. A lighting DLL now stays in Lighting instead of going to SKSE Plugin Tweaks.
+- SKSE Plugin Tweaks, reassessed: a mod that is only an SKSE plugin is filed by its subject whenever its name or
+  documents give one. Examples: an audio output switch goes to Audio, a grass cache helper to Grass, a follower leash to
+  Followers, and paralysis spells to Magic. SKSE Plugin Tweaks keeps only engine tweaks that name no subject.
+- New name words, all counted from the name only:
+  - Revoiced and voice mods go to Audio.
+  - Bethesda logo removers go to Essential Engine Fixes.
+  - "Scripting" goes to Script Fixes, and stays there whatever the mod ships.
+  - Camera-collision mods go to Camera.
+  - Strongboxes go to Furniture.
+  - "NPCs Learn to Aim" goes to NPC AI.
+  - "One click" goes to Improved Controls.
+  - Texture downscalers go to Performance.
+  - Crime and bounty mods go to Gameplay.
+  - Knotwork and Item Explorer go to User Interface.
+- A mod that calls itself "animations" and ships animation files is an animation mod, even when its name also says
+  "sprint" or "jump".
+- A preset that names a mod belongs to that mod: Whistle SmoothCam Preset goes to Camera, beside SmoothCam.
+- Character-creation options go to Face, beside the other head parts, rather than to Races. That covers names like
+  "character creation", "fins" and "Argonian crests" (Kabu's Argonian Fins, Argonian Crests, KCCE).
+- Races, Classes, and Birthsigns takes mods named for classes ("class overhaul", "classes"), race overhauls, and the
+  standing stones, which are Skyrim's birthsigns ("integrated standing stones", "standing stones overhaul",
+  "birthsigns"). This covers Apprentice, Heritage and Freyr, which had gone to Magic on their spell records.
+- Inverse kinematics goes to Animation. A loading-screen mod goes to User Interface, except a "Faster Loadscreens"
+  kind of mod, which stays in Performance.
+- Animation blocks: Animation - General is now Animation - Character, and Animation - Combat is new. The Player,
+  NPC, Enemy and Creature blocks stay.
+  - An animation mod whose name says it animates fighting goes to Combat. That covers attacks, movesets, combos,
+    MCO, BFCO, stances, blocking, dodge, and weapons such as bows and spears. "Non combat" stays in Character.
+  - An animation mod whose animation files are mostly under a creature's actor folder goes to Creature, even when it
+    is about fighting. Dragon Combat Animations and the wolf attacks are creature animations. An engine or framework
+    (Pandora) stays in Character.
+- Dragon mods named by their phrases ("diverse dragons", "dragons collection", "GoT HotD") go to Creatures - Monster
+  Appearance.
+- A creature's barking or howling is behaviour: those mods go to NPC - AI and Behaviour, and animation files no longer
+  weaken that vote.
+- "War horns" are items, not face horns.
+- Today's name-only keyword rows now carry their own weight, so they no longer switch an older row with the same
+  weight to name-only.
+
+## 1.0.3 - 2026-09-27 - working
 
 - One plugin name, two copies. When enabled mods ship different copies of one plugin and only some of them have every
   master present, a copy that can load is the one MO2 takes. The mod with the unloadable copy sits below it, whatever

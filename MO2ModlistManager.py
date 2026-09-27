@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 
 import configparser
 import json
@@ -73,7 +73,8 @@ TAXONOMY = [
         ("Dialogue", None), ("Alternate Start", None), ("Save Games", None)]),
     (2, "--- 2 CHARACTERS & ANIMATION ---", [
         ("Body", None), ("Face", None), ("Hair", None), ("Races, Classes, and Birthsigns", None), ("Physics", None),
-        ("Animation", ["General", "Player", "NPC", "Enemy", "Creature"])]),
+        # the owner, 2026-09-27: General became Character, and Combat is its own block
+        ("Animation", ["Character", "Combat", "Player", "NPC", "Enemy", "Creature"])]),
     (3, "--- 3 WORLD, VISUALS & SYSTEMS ---", [
         ("Presets - ENB and ReShade", None),
         ("Environment", ["Weather", "Landscape", "Water", "Architecture"]),
@@ -134,7 +135,7 @@ FIXED_BLOCKS = ("base game", "unofficial patches", "test builds", "generated out
 NEXUS_TO_LEAF = {
     "utilities": "Utilities", "bug fixes": "Bug Fixes", "modders resources": "Utilities", "vr": "Utilities",
     "uncategorised": "Uncategorised", "user interface": "User Interface", "save games": "Save Games",
-    "body, face, and hair": "Body", "animation": "Animation - General", "models and textures": "Models and Textures - General",
+    "body, face, and hair": "Body", "animation": "Animation - Character", "models and textures": "Models and Textures - General",
     "visuals and graphics": "Visual Effects", "environmental": "Environment - Landscape", "audio": "Audio",
     "overhauls": "Overhauls - General", "gameplay": "Gameplay - General", "immersion": "Immersion", "combat": "Gameplay - Combat",
     "stealth": "Gameplay - Stealth", "skills and leveling": "Class, Perks, Powers and Blessings",
@@ -522,11 +523,23 @@ NAME_DEFINED = {"camera", "dialogue", "improved controls", "physics", "performan
                 "equipment positioning", "maps"}
 TIER0 = {norm(c) for c in TIERS[0]}            # the leaves a mod's own documents may not vote for: a readme names its requirements
 TIER0.add(norm("Performance Optimization"))    # a tier-0 leaf in meaning though it now loads after the patches (P4, 2026-09-26)
-TARGET_IN_SUBJECT = {"equipment positioning"}  # a "for X" subject naming these is what the mod targets (an IED add-on), not what it is
+TARGET_IN_SUBJECT = {"equipment positioning", "user interface"}   # "Fix Note icon for SkyUI" is a fix FOR SkyUI (2026-09-27)  # a "for X" subject naming these is what the mod targets (an IED add-on), not what it is
 TEXT_NAME_HIT, TEXT_DOC_HIT, TEXT_CAP = 1.0, 0.4, 2.5
 # rows (by leaf and weight) whose words count from the NAME only - every weapon readme mentions a forge, and a UI
 # framework's readme talks about maps (2026-09-23)
 NAME_ONLY_ROWS = {("Maps", 3.6), ("Crafting - General", 2.0), ("Environment - Architecture", 3.0), ("NPC - Followers", 3.6)}
+# 2026-09-27: the UI / animation-engine / lock / weight rows count from the name only as well - a readme's "requires SkyUI"
+# or "carry weight" is not what the mod is (Skyrim Outfit System, moreHUD); NAMED_ROW weighs a name hit like a leaf the
+# owner defined by name
+NAMED_ROW = 6.0
+NAME_DEF = 3.61     # DEFINITIVE's weight for a name-only row: its own value keeps the (leaf, weight) key from matching older rows
+NAME_ONLY_ROWS |= {("User Interface", NAMED_ROW), ("Animation - Character", NAMED_ROW),
+                   ("Face", NAMED_ROW), ("Races, Classes, and Birthsigns", NAMED_ROW),
+                   ("Creatures - Monster Appearance", NAMED_ROW), ("NPC - AI and Behaviour", NAMED_ROW),
+                   ("Models and Textures - General", NAME_DEF), ("Gameplay - General", NAME_DEF),
+                   ("Audio", NAME_DEF), ("Essential Engine Fixes", NAME_DEF), ("Script Fixes", NAME_DEF), ("Camera", NAME_DEF),
+                   ("Models and Textures - Furniture", NAME_DEF), ("NPC - AI and Behaviour", NAME_DEF),
+                   ("Improved Controls", NAME_DEF), ("Performance Optimization", NAME_DEF)}
 
 # (pattern, leaf, weight multiplier) - the words a mod uses about itself. A multiplier of DEFINITIVE (3.6) means one hit
 # in the NAME outweighs a Nexus label on its own: those are the words the owner named as decisive (camera, dialogue,
@@ -536,9 +549,39 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     # tier 0
     # "skse" is not an engine fix (every DLL mod says it) and Skyrim Priority is a performance mod (the owner, 2026-09-23)
     (r"\b(address library|engine fixes|ssedisplaytweaks|display tweaks|crash logger|backported extended esl|bees|sse fixes|scrambled bugs|net script framework|preloader)\b", "Essential Engine Fixes", DEFINITIVE),
-    (r"\b(mcm helper|skyui|papyrusutil|papyrus extender|powerofthree|po3|base object swapper|spell perk item distributor|spid|keyword item distributor|kid|open animation replacer|oar|dynamic animation replacer|dar|jcontainers|consoleutil|community shaders|dynamic string distributor|sound record distributor|payload interpreter|racemenu|nemesis|pandora|xpmsse|xp32|uiextensions|behavior data injector|scaleform translation|inventory injector|framework|distributor|injector|extender|loader|kiloader|runtime|sdk|api|hooks?)\b", "Frameworks", DEFINITIVE),
+    # the owner, 2026-09-27: "Sky UI and Race Menu are both UI mods, and anything related to them should be in the UI
+    # separator, not the frameworks separator. Same goes for MCM Helper" - and the animation engines (Nemesis, Pandora,
+    # OAR, DAR) and what is built on them are animation work ("Nemesis Creature Behavior Werewolf add-on ... should go
+    # to animations"); Security Overhaul "changes the appearance of locks"; Weightless is "a gameplay mod"
+    (r"\b(skyui|racemenu|race menu|showracemenu|mcm helper|uiextensions|ui extensions|knotwork|item explorer)\b", "User Interface", NAMED_ROW),
+    (r"\b(nemesis|pandora|fnis|open animation replacer|oar|dynamic animation replacer|dar|behavior data injector|bfco)\b", "Animation - Character", NAMED_ROW),
+    (r"\b(security overhaul|lock variations|regional locks|extra locks|more locks)\b", "Models and Textures - General", NAME_DEF),
+    # 2026-09-27, the owner's second list: Skyrim Revoiced is sound; the Bethesda logo removers are engine fixes;
+    # Vanilla Scripting Enhancements is scripting; No Cam Collision is camera; HF's Strongbox is furniture; NPCs Learn
+    # to Aim is NPC behaviour; One Click Power Attack is controls; Texture Downscaler is performance
+    (r"\b(revoiced|voiced|voice acting|voice ?overs?|audio output|audio device)\b", "Audio", NAME_DEF),
+    (r"\b(bethesda logo|logo remover|skip (the )?(bethesda )?logo|intro logos?|skip intro)\b", "Essential Engine Fixes", NAME_DEF),
+    (r"\b(scripting enhancements?|scripting|script enhancements?)\b", "Script Fixes", NAME_DEF),
+    (r"\b(no)?cam ?coll(ision)?(?![a-z])|\bcamera collision\b", "Camera", NAME_DEF),   # "NoCamColl_2_SE": _ is a word char
+    (r"\b(strongbox(es)?)\b", "Models and Textures - Furniture", NAME_DEF),
+    (r"\b(npcs? learn to aim|learn to aim|npc aiming)\b", "NPC - AI and Behaviour", NAME_DEF),
+    (r"\b(one click)\b", "Improved Controls", NAME_DEF),
+    (r"\b(downscaler|downscal(e|ing))\b", "Performance Optimization", NAME_DEF),
+    (r"\b(crime|bounty|bounties|arrest(s|ed)?|jail ?time|crimegold)\b", "Gameplay - General", NAME_DEF),
+    # 2026-09-27, the owner's third list: character-creation options (fins, crests, KCCE) are head parts - the existing
+    # Face block, not Races; classes; inverse kinematics; loading screens
+    (r"\b(character creation|chargen|fins|(argonian|khajiit|beast) (crests?|horns|feathers|manes?|frills?))\b", "Face", NAMED_ROW),
+    (r"\b(class overhaul|classes|races? overhaul|racial overhaul|integrated standing stones|standing stones? overhaul|birthsigns?)\b", "Races, Classes, and Birthsigns", NAMED_ROW),
+    (r"\b(inverse kinematics)\b", "Animation - Character", NAME_DEF),
+    (r"(?<!faster )\bload(ing)? ?screens?\b", "User Interface", NAME_DEF),
+    # dragon mods by the phrases they use - a bare "dragon" would take Dragon Bridge and Dragonbone gear
+    (r"\b(diverse dragons|dragons? (replacers?|collection|overhaul|variants?|retextures?|remodels?)|got hotd|house of the dragon)\b", "Creatures - Monster Appearance", NAMED_ROW),
+    # a creature's conditional sounds are behaviour, not animation (Conditional Dog Barking, Conditional Werewolf Howl)
+    (r"\b(barking|howls?|howling|growls?|growling)\b", "NPC - AI and Behaviour", NAMED_ROW),
+    (r"\b(weightless|carry ?weight|encumbrance|item weights?)\b", "Gameplay - General", NAME_DEF),
+    (r"\b(papyrusutil|papyrus extender|powerofthree|po3|skypatcher|base object swapper|spell perk item distributor|spid|keyword item distributor|kid|jcontainers|consoleutil|community shaders|dynamic string distributor|sound record distributor|payload interpreter|xpmsse|xp32|scaleform translation|inventory injector|framework|distributor|injector|extender|loader|kiloader|runtime|sdk|api|hooks?)\b", "Frameworks", DEFINITIVE),
     (r"\b(texture set|assets? pack|tools?|utilit(y|ies)|generator|xedit|lodgen|texgen|dyndolod resources)\b", "Utilities", 1.0),
-    (r"\b(resources?|modder'?s? resources?|library|tool ?kit|sdk)\b", "Utilities", 2.0),
+    (r"\b(resources?|modder'?s? resources?|library|tool ?kit|sdk|papyrus functions|function library)\b", "Utilities", 2.0),
     # a utility does nothing by itself; other mods use it (the owner, 2026-09-23: Animation Motion Revolution, dTry's Key Utils)
     (r"\b(animation motion revolution|amr|key ?utils?|utils?)\b", "Utilities", DEFINITIVE),
     (r"\b(fix(es|ed|er)?|bug ?fix(es|er)?|corrections?|navmesh|hotfix)\b", "Bug Fixes", 1.0),
@@ -555,7 +598,7 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(ui overhaul|nordic ui|untarnished ui|norden ui|dear diary|edge ui|skyhud|interface overhaul|reskin|smooth ui|dragonbreaker|dwemer ui)\b", "UI Overhaul", DEFINITIVE),
     # "Mod Control Panel" is SKSE Menu Framework's menu name, not a controls word; keyboard and window handling is controls
     # (the owner, 2026-09-23: Kill Caps Lock, Better AltTab)
-    (r"\b(read or take|better grabbing|btps|better third person selection|step up|quick ?loot|(?<!mod )controls?(?! panel)|controller|gamepad|hotkeys?|keybinds?|keybinding|grab|activate|activation|interaction|pick ?up|take all|jump|sprint|whistle|auto ?(equip|unequip|loot|sort|draw)|unbind|bindings?|wheeler|wheel menu|back pocket|item explorer)\b", "Improved Controls", DEFINITIVE),
+    (r"\b(read or take|better grabbing|btps|better third person selection|step up|quick ?loot|(?<!mod )controls?(?! panel)|controller|gamepad|hotkeys?|keybinds?|keybinding|grab|activate|activation|interaction|pick ?up|take all|jump|sprint|whistle|auto ?(equip|unequip|loot|sort|draw)|unbind|bindings?|wheeler|wheel menu|back pocket)\b", "Improved Controls", DEFINITIVE),
     (r"\b(caps ?lock|alt ?-?tab|keyboard|mouse)\b", "Improved Controls", 1.5),
     (r"\b(cam|camera|cameras|smoothcam|fov|field of view|headtracking|head tracking)\b", "Camera", DEFINITIVE),
     (r"\b(dialogue|dialog|persuasion|conversations?|talk|speech|voice ?lines?|subtitles?)\b", "Dialogue", DEFINITIVE),
@@ -566,10 +609,10 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(bod(y|ies)|skins?|cbbe|himbo|unp|3ba|bhunp|tbd|muscle|nipple|feet|hands|complexion|bodypaint|tattoos?|texture ?set)\b", "Body", 1.0),
     # which body each actor gets - morphs and presets handed out (the owner, 2026-09-23: OBody is body)
     (r"\b(obody|autobody|body ?morphs?|body ?presets?|bodyslide presets?|body types?|body distribution)\b", "Body", DEFINITIVE),
-    (r"\b(faces?|heads?|eyes?|brows?|eyebrows?|teeth|mouth|freckles?|scars?|warpaints?|makeup|blush(ing)?|tint|high poly head|expressions?|lips|complexions?|overlays?|tattoos?|bodypaints?|facegen|horns?)\b", "Face", DEFINITIVE),
+    (r"\b(faces?|heads?|eyes?|brows?|eyebrows?|teeth|mouth|freckles?|scars?|warpaints?|makeup|blush(ing)?|tint|high poly head|expressions?|lips|complexions?|overlays?|tattoos?|bodypaints?|facegen|(?<!war )horns?)\b", "Face", DEFINITIVE),   # "HFs - War horns - remodel" is an item (2026-09-27)
     (r"\b(hairs?|hairdos?|hairstyles?|beards?|khisart[ai]n|stubble|ks hairdos|apachii|salt and wind|hairline)\b", "Hair", DEFINITIVE),
     (r"\b(races?|khajiit|argonians?|orcs?|orsimer|dunmer|altmer|bosmer|nords?|imperials?|bretons?|redguards?|birthsigns?|racial)\b", "Races, Classes, and Birthsigns", 1.0),
-    (r"\b(animations?|animated|idles?|mco|bfco|skysa|adxp|locomotion|movement|dodge|tk dodge|true directional|tdm|diving|dive|swim|sprint animation|attack animations?|combos?)\b", "Animation - General", 1.0),
+    (r"\b(animations?|animated|idles?|mco|bfco|skysa|adxp|locomotion|movement|dodge|tk dodge|true directional|tdm|diving|dive|swim|sprint animation|attack animations?|combos?)\b", "Animation - Character", 1.0),
     (r"\b(player animations?|first person animations?|pca)\b", "Animation - Player", 2.0),
     (r"\b(npc animations?|idle animations?|gesture|conversation animations?|citizen animations?)\b", "Animation - NPC", 2.0),
     (r"\b(enemy animations?|bandit animations?|draugr animations?|boss animations?)\b", "Animation - Enemy", 2.0),
@@ -618,7 +661,7 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(enchant(ing|ments?|ed)?|disenchant|enchanter)\b", "Enchanting - Enchantments", 1.5),
     (r"\b(overhaul(s|ed)?|rework(ed)?|redone|remastered|revamp(ed)?)\b", "Overhauls - General", 0.5),
     # tier 4
-    (r"\b(spells?|magic|magicka|scrolls?|wards?|destruction|conjuration|illusion|restoration|alteration|summon(s|ing)?|rituals?|tomes?|staff|staves|mysticism|apocalypse|odin|arcanum)\b", "Magic - Spells & Enchantments", 1.0),
+    (r"\b(spells?|magic|magicka|scrolls?|wards?|destruction|conjuration|illusion|restoration|alteration|summon(s|ing)?|rituals?|tomes?|staff|staves|mysticism|apocalypse|odin|arcanum|invisibility|reanimation)\b", "Magic - Spells & Enchantments", 1.0),
     (r"\b(perks?|classes?|standing stones?|blessings?|powers?|shrine blessings?|ordinator|adamant|vokrii|apprentice|mannaz|aetherius|andromeda|paragon|custom skills?|skill trees?|skills?|level(l)?ing|experience|xp|attributes?)\b", "Class, Perks, Powers and Blessings", 1.5),
     (r"\b(shouts?|thu'?um|word walls?|dragon ?souls?)\b", "Shouts", 1.5),
     (r"\b(clothing|clothes|outfits?|dress(es)?|robes?|cloaks?|capes?|jewell?ery|amulets?|rings?|necklaces?|circlets?|earrings?|glasses|hoods?|scarf|scarves)\b", "Clothing and Accessories", 1.0),
@@ -693,7 +736,7 @@ PATH_SIGNALS = [(re.compile(p), c) for p, c in (
     (r"(^|/)(eyes|brows|eyebrows|teeth|mouth|facegendata|facetint|face|tintmasks|makeup|warpaint|overlays)/|/(eye|brow|teeth|mouth|face|head|tint)[a-z0-9_]*\.(nif|dds|tri)$", "Face"),
     (r"(^|/)actors/character/(female|male|character assets)/|(^|/)actors/character/.*(body|skin|hands|feet)", "Body"),
     (r"(^|/)actors/character/(eyes|brows|teeth|mouth|facegendata|facetint|face)", "Face"),
-    (r"(^|/)actors/character/(animations|behaviors)/", "Animation - General"),
+    (r"(^|/)actors/character/(animations|behaviors)/", "Animation - Character"),
     (r"(^|/)actors/(?!character/)[^/]+/(animations|behaviors)/", "Animation - Creature"),
     (r"(^|/)actors/(?!character/)[^/]+/", "Creatures - Appearance"),
     (r"(^|/)(effects|fx|particles|magic)/", "Visual Effects"),
@@ -836,6 +879,7 @@ def _text_votes(m):
         subject = ms.group(1)
         proper = TAG_PATCH.sub(" ", name)[:ms.start()]
     scores, reasons, definitive = {}, {}, set()
+    named_rows, name_said = set(), False
     has_art = any(f.lower().endswith((".dds", ".nif")) for f in (m.files or ()))
     # R23 a mod that ships only distribution files (SPID / KID / SkyPatcher-style INIs) hands out what its name proper
     # names; a "for Y" subject is who receives it (the owner, 2026-09-23: Wolf Armor for The Companions - SPID is armour)
@@ -871,9 +915,37 @@ def _text_votes(m):
             reasons.setdefault(cat, []).extend(sorted(hits_n)[:2] + (sorted(hits_d - hits_n)[:1]))
             if hits_n and mult >= DEFINITIVE:
                 definitive.add(cat)
+            if hits_n and mult == NAMED_ROW:
+                named_rows.add(cat)
+            if hits_n or hits_d:
+                name_said = True                  # the name or the mod's own documents said something
+    # a mod that NAMES itself animations and ships animation files is an animation mod, whatever else the name says
+    # (the owner, 2026-09-27: Goetia's Momentum Whirlwind Sprint, Leviathan and Vanargand Animations II - Sprint "is an
+    # animation mod" - "sprint" had filed them under Improved Controls)
+    if re.search(r"\banim(ation)?s\b|\banimation\b", name, re.I) and any(f.endswith(".hkx") for f in (m.files or ())):
+        scores["Animation - Character"] = max(scores.get("Animation - Character", 0.0), W_NAME_DEFINED + 0.5)
+        named_rows.add("Animation - Character")
+        reasons.setdefault("Animation - Character", []).insert(0, "named animations, ships animation files")
+    # an SKSE-only mod's own config (read_config_text) speaks only when the NAME and its documents said nothing and one
+    # theme repeats (StepUpOnto's readme says "step up"; its config's "npcs" must not outvote that)
+    # (four or more hits of one row's words): Intellightent's config says "light" a dozen times
+    if not name_said and getattr(m, "config", ""):
+        for rx, cat, mult in TEXT_SIGNALS:
+            if norm(cat) in TIER0 or (cat, mult) in NAME_ONLY_ROWS:
+                continue
+            # a config glues words ("lightradius", "lightintensity"): a keyword at the START of a word counts
+            prx = re.compile(rx.pattern[:-2], re.I) if rx.pattern.endswith(r"\b") else rx
+            n = len(prx.findall(m.config))
+            if n >= 4:
+                scores[cat] = scores.get(cat, 0.0) + TEXT_DOC_HIT * mult * min(3, n // 2)
+                reasons.setdefault(cat, []).append(f"its config ({n} times)")
     out = []
     for cat, w in scores.items():
-        if cat in definitive and norm(cat) in NAME_DEFINED:
+        if cat in named_rows:
+            w = max(w, W_NAME_DEFINED + (0.5 if (cat == "Animation - Character" and "named animations, ships animation files"
+                                                in reasons.get(cat, ())) else 0.0))            # a NAMED_ROW word in the name weighs like a leaf the owner defined by name
+            cap = 99.0
+        elif cat in definitive and norm(cat) in NAME_DEFINED:
             w = max(w, W_NAME_DEFINED + (0.5 if norm(cat) == "maps" else 0.0))   # the owner defined this leaf by its name: the name decides
                                                   # (maps over a framework word: "all map related mods", 2026-09-23)
             cap = 99.0
@@ -899,7 +971,7 @@ def _path_votes(m):
     if ".dll" in exts:
         votes.append(("files", "Utilities", 0.5, "ships a DLL (SKSE plugin) - weak: a named feature is not a utility"))
     if ".hkx" in exts and not art_only:
-        votes.append(("files", "Animation - General", W_FILES, "ships animations / behaviours"))
+        votes.append(("files", "Animation - Character", W_FILES, "ships animations / behaviours"))
     if (exts & {".wav", ".xwm"} or (".fuz" in exts and not m.plugins)) and not exts & {".dds", ".nif"}:
         votes.append(("files", "Audio", W_FILES, "ships sound files"))
     elif ".fuz" in exts and m.plugins:
@@ -1054,13 +1126,15 @@ def decide(m, votes, nexus_cat=""):
         notes.append(f"alters {rec_alt} records, adds {rec_new}: about existing content")
     if has_hkx:
         for v in votes:
-            if v[0] == "text" and v[1] == "NPC - AI and Behaviour":
+            # (a creature's barking or howling IS behaviour - the owner, 2026-09-27: Conditional Dog Barking and
+            # Conditional Werewolf Howl "are behavior related, not animation related")
+            if v[0] == "text" and v[1] == "NPC - AI and Behaviour" and not re.search(r"bark|howl|growl", str(v[3]), re.I):
                 v[2] *= 0.3
                 notes.append("behaviour files ship: 'behaviour' means the animation graph")
     # R14 mostly animation files (60%+ under animation paths, with .hkx) is an animation mod (TDM, SDS)
     anim_share = max((v[2] for v in votes if v[0] == "paths" and v[1].startswith("Animation")), default=0.0)
     if has_hkx and anim_share >= 0.9 and not named:
-        votes.append(["rule", "Animation - General", 2.0, "mostly animation files"])
+        votes.append(["rule", "Animation - Character", 2.0, "mostly animation files"])
     # R15 abilities given to actors: perks/spells added while actors are altered, none added, is a combat system
     # (Know Your Enemy), not creatures or NPCs
     distributes = any(f.lower().endswith(("_distr.ini", "_kid.ini")) for f in files)      # SPID / KID: records handed to actors
@@ -1591,6 +1665,37 @@ def read_self_text(mod_dir):
     return " ".join(out)
 
 
+def read_config_text(mod_dir):
+    """A mod that is only an SKSE plugin says what it works on in its own config: Intellightent's INI keys are
+    iLightCount, lightradius, lightintensity (2026-09-27, "a lighting mod in the utilities area"). Keys split into words;
+    read only when the mod ships a DLL and no art. _text_votes uses it only when the NAME says nothing and one theme
+    repeats - a config full of "activate" is not a controls mod."""
+    cfg, has_art, has_dll = [], False, False
+    try:
+        for dp, _dn, fns in os.walk(mod_dir):
+            for f in fns:
+                fl = f.lower()
+                if fl.endswith((".dds", ".nif", ".hkx", ".esp", ".esm", ".esl", ".bsa")):
+                    has_art = True
+                elif fl.endswith(".dll"):
+                    has_dll = True
+                elif fl.endswith((".ini", ".toml", ".json")) and fl != "meta.ini" and "skse" in dp.lower():
+                    cfg.append(os.path.join(dp, f))
+    except OSError:
+        return ""
+    if not cfg or has_art or not has_dll:
+        return ""
+    out = []
+    for p in cfg[:4]:
+        try:
+            raw = open(p, encoding="utf-8", errors="ignore").read(3000)
+        except OSError:
+            continue
+        raw = re.sub(r"([a-z])([A-Z])", r"\1 \2", raw)
+        out.append(re.sub(r"[_=\[\]{}\"';#.,:]+", " ", raw))
+    return " ".join(out)
+
+
 ASSET_EXTS = (".dds", ".nif", ".hkx", ".dll", ".esl", ".esp", ".esm", ".bsa", ".pex", ".seq", ".ini", ".json", ".swf",
               ".wav", ".xwm", ".fuz", ".tri", ".txt")
 IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "changes.txt", "license.txt", "licence.txt",
@@ -1599,7 +1704,7 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 class Mod:
     __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records",
-                 "votes", "text", "decided", "refs", "raw_votes", "version")
+                 "votes", "text", "decided", "refs", "raw_votes", "version", "config")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
@@ -1613,6 +1718,7 @@ class Mod:
         self.decided = None                                         # the category the evidence decided, before any displacement or merge
         self.refs = None                                            # what the plugins reference: cells, worldspaces (plugin_refs)
         self.version = ()                                           # meta.ini version as numbers, () when unknown
+        self.config = ""                                            # an SKSE-only mod's own config text (read_config_text)
         self.text = ""                                              # what the mod says about itself (plugin descriptions, readme, FOMOD, Nexus description)
 
     @property
@@ -1776,6 +1882,7 @@ def scan(mods_dir, rows, progress=None):
             continue
         m.nexus_id, m.mo2_cats, meta_text = read_meta(d)
         m.version = _meta_version(d)
+        m.config = read_config_text(d)
         texts = [meta_text, read_self_text(d)]
         try:
             for f in os.listdir(d):
@@ -1936,6 +2043,14 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
             if page:
                 parent = max(page, key=lambda o: (bool(o.plugins), len(o.files or ())))
                 how = f"an optional file of {parent.name} (its Nexus page)"
+        if parent is None and re.search(r"\bpresets?\b", m.name, re.I):
+            # a preset for a mod is part of that mod (the owner, 2026-09-27: "Smooth Cam Preset is a camera mod for
+            # Smooth Cam"): the longest decided mod the preset's name names
+            named = [o for o in decided_names.values() if o is not m and norm(o.category or "") not in _not_parent
+                     and _names(m.name, o.name)]
+            if named:
+                parent = max(named, key=lambda o: len(_core_words(o.name)))
+                how = f"a preset for {parent.name}"
         if parent is None and art_only and mine_files:
             lead = re.split(r"\s+-\s+|\s", m.name.strip(), 1)[0].lower()
             named = [o for o in by_full_initials.get(lead, ()) if o is not m and mine_files & set(o.files or ())]
@@ -2014,6 +2129,8 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
             m.decided = m.category              # what the evidence decided: the scorecard reads this, not a hub block
     _hubs(mods)                                 # P5 last: a big mod's block takes its satellites whatever they are
     _skeleton_behaviour_patches(mods)
+    _combat_animations(mods)
+    _art_resource_packs(mods)
     for m in mods:
         if m.category:
             m.group = tier_of(m.category)
@@ -2043,9 +2160,70 @@ def _skeleton_behaviour_patches(mods):
         if not _movable(m) or _is_skeleton_mod(m):
             continue
         if SKELETON_BEHAVIOUR.search(m.name) or re.search(r"behaviou?r patch for skeleton", m.text or "", re.I):
-            m.category, m.why = "Animation - General", f"a behaviour patch for skeleton mods: after every animation and skeleton mod; {m.why}"
+            m.category, m.why = "Animation - Character", f"a behaviour patch for skeleton mods: after every animation and skeleton mod; {m.why}"
             m.decided = m.category              # a rule's decision, like the evidence's (the scorecard reads this)
             m.flags.add("after_animation")
+
+
+COMBAT_ANIM = re.compile(r"\b(attacks?|movesets?|combos?|mco|bfco|adxp|power ?attacks?|combat|swords?|greatswords?|dual ?wield(ing)?|"
+                         r"two[- ]handed|one[- ]handed|stances?|block(ing)?|parry|dodge|shield bash|bash|archery|bows?|"
+                         r"spears?|daggers?|axes?|maces?|hammers?|unarmed|brawl(ing)?|weapon ?(styles?|arts?|switch)|"
+                         r"sneak (strike|thrust)s?|killmoves?|finishers?)\b", re.I)
+NON_COMBAT = re.compile(r"\bnon[- ]?combat\b|\bout of combat\b", re.I)
+
+
+def _combat_animations(mods):
+    """An animation mod whose name says it animates fighting - attacks, movesets, stances, blocking, weapons - is
+    Animation - Combat (the owner, 2026-09-27: "we need to make a distinction between animation general and animation
+    combat"); walking, idles, sprinting and the like stay Animation - Character. "Non combat" says the opposite."""
+    for m in mods:
+        if not _movable(m) or norm(m.category or "") != norm("Animation - Character"):
+            continue
+        # a creature's fighting animations are the creature's (Dragon Combat Animations, wolf attacks): the Creature block
+        hkx = [f for f in (m.files or ()) if f.endswith(".hkx")]
+        creature = [f for f in hkx if re.search(r"(^|/)actors/(?!character/)", f)]
+        if hkx and len(creature) * 2 > len(hkx) and not re.search(r"\b(engine|framework)\b", m.name, re.I):   # an engine (Pandora) animates everyone
+            m.category, m.why = "Animation - Creature", f"animates a creature ({len(creature)} of {len(hkx)} animation files): creature animation; {m.why}"
+            m.decided = m.category
+            continue
+        if COMBAT_ANIM.search(m.name) and not NON_COMBAT.search(m.name):
+            m.category, m.why = "Animation - Combat", f"animates fighting (its name says so): combat animation; {m.why}"
+            m.decided = m.category
+
+
+RESOURCE_WORDS = re.compile(r"\bresources?\b|\bresource pack\b", re.I)
+NOT_ART_RESOURCE = re.compile(r"dyndolod|\blod\b|keyword|distribution|behaviou?r|script|papyrus|animation", re.I)
+
+
+def _art_resource_packs(mods):
+    """A "resources" mod that ships art - meshes and textures, loose or in its BSAs - is a model and texture pack for
+    other mods to use (the owner, 2026-09-27: HS Resources "is a graphical resources pack for a bunch of player homes",
+    The Great Cities - Resources "is a graphical model and textures resource pack, not a utility")."""
+    for m in mods:
+        if not _movable(m) or norm(m.category or "") != norm("Utilities"):
+            continue
+        if not RESOURCE_WORDS.search(m.name) or NOT_ART_RESOURCE.search(m.name):
+            continue
+        files = m.files or []
+        art = [f for f in files if f.endswith((".dds", ".nif")) or (f.endswith(".bsa") and "/" not in f)]
+        other = [f for f in files if f.endswith((".dll", ".pex", ".hkx"))]
+        if art and len(other) <= len(art) // 10:
+            # a pack whose plugin is a MASTER of mods in an earlier tier (The Great Cities - Resources under the towns)
+            # must load before them: it goes to the world tier's architecture block, not the later Models and Textures
+            mine = {f.lower() for f, _ms, _e in m.plugins}
+            pos, _h = category_order()
+            mt = pos.get(norm("Models and Textures - General"), (99, 99))
+            earlier = [o.name for o in mods if o is not m and o.enabled and o.category and not is_sep(o.name)
+                       and pos.get(norm(o.category), (99, 99)) < mt
+                       and any(x.lower() in mine for _f, ms, _e in o.plugins for x in ms)]
+            if earlier:
+                m.category = "Environment - Architecture"
+                m.why = (f"a resource pack of meshes and textures that {len(earlier)} earlier mod(s) build on ({earlier[0]}): "
+                         f"the world tier's architecture block, before them; {m.why}")
+            else:
+                m.category = "Models and Textures - General"
+                m.why = f"a resource pack of meshes and textures ({len(art)} art file(s)): models and textures; {m.why}"
+            m.decided = m.category
 
 
 def _movable(m):
@@ -2217,7 +2395,8 @@ _ART_EXT = (".nif", ".dds", ".hkx", ".wav", ".xwm", ".fuz", ".tri", ".bto", ".bt
 # Localized Damage combat, Wait Your Turn NPC AI, Item Equip Restrictor and Custom Difficulty UI gameplay (2026-09-23)
 _TWEAK_EXEMPT = {norm(x) for x in ("Patches", "Maps", "UI Overhaul", "Icon Overhauls", "Optional Addons",
                                    "Performance Optimization", "Equipment Positioning", "Gameplay - General",
-                                   "Gameplay - Combat", "Gameplay - Stealth", "Gameplay - Economy", "NPC - AI and Behaviour")}
+                                   "Gameplay - Combat", "Gameplay - Stealth", "Gameplay - Economy", "NPC - AI and Behaviour",
+                                   "Lighting")}   # a lighting DLL is a lighting mod (the owner, 2026-09-27: Intellightent)
 
 
 def mechanism(m):
@@ -2243,12 +2422,22 @@ def _mechanism(mods):
         if not _movable(m):
             continue
         how = mechanism(m)
+        # a name that says scripting keeps its Script Fixes block whatever it ships (the owner, 2026-09-27: "Vanilla
+        # Scripting Enhancements sounds like it should go in the scripting separator")
+        if norm(m.category) == norm("Script Fixes") and re.search(r"\bscript(ing|s)?\b", m.name, re.I):
+            continue
         if norm(m.category) in {norm(x) for x in FIX_FAMILY}:
             if how and to_fix[how] != m.category:
                 m.category, m.why = to_fix[how], f"a fix, filed by what it overwrites ({how}) (P3); {m.why}"
         elif how == "skse" and tier_of(m.category) >= 3 and norm(m.category) not in _TWEAK_EXEMPT \
                 and norm(m.category) not in HUB_LEAVES:
-            m.category, m.why = "SKSE Plugin Tweaks", f"only an SKSE plugin: an engine-side behaviour change, filed by mechanism (P3); its subject: {m.category}"
+            # the owner, 2026-09-27, on a block of DLLs whose subjects were plain (audio, grass cache, followers, magic,
+            # terrain): "I'm not sure what even constitutes a plugin tweak ... You'll have to make an assessment". The
+            # assessment: a DLL whose name or documents say what it works on is filed by that subject; SKSE Plugin
+            # Tweaks is for an engine tweak that names no subject (evidence under 1.0 for its best category)
+            subject_w = sum(v[2] for v in (m.votes or ()) if norm(v[1]) == norm(m.category) and v[0] != "files")
+            if subject_w < 1.0 or norm(m.category) in (norm("Utilities"), norm("Uncategorised")):
+                m.category, m.why = "SKSE Plugin Tweaks", f"only an SKSE plugin and no subject to file it by (P3); its best guess: {m.category}"
 
 
 # P9: icon packs - named for icons, shipping interface files, no DLL, and never a font or fontconfig.txt (a font's
