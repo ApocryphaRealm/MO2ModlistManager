@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 import configparser
 import json
@@ -164,7 +164,9 @@ _MATERIAL_VERSION = re.compile(r"\bcomplex (material|parallax)s?\b|\bcpm\b|\bpar
 
 
 def _core_name(name):
-    return _NAME_NOISE.sub("", name.lower())
+    # [tags] go first: in one pass the separator class took the space AND the "[" before a tag, so "X [Patch]" kept
+    # "patch" and no "[Patch]"-tagged parent's name was ever a prefix of its children's (2026-09-27)
+    return _NAME_NOISE.sub("", re.sub(r"\[[^\]]*\]", " ", name.lower()))
 
 
 def _is_patch_mod(m):
@@ -1834,6 +1836,14 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
         if m.nexus_id:
             by_page.setdefault(m.nexus_id, []).append(m)
     _not_parent = (norm("Patches"), norm("Test Builds"), NODELETE_SEP.lower())
+    # a name that OPENS with a mod's initials, small words included - "LoY - SE by Xtudo - Color - Wolf Black 2K" for
+    # Legacy of Ysgramor (the owner, 2026-09-27: "a child of legacy of ysgramor ... supposed to apply over its files").
+    # Short initials collide, so this names a parent only when the add-on replaces that mod's files (below)
+    by_full_initials = {}
+    for m in decided_names.values():
+        fi = _full_initials(m.name)
+        if len(fi) >= 3 and norm(m.category or "") not in _not_parent:
+            by_full_initials.setdefault(fi, []).append(m)
     for m in mods:
         if is_sep(m.name) or not m.votes or norm(m.category or "") in (norm("Patches"), norm(SHAPE_CAT), norm("Test Builds"), norm("Base Game"), norm("Generated Outputs"), NODELETE_SEP.lower()):
             continue
@@ -1856,9 +1866,21 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
             if page:
                 parent = max(page, key=lambda o: (bool(o.plugins), len(o.files or ())))
                 how = f"an optional file of {parent.name} (its Nexus page)"
+        if parent is None and art_only and mine_files:
+            lead = re.split(r"\s+-\s+|\s", m.name.strip(), 1)[0].lower()
+            named = [o for o in by_full_initials.get(lead, ()) if o is not m and mine_files & set(o.files or ())]
+            if named:
+                parent = max(named, key=lambda o: len(mine_files & set(o.files or ())))
+                how = f"named for {parent.name} by its initials ({lead.upper()})"
         if parent is None:
             continue
         over = len(mine_files & set(parent.files or ())) if art_only else 0
+        # a mod that ships a plugin of the SAME NAME as its parent's replaces that plugin - an older or newer copy of
+        # one patch from the collection (2026-09-27: JK's Guild HQ 1.27's Thieves Guild USSEP patch, the one that fits
+        # USSEP 4.3.0a, over the collection's 1.29.1 copy; "says 'ussep'" had filed it under Unofficial Patches)
+        same_plug = {f.lower() for f, _ms, _e in m.plugins} & {f.lower() for f, _ms, _e in parent.plugins}
+        if same_plug:
+            over += len(same_plug)
         w, how = (W_ADDON_OVERWRITES, f"{how}, replacing {over} of its files") if over else (3.0, how)
         cat = ""                                  # no Nexus category (2026-09-26): decide() and the votes never read one
         votes = [tuple(v) for v in m.votes] + [("addon", parent.category, w, f"{how}, which is {parent.category}")]
@@ -1969,6 +1991,14 @@ def _initials(name):
     return "".join(w[0] for w in ws) if len(ws) >= 3 else ""
 
 
+def _full_initials(name):
+    """Every word's first letter, small words included, of the name before its first " - " part and any [tag]:
+    "Legacy of Ysgramor" -> "loy" (how its add-ons abbreviate it, "LoY - ...")."""
+    head = re.split(r"\s+-\s+", TAG_PATCH.sub(" ", re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", name)).strip(), 1)[0]
+    ws = re.findall(r"[a-z][a-z']*", head.lower())
+    return "".join(w[0] for w in ws) if len(ws) >= 2 else ""
+
+
 def _name_index(real):
     """{core name: mod} and {initials: mod} over the list - how a name can name another mod."""
     cores, initials = {}, {}
@@ -2027,6 +2057,27 @@ def _patch_home(mods):
                 by_plugin[f.lower()] = m
     cores, initials = _name_index(real)
     by_name = {m.name: m for m in real}
+    # A BRIDGE (2026-09-27): a mod whose own main plugin - the one named like the mod - is built on two or more mods
+    # that sit in ONE block joins that block, whatever else it touches (Ultimate College of Winterhold, UltimateCollege.esp
+    # on Immersive and Obscure's College, had gone to Guilds/Factions on the cells it references)
+    for m in real:
+        if not _movable(m) or norm(m.category) == norm("Patches") or not m.plugins:
+            continue
+        mine = _core_name(m.name)
+        main = [e for e in m.plugins if len(_core_name(os.path.splitext(e[0])[0])) >= 6 and mine.startswith(_core_name(os.path.splitext(e[0])[0]))]
+        if len(main) != 1:
+            continue
+        on = set()
+        for mast in main[0][1]:
+            o = by_plugin.get(mast.lower())
+            if mast.lower() in BASE_MASTERS or o is None or o is m or not o.category or tier_of(o.category) <= 1:
+                continue
+            on.add(o.name)
+        homes = {norm(by_name[n].category) for n in on}
+        if len(on) >= 2 and len(homes) == 1:
+            home = by_name[next(iter(on))].category
+            if norm(home) not in _NOT_A_HOME and norm(home) not in _FROZEN_CATS and norm(home) != norm(m.category):
+                m.category, m.why = home, f"a bridge between {len(on)} mods of one block ({home}): its main plugin is built on them; {m.why}"
     for m in real:
         if not _movable(m) or norm(m.category) != norm("Patches"):
             continue
@@ -2595,7 +2646,9 @@ def build(mods, rules=None, min_run=2):
         # Immersion mod of 4,192 files, had pulled 36 texture packs under Immersion by size alone)
         # (the material-version verdict is same-block only as well: across blocks it pulled Illustrious Whiterun - Parallax
         # Meshes below a Performance mod, and it then beat Lux and the Whiterun mods the reference list has winning)
-        if verdict is not None and not same_cat_pair and not (verdict[2].startswith("named for") or verdict[2].startswith("a patch")):
+        # (an optional file from a mod's own Nexus page holds across tiers too: the owner, 2026-09-27, "optional files
+        # from the same mod ... would come after it")
+        if verdict is not None and not same_cat_pair and not verdict[2].startswith(("named for", "a patch", "an optional file from")):
             verdict = None
         if verdict is not None:
             w, l, why = verdict

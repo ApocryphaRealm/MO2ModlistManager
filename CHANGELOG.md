@@ -2,7 +2,20 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
-## 1.0.1 - 2026-09-27 - untested
+## 1.0.2 - 2026-09-27 - untested
+
+- An add-on whose name opens with its parent's initials, counting small words ("LoY - ..." for Legacy of Ysgramor),
+  sits with the parent when it replaces the parent's files.
+- A mod that ships a plugin with the same file name as its parent's replaces that plugin. It sits with the parent and
+  loads after it. An example is an older copy of one patch from a patch collection, kept because it fits the installed
+  master.
+- The optional-file rule now also holds when the two files sit in different blocks.
+- A bridge joins its block: a mod whose own main plugin is built on two or more mods of one block sits in that block.
+  Ultimate College of Winterhold, built on Immersive and Obscure's College, now sits with them.
+- Fixed: a mod name's [tags] were not removed before names were compared. A "[Patch]"-tagged parent was then never
+  recognised in its children's names.
+
+## 1.0.1 - 2026-09-27 - working
 
 Add-ons stay with their parent mod, and a few more plugin states are decided from what the plugins hold.
 
