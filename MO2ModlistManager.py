@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 import configparser
 import json
@@ -219,6 +219,14 @@ def resolve_conflict(a, b, shared, files_of):
         return a, b, f"named for {b.name} (by its initials, {ib.upper()})"
     if len(ia) >= 3 and ia in tb and ia != ib:
         return b, a, f"named for {a.name} (by its initials, {ia.upper()})"
+    # 1c. the same Nexus page: an optional file (an HDT-SMP version, a patch, a variant - often renamed to say what it
+    #     patches) loads after the page's main file, the one with the plugin, else the larger one (2026-09-27)
+    if a.nexus_id and a.nexus_id == b.nexus_id:
+        ma = (bool(a.plugins), len(files_of[a.name]))
+        mb = (bool(b.plugins), len(files_of[b.name]))
+        if ma != mb:
+            main, opt = (a, b) if ma > mb else (b, a)
+            return opt, main, f"an optional file from {main.name}'s own Nexus page loads after it"
     pa, pb = _is_patch_mod(a), _is_patch_mod(b)
     if pa != pb:
         return (a, b, f"a patch loads after {b.name}") if pa else (b, a, f"a patch loads after {a.name}")
@@ -459,6 +467,7 @@ def plugin_new_records(path, n_masters):
 # rule over the votes.
 W_NEXUS, W_MO2_USER, W_RECORDS_STRONG, W_RECORDS_WEAK, W_FILES, W_TAG = 3.0, 3.5, 3.5, 1.2, 1.5, 1.0
 W_NAME_DEFINED = 6.0     # a leaf the owner defined by its name, hit in the mod's NAME: decisive over a label plus its files
+W_ADDON_OVERWRITES = 7.0 # an art-only add-on replacing its parent's files sits with the parent (2026-09-27)
 NAME_DEFINED = {"camera", "dialogue", "improved controls", "physics", "performance optimization", "alternate start", "face", "hair",
                 "pbr textures", "environment - seasons", "lighting", "unofficial patches", "ui overhaul",
                 "essential engine fixes", "frameworks", "models and textures - interiors", "models and textures - clutter",
@@ -1624,6 +1633,65 @@ def write_modlist(path, rows, header, foreign=()):
     open(path, "wb").write(("\r\n".join(header + body) + "\r\n").encode("utf-8"))
 
 
+def _install_file(mod_dir):
+    cp = configparser.RawConfigParser(strict=False)
+    try:
+        cp.read(os.path.join(mod_dir, "meta.ini"), encoding="utf-8")
+        return str(cp.get("General", "installationFile", fallback="")).strip('" ')
+    except configparser.Error:
+        return ""
+
+
+def _content_key(mod_dir):
+    """What a folder holds, wherever MO2's Optional ESPs put a plugin: {(path without a leading optional/, size)}."""
+    out = set()
+    for dirpath, dirnames, filenames in os.walk(mod_dir):
+        for f in filenames:
+            if f.lower() == "meta.ini":
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, f), mod_dir).replace(os.sep, "/").lower()
+            if rel.startswith("optional/"):
+                rel = rel[len("optional/"):]
+            out.add((rel, os.path.getsize(os.path.join(dirpath, f))))
+    return frozenset(out)
+
+
+def redundant_copies(mods, mods_dir):
+    """(the owner, 2026-09-27: "an armor physics patch in hdt smp" was a second enabled copy of Fur Shader Armors' SMP
+    file under another name; "old holds cold welcome is not a patch" was a second copy of its Sons of Skyrim patch.)
+    Enabled folders installed from the SAME archive that hold the same files are one mod installed twice: the copy
+    whose name is closest to the archive's own name stays enabled, the others are switched off (their folders are left
+    alone). Returns [(switched-off copy, kept copy, archive)]."""
+    import difflib
+    groups = {}
+    for m in mods:
+        if is_sep(m.name) or not m.enabled or "missing" in m.flags:
+            continue
+        d = os.path.join(mods_dir, m.name)
+        arc = os.path.basename(_install_file(d).replace(os.sep, "/"))
+        if arc:
+            groups.setdefault(arc.lower(), []).append((m, d, arc))
+    out = []
+    for ms in groups.values():
+        if len(ms) < 2:
+            continue
+        arc = ms[0][2]
+        by_content = {}
+        for m, d, _a in ms:
+            by_content.setdefault(_content_key(d), []).append(m)
+        stem = _core_name(re.sub(r"[-_ ]\d{3,}.*$", "", os.path.splitext(arc)[0]))
+        for key, same in by_content.items():
+            if len(same) < 2 or not key:
+                continue
+            keep = max(same, key=lambda m: (difflib.SequenceMatcher(None, _core_name(m.name), stem).ratio(), -len(m.name)))
+            for m in same:
+                if m is not keep:
+                    m.enabled = False
+                    m.flags.add("redundant")
+                    out.append((m.name, keep.name, arc))
+    return out
+
+
 def scan(mods_dir, rows, progress=None):
     mods = []
     for i, (name, enabled) in enumerate(rows):
@@ -1749,12 +1817,23 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
     # ADDONS (second pass): a mod named for another - "Northern Concept - Northern Roads", "Utenlands Nordic Tents -
     # Campfire Addon" - sits with that mod, so it takes the parent's category as a strong vote and is decided again.
     # A patch by structure stays a patch; the hard gates above are untouched.
+    # ART ADD-ONS (the owner, 2026-09-27: "an armor physics patch in hdt smp instead of after the armor file"; Legacy of
+    # Ysgramor's add-ons "in the models and textures area instead of with their parent mod"): a mod that ships only art
+    # and overwrites files of its parent - the mod it is named for, or the main file of its own Nexus page - replaces
+    # that mod's assets, so it sits with that mod whatever its words say (SMP Vanilla Armors Fur, an optional file of Fur
+    # Shader Armors, had gone to Physics on "smp"); its vote is decisive (W_ADDON_OVERWRITES). The parent is never a mod
+    # named for the add-on, and on a shared page it is the file with a plugin, or the larger one.
     decided_names = {m.name: m for m in mods if m.category and not is_sep(m.name)}
     cores = {}
     for m in decided_names.values():
         c = _core_name(m.name)
         if len(c) >= 6:
             cores.setdefault(c, []).append(m)
+    by_page = {}
+    for m in decided_names.values():
+        if m.nexus_id:
+            by_page.setdefault(m.nexus_id, []).append(m)
+    _not_parent = (norm("Patches"), norm("Test Builds"), NODELETE_SEP.lower())
     for m in mods:
         if is_sep(m.name) or not m.votes or norm(m.category or "") in (norm("Patches"), norm(SHAPE_CAT), norm("Test Builds"), norm("Base Game"), norm("Generated Outputs"), NODELETE_SEP.lower()):
             continue
@@ -1767,12 +1846,28 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
                 cand = min(ms, key=lambda x: len(x.name))
                 if cand is not m and norm(cand.category or "") not in (norm("Patches"), norm("Test Builds"), NODELETE_SEP.lower()):
                     parent = cand
+        art_only = mechanism(m) == "art"
+        mine_files = set(m.files or ())
+        how = f"named for {parent.name}" if parent is not None else ""
+        if parent is None and art_only and m.nexus_id and mine_files:
+            page = [o for o in by_page.get(m.nexus_id, ()) if o is not m and norm(o.category or "") not in _not_parent
+                    and not _core_name(o.name).startswith(mine) and mine_files & set(o.files or ())
+                    and (o.plugins or len(o.files or ()) > len(mine_files))]
+            if page:
+                parent = max(page, key=lambda o: (bool(o.plugins), len(o.files or ())))
+                how = f"an optional file of {parent.name} (its Nexus page)"
         if parent is None:
             continue
+        over = len(mine_files & set(parent.files or ())) if art_only else 0
+        w, how = (W_ADDON_OVERWRITES, f"{how}, replacing {over} of its files") if over else (3.0, how)
         cat = ""                                  # no Nexus category (2026-09-26): decide() and the votes never read one
-        votes = [tuple(v) for v in m.votes] + [("addon", parent.category, 3.0, f"named for {parent.name}, which is {parent.category}")]
+        votes = [tuple(v) for v in m.votes] + [("addon", parent.category, w, f"{how}, which is {parent.category}")]
         decided, why, m.votes = decide(m, votes, cat)
-        if decided:
+        if decided and over and norm(decided) == norm(re.sub(r"^New ", "", parent.category)):
+            # the equipment rule names the block by what a mod ADDS; an add-on that adds nothing still sits in its
+            # parent's "New ..." block
+            m.category, m.why = parent.category, f"replaces {over} of {parent.name}'s files: sits with it; {why}"
+        elif decided:
             m.category, m.why = decided, why
     # TWEAK COLLECTIONS (third pass): a mod of two or more plugins, each built on another content mod, is about what
     # it tweaks - each plugin votes the category of the mods it masters (1.0 a plugin, split over its foreign masters,
@@ -1935,9 +2030,10 @@ def _patch_home(mods):
     for m in real:
         if not _movable(m) or norm(m.category) != norm("Patches"):
             continue
-        own = {f.lower() for f, _ms, _e in m.plugins}
+        every = list(m.plugins) + list(m.optional)      # a patch parked in Optional ESPs still names its targets
+        own = {f.lower() for f, _ms, _e in every}
         targets = set()
-        for _f, masters, _e in m.plugins:
+        for _f, masters, _e in every:
             for mast in masters:
                 k = mast.lower()
                 o = by_plugin.get(k)
@@ -1946,8 +2042,17 @@ def _patch_home(mods):
                 if tier_of(o.category) <= 1:
                     continue
                 targets.add(o.name)
-        if not m.plugins:
+        if not every:
             targets = {n for n in _named_mods(m, cores, initials) if by_name[n].category and tier_of(by_name[n].category) > 1}
+        # a patch whose only ENABLED targets are mods from its own Nexus page is part of that mod: the other target is
+        # not in the list, so there is nothing for it to load after (the owner, 2026-09-27: "old holds cold welcome is
+        # not a patch" - Cold Welcome's Sons of Skyrim patch sat in Patches, with Sons of Skyrim disabled)
+        live = {n for n in targets if by_name[n].enabled}
+        if m.nexus_id and live and all(by_name[n].nexus_id == m.nexus_id for n in live):
+            home = by_name[max(live, key=lambda n: len(by_name[n].files or ()))].category
+            if norm(home) not in _NOT_A_HOME and norm(home) not in _FROZEN_CATS:
+                m.category, m.why = home, f"a patch from its target's own Nexus page, whose other targets are not enabled: sits with it; {m.why}"
+                continue
         homes = {norm(by_name[n].category) for n in targets}
         if targets and len(homes) == 1:
             home = by_name[next(iter(targets))].category
@@ -2864,7 +2969,69 @@ def read_active_plugins(profile_dir):
     return active | BASE_MASTERS
 
 
-def plan_plugin_state(mods, profile_dir, plugin_rules=()):
+_FORM_CACHE = {}
+
+
+def _form_ids(path):
+    """(master count, [FormID of every record]) of a plugin, from the record headers; None when unreadable."""
+    if path in _FORM_CACHE:
+        return _FORM_CACHE[path]
+    out = None
+    try:
+        b = open(path, "rb").read()
+        if b[:4] == b"TES4":
+            size = struct.unpack("<I", b[4:8])[0]
+            n, i = 0, 24
+            while i < 24 + size:
+                typ, ln = b[i:i + 4], struct.unpack("<H", b[i + 4:i + 6])[0]
+                n += typ == b"MAST"
+                i += 6 + ln
+            ids, p = [], 24 + size
+            while p + 24 <= len(b):
+                if b[p:p + 4] == b"GRUP":
+                    p += 24
+                else:
+                    ids.append(struct.unpack("<I", b[p + 12:p + 16])[0])
+                    p += 24 + struct.unpack("<I", b[p + 4:p + 8])[0]
+            out = (n, ids)
+    except OSError:
+        out = None
+    _FORM_CACHE[path] = out
+    return out
+
+
+def wrong_variant(patch_paths, masters, master_paths_of):
+    """The first non-base master of which the patch changes records but NONE exist in any installed copy - the patch
+    was made for another variant or version of that mod (2026-09-27: JK's Temple of Talos patch for the full
+    Solitude and Temple Frescoes, beside its "Solitude Only" variant, which has no temple). ('master', count) or None.
+    Every enabled copy of the patch and of the master counts: the order decides which copy wins, and one right pair is
+    enough (a list can ship Lux's old Blue Palace patch AND an update for Blue Palace 2.0 under one file name).
+    A patch that is only partly out of date keeps loading: it still does most of its job, and the launch audit lists it."""
+    copies = [x for x in (_form_ids(p) for p in patch_paths) if x]
+    if not copies:
+        return None
+    for i, ms in enumerate(masters):
+        if ms.lower() in BASE_MASTERS:
+            continue
+        theirs = [x for x in (_form_ids(p) for p in master_paths_of(ms.lower())) if x]
+        if not theirs:
+            continue
+        worst = None
+        for mine in copies:
+            wanted = {f & 0xFFFFFF for f in mine[1] if (f >> 24) == i}
+            if not wanted:
+                worst = None
+                break
+            if any(wanted & {f & 0xFFFFFF for f in t[1] if (f >> 24) == t[0]} for t in theirs):
+                worst = None
+                break
+            worst = (ms, len(wanted))
+        if worst:
+            return worst
+    return None
+
+
+def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None):
     """Every plugin ends up in one of two places (the owner, 2026-09-23): a plugin whose masters are all here is in the
     mod's root and ACTIVE; one that cannot load - a master it needs is in no enabled mod - waits in the mod's
     optional folder (MO2's Optional ESPs). And the way back: an optional plugin whose masters have since arrived
@@ -2886,6 +3053,65 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=()):
     cands = {k: v[1][1] for k, v in root.items()}
     cands.update({k: v[1][1] for k, v in opt.items() if k not in cands})
     loadable = {k: True for k in cands}
+    wrong = {}                                  # plugin -> (master, records): made for another variant of that master
+    contained = {}                              # plugin -> the plugin from the same page that contains every record of it
+    if mods_dir:
+        def path_of(k):
+            if k in root:
+                return os.path.join(mods_dir, root[k][0].name, root[k][1][0])
+            if k in opt:
+                return os.path.join(mods_dir, opt[k][0].name, "optional", opt[k][1][0])
+            return None
+        every_copy = {}                         # plugin -> every enabled copy, root or Optional ESPs
+        for m in mods:
+            if not m.enabled or is_sep(m.name):
+                continue
+            for e in m.plugins:
+                every_copy.setdefault(e[0].lower(), []).append(os.path.join(mods_dir, m.name, e[0]))
+            for e in m.optional:
+                every_copy.setdefault(e[0].lower(), []).append(os.path.join(mods_dir, m.name, "optional", e[0]))
+        for k, masters in cands.items():
+            if any(ms.lower() not in BASE_MASTERS for ms in masters):
+                w = wrong_variant(every_copy.get(k, []), masters, lambda x: every_copy.get(x, []))
+                if w:
+                    wrong[k] = w
+                    loadable[k] = False
+        # CONTAINED VARIANTS (2026-09-27): two plugins from one Nexus page where one has a strict superset of the
+        # other's masters and changes every record the other changes are a FOMOD's alternatives (OCW_WR2_FEPatch.esp
+        # and its JK's Skyrim version OCW_WR2_JK_FEPatch.esp): the smaller one waits in Optional ESPs
+        page = {}
+        for k in cands:
+            src = root.get(k) or opt.get(k)
+            if src and src[0].nexus_id and loadable.get(k):
+                page.setdefault(src[0].nexus_id, []).append(k)
+
+        def resolved(k):
+            fi = _form_ids(path_of(k))
+            if not fi:
+                return None
+            ms = [x.lower() for x in cands[k]]
+            return {(ms[f >> 24] if (f >> 24) < len(ms) else k, f & 0xFFFFFF) for f in fi[1]}
+        for ks in page.values():
+            if len(ks) < 2:
+                continue
+            recs = {k: resolved(k) for k in ks}
+            for small in ks:
+                for big in ks:
+                    if small == big or small in contained or not recs[small] or not recs[big]:
+                        continue
+                    ms_s = {x.lower() for x in cands[small]}
+                    ms_b = {x.lower() for x in cands[big]}
+                    # and NAMED as variants of each other: every word of the smaller one's name is in the fuller
+                    # one's ("OCW_WR2_FEPatch" / "OCW_WR2_JK_FEPatch") - a tweak from the same page that touches the
+                    # same records (Vigilant's Fleshblade Sound Tweak over its SimonRim rebalance) is meant to win
+                    ws = set(re.findall(r"[a-z0-9]+", os.path.splitext(small)[0]))
+                    wb = set(re.findall(r"[a-z0-9]+", os.path.splitext(big)[0]))
+                    # (never when the fuller one is BUILT ON the smaller: "COTN Morthal - JKs Skyrim - Nord Ships
+                    # patch.esp" has "COTN Morthal - Nord Ships patch.esp" as a master)
+                    if ms_s < ms_b and ms_s - BASE_MASTERS and small not in ms_b and ws <= wb and recs[small] <= recs[big]:
+                        contained[small] = big
+                        loadable[small] = False
+                        break
     changed = True
     while changed:
         changed = False
@@ -2909,6 +3135,12 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=()):
         f, masters, _esm = e
         if k in off:
             plan["to_optional"].append((f, m.name, "rule: kept off"))
+        elif k in wrong:
+            plan["to_optional"].append((f, m.name, f"made for another version of {wrong[k][0]}: none of the {wrong[k][1]} "
+                                                    f"records it changes from it are in the installed copy"))
+        elif k in contained:
+            plan["to_optional"].append((f, m.name, f"every record it changes is in {contained[k]}, its fuller version "
+                                                    f"from the same page"))
         elif not loadable[k]:
             plan["to_optional"].append((f, m.name, "needs " + ", ".join(missing(masters)) + " - not in any enabled mod"))
         elif k not in active:
@@ -3318,6 +3550,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     foreign = read_foreign(ml)
     mods = scan(mods_dir, rows, progress)
     test_pairs = pair_test_builds(mods)
+    redundant = redundant_copies(mods, mods_dir)       # before the plugin plan: a switched-off copy owns no plugin
     nexus_names = read_nexus_names(instance_dir)     # MO2's own table: no Nexus request (2026-09-26)
     under = set()
     inside = False
@@ -3327,12 +3560,20 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
         elif inside:
             under.add(nm)
     ours, theirs = load_rules(os.path.join(instance_dir, "profiles", profile))
-    plugin_state = plan_plugin_state(mods, os.path.join(instance_dir, "profiles", profile), theirs)
+    plugin_state = plan_plugin_state(mods, os.path.join(instance_dir, "profiles", profile), theirs, mods_dir)
     community = load_community(cache_dir)
     mo2_names = read_mo2_categories(instance_dir)
     place(mods, nexus_names, mo2_names, under, ours.get("pins"), community)
+    by_name_ = {m.name: m for m in mods}
+    for gone, kept, _arc in redundant:                 # a switched-off copy sits beside the copy that is kept
+        g, k = by_name_[gone], by_name_[kept]
+        g.plugins = []                                 # its plugins are the kept copy's: no master edge of its own
+        if k.category:
+            g.category, g.group = k.category, k.group
+            g.why = f"a second copy of {kept} (the same download, the same files): switched off, beside it"
     new_rows, facts = build(mods, ours.get("rules"), min_run)
     facts["expectations"] = check_expectations(mods)
+    facts["redundant"] = redundant
     facts["community"] = len(community)
     facts["verdicts"] = collect_verdicts(mods, mo2_names)
     by_name = {m.name: m for m in mods}
@@ -3722,7 +3963,8 @@ if mobase is not None:
                 f"{len(r.get('plugin_state', {}).get('from_optional', []))} back from Optional ESPs)"
                 + (f" into {len(set(r.get('plugin_groups', {}).values()))} BPM groups" if r.get("bpm") else " (no Bethesda Plugin Manager: no groups)")
                 + (f" - {r['facts'].get('community', 0)} mod(s) carry community verdicts" if r['facts'].get('community') else "")
-                + (f" - {len(r['facts'].get('verdicts', []))} verdict(s) of yours the evidence disagrees with" if r['facts'].get('verdicts') else ""))
+                + (f" - {len(r['facts'].get('verdicts', []))} verdict(s) of yours the evidence disagrees with" if r['facts'].get('verdicts') else "")
+                + (f" - {len(r['facts'].get('redundant', []))} second cop(ies) of a download switched off" if r['facts'].get('redundant') else ""))
             self._fill(self.t_moves, [(n, (o or "")[:-len("_separator")] if o else "", (w or "")[:-len("_separator")] if w else "", a, b) for n, o, w, a, b in r["moves"]])
             self._fill(self.t_seps, [(s[:-len("_separator")], "created") for s in r["facts"]["created"]] + [(s[:-len("_separator")], "retired (folder moved to the backup)") for s in r["facts"]["retired"]])
             self._fill(self.t_disp, [(a, b, c, "") for a, b, c in r["facts"]["absorbed"]] + r["facts"]["displaced"])
@@ -3733,8 +3975,10 @@ if mobase is not None:
             ps = r.get("plugin_state", {})
             self._fill(self.t_plug, [(f, m, "activate", w) for f, m, w in ps.get("activate", [])]
                        + [(f, m, "move to Optional ESPs", w) for f, m, w in ps.get("to_optional", [])]
-                       + [(f, m, "back from Optional ESPs, activate", w) for f, m, w in ps.get("from_optional", [])])
-            n_plug = sum(len(ps.get(k, [])) for k in ("activate", "to_optional", "from_optional"))
+                       + [(f, m, "back from Optional ESPs, activate", w) for f, m, w in ps.get("from_optional", [])]
+                       + [("(the whole mod)", g, "switch off", f"a second copy of {k}: the same download ({a}), the same files")
+                          for g, k, a in r["facts"].get("redundant", [])])
+            n_plug = sum(len(ps.get(k, [])) for k in ("activate", "to_optional", "from_optional")) + len(r["facts"].get("redundant", []))
             self.tabs.setTabText(self.tabs.indexOf(self.t_plug), f"Plugins ({n_plug})" if n_plug else "Plugins")
             self.b_apply.setEnabled(bool(r["moves"] or r["facts"]["created"] or r["facts"]["retired"] or n_plug))
             self.status.setText("Nothing is written until Apply. Apply backs up modlist.txt, plugins.txt, loadorder.txt and the retired separators first.")
@@ -3917,7 +4161,8 @@ if mobase is not None:
                     "their own evidence, masters above dependents, the plugin list following the pane. Preview first, one Apply.")
 
         def version(self):
-            return mobase.VersionInfo(1, 0, 0, mobase.ReleaseType.FINAL)
+            major, minor, patch = (int(x) for x in __version__.split("."))
+            return mobase.VersionInfo(major, minor, patch, mobase.ReleaseType.FINAL)
 
         def isActive(self):
             return True
@@ -4104,6 +4349,8 @@ if __name__ == "__main__" and mobase is None:       # offline dry run: python MO
         for name, want, got, good in ex:
             if not good:
                 print(f"   MISS  {name[:48]:48s} wanted {want[:44]:44s} got {got[:60]}")
+    for gone, kept, arc in res["facts"].get("redundant", []):
+        print(f"   REDUNDANT  {gone}  - the same files as {kept} ({arc}): switched off")
     print(res["nexus"]); print("moves", len(res["moves"]), "created", len(res["facts"]["created"]), "retired", len(res["facts"]["retired"]),
                                "fixes", len(res["facts"]["fixes"]), "plugins", len(res["plugins"]),
                                "| activate", len(ps["activate"]), "to optional", len(ps["to_optional"]), "from optional", len(ps["from_optional"]))

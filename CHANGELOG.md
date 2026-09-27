@@ -2,6 +2,29 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.0.1 - 2026-09-27 - untested
+
+Add-ons stay with their parent mod, and a few more plugin states are decided from what the plugins hold.
+
+- An add-on that ships only art and replaces files of its parent sits with that parent, whatever its words say. The
+  parent is the mod it is named for, or the main file of its own Nexus page. An SMP physics file for an armour now
+  sits with the armour, not in Physics. A mesh fix for a weapon set now sits with the weapon set, not in Models and
+  Textures.
+- An optional file from a mod's own Nexus page loads after that page's main file. The main file is the one with the
+  plugin, or the larger one. This holds however you renamed the optional file.
+- A patch published on its target's own page, whose other targets are not enabled, sits with that target instead
+  of in Patches.
+- One download installed twice: when two enabled mods come from the same archive and hold the same files, the copy
+  whose name matches the download stays on and the others are switched off beside it. Their folders are left alone,
+  and the preview lists each one.
+- A patch made for a different version of its master waits in Optional ESPs. That means a patch that changes records
+  from a master when not one of those records exists in any installed copy of that master. A patch that is only
+  partly out of date keeps loading. Such a patch is also no longer brought back from Optional ESPs just because its
+  masters are present.
+- FOMOD alternatives: when two plugins from one page are named as variants of each other, and the fuller one changes
+  every record the smaller one does with more masters, the smaller one waits in Optional ESPs.
+- The version MO2 shows is read from the plugin's own version number.
+
 ## 1.0.0 - 2026-09-26 - working
 
 First release, with ten placement rules for where mods go and in what order.
