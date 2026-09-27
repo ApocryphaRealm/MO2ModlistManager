@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.0.6"
+__version__ = "1.0.7"
 
 import collections
 import configparser
@@ -103,7 +103,6 @@ TAXONOMY = [
         ("Alchemy", ["Potions", "Ingredients"]), ("Crafting", ["Smithing", "Stations", "Armour", "Weapons"]),
         # the owner, 2026-09-27: "There's no such thing as a general overhaul. Overhauls are specific"
         ("Enchanting", ["Mechanics", "Enchantments"]), ("Overhauls", ["Faction Overhauls"]),
-        ("Miscellaneous", None),
         # the owner, 2026-09-27: "I want the animation related mods much later in the ordering" (the reference list puts
         # Animations & Behavior after gameplay, before content). General became Character; Combat is its own block
         ("Animation", ["Character", "Combat", "Player", "NPC", "Enemy", "Creature"])]),
@@ -117,7 +116,8 @@ TAXONOMY = [
         ("Cubemaps", None),
         ("Items and Objects - World", None),
         ("Creatures", ["Appearance", "Monster Appearance", "Behaviour", "Mounts", "Animals", "New Creatures"]),
-        ("NPC", ["Appearance", "AI and Behaviour", "Followers", "Other"]), ("Player", ["Appearance", "Other"]),
+        # no "Other" leaf (the owner, 2026-09-27, after "nothing is ever actually general": "yes break them up")
+        ("NPC", ["Appearance", "AI and Behaviour", "Followers", "New NPCs", "Names and Titles"]), ("Player", ["Appearance"]),
         ("Quests and Adventures", None), ("Player homes", None), ("Dungeons", None), ("Locations - New", None),
         ("Guilds/Factions", None), ("Cheats and God items", None),
         # every map-related mod in one block toward the end (the owner, 2026-09-23): markers, paper and world maps,
@@ -867,7 +867,7 @@ def _records_vote(m):
     if npc >= 10:
         cands.append(("NPC - Appearance", npc, f"{npc} new NPC records"))
     elif npc >= 3:
-        cands.append(("NPC - Other", 1, f"{npc} new NPC records (a handful: not the subject)"))
+        cands.append(("NPC - New NPCs", 1, f"{npc} new NPC records (a handful: not the subject)"))
     if race and npc and not new("HDPT") and npc <= 20 * race:
         # a race with no head parts of its own, with a handful of actors of it: a creature race (the owner, 2026-09-23:
         # Dire Wolves). A hundred actors against two races is a population with some creatures in it (Wyrmstooth)
@@ -1428,7 +1428,7 @@ def decide(m, votes, nexus_cat=""):
                 home = {"WTHR": "Environment - Weather", "CLMT": "Environment - Weather", "REGN": "Environment - Weather",
                         "FLOR": "Environment - Plants", "TREE": "Environment - Plants", "ENCH": "Enchanting - Enchantments",
                         "QUST": "Quests and Adventures", "DIAL": "Quests and Adventures",
-                        "NPC_": "NPC - Other"}.get(top, "Gameplay - Optional Tweaks")
+                        "NPC_": "NPC - AI and Behaviour"}.get(top, "Gameplay - Optional Tweaks")
             votes.append(["files", home, 0.6, f"a plugin that only alters existing records ({top or 'records'}): an edit, not new content"])
         elif n_pex and not m.plugins:
             votes.append(["files", "Utilities", 0.8, "scripts and nothing visual"])
@@ -1787,11 +1787,12 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 
 class Mod:
-    __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records",
+    __slots__ = ("dir", "name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records",
                  "votes", "text", "decided", "refs", "raw_votes", "version", "config")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
+        self.dir = None                                             # the mod folder (scan), for reading its BSAs
         self.nexus_id, self.mo2_cats, self.plugins = 0, [], []      # plugins: [(file, [masters], is_esm)]
         self.optional = []                                          # the same, for the mod's optional folder (MO2's Optional ESPs)
         self.category, self.why, self.group, self.flags, self.files = None, "", None, set(), []
@@ -1964,6 +1965,7 @@ def scan(mods_dir, rows, progress=None):
         if not os.path.isdir(d):
             m.flags.add("missing")
             continue
+        m.dir = d
         m.nexus_id, m.mo2_cats, meta_text = read_meta(d)
         m.version = _meta_version(d)
         m.config = read_config_text(d)
@@ -2002,6 +2004,88 @@ def scan(mods_dir, rows, progress=None):
         if progress and not progress(i, len(rows), name):
             break
     return mods
+
+
+def read_bsa_paths(path, limit=50000):
+    """The file paths inside a Bethesda archive (v103 Oblivion-style folder records, v104 Skyrim LE, v105 Skyrim SE), as
+    lower-case 'folder/file'. Only the directory is read - no file data. [] when it is not a BSA it can read."""
+    import struct
+    out = []
+    try:
+        with open(path, "rb") as f:
+            h = f.read(36)
+            if len(h) < 36 or h[:4] != b"BSA\0":
+                return []
+            ver, off, aflags, nfold, nfile, _fnl, fnlen, _ff = struct.unpack("<IIIIIIIH", h[4:34])
+            if ver not in (103, 104, 105) or not (aflags & 1 and aflags & 2):
+                return []
+            f.seek(off)
+            rec = 24 if ver == 105 else 16
+            counts = [struct.unpack("<Q I", f.read(rec)[:12])[1] for _ in range(nfold)]
+            folders = []
+            for c in counts:
+                n = f.read(1)[0]
+                name = f.read(n).rstrip(b"\0").decode("cp1252", "replace").replace("\\", "/").lower()
+                f.seek(16 * c, 1)
+                folders.append((name, c))
+            names = f.read(fnlen).split(b"\0")
+            k = 0
+            for name, c in folders:
+                for _ in range(c):
+                    if k >= len(names) or len(out) >= limit:
+                        return out
+                    out.append(f"{name}/{names[k].decode('cp1252', 'replace').lower()}")
+                    k += 1
+    except (OSError, struct.error, IndexError, ValueError):
+        return out
+    return out
+
+
+def _bsa_contents(m):
+    d = getattr(m, "dir", None)
+    if not d:
+        return []
+    out = []
+    for f in m.files or ():
+        if f.lower().endswith(".bsa") and "/" not in f:
+            out.extend(read_bsa_paths(os.path.join(d, f)))
+    return out
+
+
+def _last_resort_votes(m, bsa=()):
+    """Signals for a mod nothing else placed: its special folders, its record kinds, the overlay words in its name."""
+    votes = []
+    files = [f.lower() for f in list(m.files or ()) + list(bsa)]
+    name = m.name
+    rec = {k: v for k, v in (m.records or {}).items() if v and not k.endswith(("*", "~"))}
+
+    def add(cat, w, why):
+        votes.append(("files", cat, w, why))
+    if any(f.startswith("nemesis_engine/mod/") for f in files):
+        add("Animation - Character", 2.0, "a Nemesis behaviour patch")
+    if any(f.startswith(("features/", "shaders/")) or f.endswith((".hlsl", ".hlsli")) for f in files):
+        add("Lighting" if re.search(r"light", name, re.I) else "Visual Effects", 2.0, "a Community Shaders feature")
+    if any(f.startswith(("headpartwhitelist/", "skse/plugins/chargen/")) or "/facegenmorphs/" in f for f in files):
+        add("Face", 2.0, "head parts and sliders for character creation")
+    if re.search(r"\b(dlss|fsr|xess|upscal\w*|frame ?gen\w*)\b", name, re.I):
+        add("Performance Optimization", 2.0, "an upscaler")
+    snd = rec.get("SOUN", 0) + rec.get("SNDR", 0)
+    if snd and snd * 2 >= sum(rec.values()):
+        add("Audio", 2.0, f"{snd} sound records")
+    art = [f for f in files if f.endswith((".nif", ".dds"))]
+    if rec.get("INGR", 0) and art:
+        add("Models and Textures - Items", 2.0, "new models for an ingredient: item art")
+    elif rec.get("INGR", 0):
+        add("Alchemy - Ingredients", 1.5, f"{rec['INGR']} ingredient records")
+    if rec.get("HDPT", 0) and not rec.get("ARMO", 0):
+        add("Face", 1.5, f"{rec['HDPT']} head part records")
+    if re.search(r"\b(pubes|pubic|body hair)\b", name, re.I):
+        add("Body", 2.0, "a body overlay")
+    if re.search(r"\b(make ?up|eye ?bags|marks of beauty|freckles|blush|lipstick|eyeliner|tattoos?|war ?paint|sliders?)\b", name, re.I):
+        add("Face", 2.0, "a face overlay or slider")
+    if re.search(r"\bdragons?\b", name, re.I):
+        add("Creatures - Monster Appearance", 2.0, "dragons")
+    return votes
 
 
 # --- placing every mod ----------------------------------------------------------------------------------------------------
@@ -2075,6 +2159,21 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
         if decided:
             m.category, m.why = decided, why
             continue
+        # nothing decided: read what its BSAs hold and the signals below, and decide again (2026-09-27 - thirteen mods
+        # whose content is all inside BSAs had no evidence at all: GoT dragons, make-up, eyebags, frog sounds)
+        bsa = _bsa_contents(m)
+        extra = _last_resort_votes(m, bsa)
+        if bsa or extra:
+            loose = m.files
+            m.files = list(m.files or []) + bsa
+            try:
+                v2 = list(gather_votes(m, cat, mo2_category_names, structural_patch_reason(m, owner_of, framework_masters, owner_tier), nexus_names)) + extra
+                decided, why, m.votes = decide(m, v2, cat)
+            finally:
+                m.files = loose
+            if decided:
+                m.category, m.why = decided, f"{why} | read from what its BSAs hold" if bsa else why
+                continue
         m.category, m.why = "Uncategorised", ("no Nexus page" if not m.nexus_id else f"Nexus has no category for mod {m.nexus_id}")
     by_name_ = {m.name: m for m in mods}
     # ADDONS (second pass): a mod named for another - "Northern Concept - Northern Roads", "Utenlands Nordic Tents -
@@ -2343,7 +2442,7 @@ NAME_DECISIVE = (
     (r"\bdynamic cubemaps\b", "Cubemaps", "cubemaps that must overwrite every equipment mod"),
     (r"\bequipment( sse| se| ae)?$", "New Weapons and Armour", "new equipment"),
     # the owner, 2026-09-27 (fourth list)
-    (r"\bclan names\b|\bnames and titles\b|\bnpc (names|titles)\b", "NPC - Other", "names for people"),
+    (r"\bclan names\b|\bnames and titles\b|\bnpc (names|titles)\b", "NPC - Names and Titles", "names for people"),
     (r"\bsnow dogs?\b|\bhusk(y|ies)\b", "Creatures - Animals", "an animal mod"),
     (r"\bscripts?\b.{0,12}optimi[sz]ations?\b", "Script Fixes", "a script mod"),
     (r"\bgathering\b|\bharvestables?\b", "Environment - Plants", "plants and harvestables"),
@@ -4446,7 +4545,10 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
                              or (m.why or "").startswith("LEFT IN A GENERAL POOL")
                              or (m.category or "").endswith(" - General")
                              or norm(m.decided or "") in POOL_HOME]
-    facts["general_leaves"] = [x for x in LEAVES if x.endswith(" - General")]
+    facts["general_leaves"] = [x for x in LEAVES if x.endswith((" - General", " - Other")) or norm(x) == norm("Miscellaneous")]
+    # a "_"-prefixed folder is storage set aside by hand (_quarantine-..., _removed-...), not a mod to judge
+    facts["uncategorised"] = [m.name for m in mods if m.category == "Uncategorised" and "missing" not in m.flags
+                              and not m.name.startswith("_")]
     facts["community"] = len(community)
     facts["verdicts"] = collect_verdicts(mods, mo2_names)
     by_name = {m.name: m for m in mods}

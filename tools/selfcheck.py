@@ -80,6 +80,8 @@ for prof in profiles:
     fails += [f"FAIL  left in a general block with no specific evidence: {n}" for n in d["facts"].get("general_left", [])]
     # "I don't like separators that have a general suffix" (the owner, 2026-09-27): the taxonomy holds none
     fails += [f"FAIL  the taxonomy has a general leaf: {n}" for n in d["facts"].get("general_leaves", [])]
+    # Uncategorised is honest for someone else's unknown mod; in our lists every mod has evidence to be read
+    fails += [f"FAIL  uncategorised (no evidence read): {n}" for n in d["facts"].get("uncategorised", [])]
     ex = d.get("facts", {}).get("expectations", [])
     missed = [e for e in ex if not e[3]]
     status = "PASS" if not fails and not missed else "FAIL"

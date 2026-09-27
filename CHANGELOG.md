@@ -2,6 +2,29 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.0.7 - 2026-09-27 - untested
+
+- **No "Other" blocks and no Miscellaneous.** The owner: "yes break them up".
+  - NPC is now Appearance, AI and Behaviour, Followers, New NPCs, and Names and Titles (Old Holds - Clan Names and
+    Titles).
+  - Player is Appearance only.
+  - A handful of new NPC records votes New NPCs. A plugin that only alters NPC records goes to AI and Behaviour.
+- **Uncategorised is a last resort, not a place to stop.** When nothing else decides a mod, the manager reads the file
+  list inside its BSAs, directory only, and decides again. It also reads signals no other rule looked at:
+  - Nemesis behaviour patches go to Animation.
+  - Community Shaders features go to Lighting or Visual Effects.
+  - Head-part whitelists and RaceMenu sliders go to Face.
+  - Upscalers go to Performance.
+  - Sound records go to Audio.
+  - Ingredient records go to Alchemy, or to Items when the mod ships the models.
+  - Overlay names go to Face or Body (make-up, eyebags, marks, tattoos, sliders, pubic hair).
+  - Dragons go to Monster Appearance.
+
+  Thirteen mods that had no evidence at all are placed now, including GoT dragons, Ribbit Remix, Skylighting, Unclench,
+  DLSS-NR and the RaceMenu overlays.
+- **Self-check:** it fails any "- General" or "- Other" leaf, and any mod of ours left Uncategorised. Folders starting
+  with "_" are storage, not mods.
+
 ## 1.0.6 - 2026-09-27 - untested
 
 - **No separator with a "General" suffix.** The owner: "nothing is ever actually general, it should be tied to
