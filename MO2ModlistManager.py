@@ -47,8 +47,8 @@ OUTPUT_TOOLS = re.compile(r"\b(dyndolod|texgen|xlodgen|occlusion|pgpatcher|paral
 # split by target) vs models and textures (inventory-scope items, clutter, furniture, interiors), engine fixes vs
 # frameworks vs utilities, controls (action) vs interface (visual), camera, dialogue, physics, performance, lighting
 # and effects, animation by subject, NPC / creature / player sub-blocks, alchemy / crafting / enchanting as headers.
-# THE APOSTASY RULES (the owner, 2026-09-26, agreeing to what the Apostasy author's own order shows -
-# 4. plans\modlist-methodology\apostasy-placement-rules.md, P1-P10, measured on the author's untouched 3.2.0 lists):
+# THE REFERENCE-ORDER RULES (the owner, 2026-09-26, agreeing to what a hand-built reference load order shows -
+# 4. plans\modlist-methodology, P1-P10, measured on the author's untouched 3.2.0 lists):
 #   P1 light-edited meshes (Lighting) load AFTER every architecture, town, city, clutter and furniture block they re-author
 #   P2 the world runs broad to specific: weather, landscape, water, architecture, towns and cities, roads, trees, grass,
 #      plants, seasons; clutter and furniture after the towns and cities
@@ -104,7 +104,7 @@ TAXONOMY = [
         # Alternate Perspective's start menu, TDM and the minimap - mods filed in tiers 1-4 - so its block is the LAST
         # content block, after Maps and before Patches; fontconfig.txt included.
         ("UI Overhaul", None),
-        # P9: icon packs win over the HUD widgets and the overhaul's icons (Apostasy: icons over the HUD on 63 files).
+        # P9: icon packs win over the HUD widgets and the overhaul's icons (reference list: icons over the HUD on 63 files).
         # A mod that ships fonts or fontconfig.txt is never filed here: the overhaul's fontconfig must win (2026-09-24)
         ("Icon Overhauls", None)]),
     (5, "--- 5 PATCHES ---", [("Patches", None), ("Performance Optimization", None)]),
@@ -210,7 +210,7 @@ def resolve_conflict(a, b, shared, files_of):
         return a, b, f"named for {b.name}"
     if len(ca) >= 6 and ca in cb and ca != cb and not (len(cb) >= 6 and cb in ca):
         return b, a, f"named for {a.name}"
-    # 1b. named by its INITIALS: "EFM SE - Racemenu plugin" is an addon of Expressive Facegen Morphs SE (the Apostasy
+    # 1b. named by its INITIALS: "EFM SE - Racemenu plugin" is an addon of Expressive Facegen Morphs SE (the reference
     #     author loads it after, 94 files; 2026-09-26)
     ia, ib = _initials(a.name), _initials(b.name)
     ta = set(re.findall(r"[a-z0-9]+", a.name.lower()))
@@ -233,7 +233,7 @@ def resolve_conflict(a, b, shared, files_of):
     if ns and len(shared) >= 0.5 * ns and nbg >= 2 * ns:
         return small, big, f"specific over general: {len(shared)} of its {ns} files are also in {big.name} ({nbg} files)"
     # 5. a complex-material, parallax or PBR VERSION wins over the plain one in the same block, when specificity has not
-    #    decided (the Apostasy author: ERM - Complex Materials over ERM, Tomato's Complex Landscape over Skyland; the
+    #    decided (the reference list: ERM - Complex Materials over ERM, Tomato's Complex Landscape over Skyland; the
     #    owner's PBR rule, 2026-09-23, "superseding other textures"). After specificity: the author's small targeted
     #    fixes (FYX's Whiterun meshes) still win over a big parallax pack. Read from the name when the maps themselves
     #    are packed or named otherwise.
@@ -291,7 +291,7 @@ def index_tier(category, mod=None):
 
 
 # P5 - A BIG MOD'S OWN SEPARATOR (the owner, 2026-09-26). Filled per run by place(): {leaf (normalised): (tier, place
-# in the tier)} for every location or quest mod with five or more mods named for it (Apostasy: Vigilant, Unslaad,
+# in the tier)} for every location or quest mod with five or more mods named for it (reference list: Vigilant, Unslaad,
 # Wyrmstooth, Lux). The block sits straight after the block of the hub's own category.
 HUB_LEAVES = {}
 
@@ -1776,8 +1776,8 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
             m.category, m.why = decided, why
     # TWEAK COLLECTIONS (third pass): a mod of two or more plugins, each built on another content mod, is about what
     # it tweaks - each plugin votes the category of the mods it masters (1.0 a plugin, split over its foreign masters,
-    # capped 4.0), and its own records, which serve those masters, count half (the owner, 2026-09-23: Apostasy -
-    # Paragon and Adamant Tweaks is Class, Perks, Powers and Blessings, not Magic). A [Patch]-tagged mod is left to
+    # capped 4.0), and its own records, which serve those masters, count half (the owner, 2026-09-23: a
+    # Paragon and Adamant Tweaks collection is Class, Perks, Powers and Blessings, not Magic). A [Patch]-tagged mod is left to
     # the patch rules.
     for m in mods:
         if is_sep(m.name) or not m.votes or len(m.plugins) < 2 or TAG_PATCH.search(m.name):
@@ -1810,7 +1810,7 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
         decided, why, m.votes = decide(m, votes, cat)
         if decided:
             m.category, m.why = decided, why
-    # THE APOSTASY RULES that decide on how a mod is built rather than what it is about (2026-09-26, see TAXONOMY)
+    # THE REFERENCE-ORDER RULES that decide on how a mod is built rather than what it is about (2026-09-26, see TAXONOMY)
     _optional_addons(mods)
     _multi_patch(mods)
     _patch_home(mods)
@@ -1831,7 +1831,7 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
             m.group = tier_of(m.category)
 
 
-# --- the Apostasy rules' passes (the owner, 2026-09-26) -------------------------------------------------------------------
+# --- the reference-order rules' passes (the owner, 2026-09-26) -------------------------------------------------------------------
 _FROZEN_WHY = ("pinned", "carries the [NoDelete]", "name starts", "every plugin", "no Nexus page and", "Shape:", "test build")
 _FROZEN_CATS = {norm(x) for x in ("Base Game", "Generated Outputs", "Test Builds", SHAPE_CAT, NODELETE_SEP)}
 
@@ -1863,7 +1863,7 @@ def _optional_addons(mods):
 
 # P6: a patch that names two or more mods of the list - by name, or by the initials a mod goes by ("GDPR" for Golden
 # Dwemer Pipeworks Redone) - AND ships loose files goes to Patches, after all of them: its files must beat both targets
-# wherever they sit (Apostasy: 52 GDPR patches in one block). A plugin-only patch stays with the mod it is about - its
+# wherever they sit (reference list: 52 GDPR patches in one block). A plugin-only patch stays with the mod it is about - its
 # masters already order it in the plugin list, and the author keeps "Orc Strongholds - Largashbur - Lux Orbis" with the
 # stronghold, not with Lux.
 _INITIAL_NOISE = {"se", "sse", "ae", "the", "of", "a", "an", "and", "for", "le", "hd", "skse", "ng", "by", "in", "to"}
@@ -1914,7 +1914,7 @@ def _multi_patch(mods):
             m.category, m.why = "Patches", f"a patch naming {len(named)} mods ({', '.join(sorted(named)[:3])}): loads after all of them (P6)"
 
 
-# A PATCH BETWEEN MODS OF ONE BLOCK STAYS IN THAT BLOCK (2026-09-26, the owner: "go ahead" - from the Apostasy author's
+# A PATCH BETWEEN MODS OF ONE BLOCK STAYS IN THAT BLOCK (2026-09-26, the owner: "go ahead" - from the reference list's
 # order: "Audio Overhaul - Immersive Sounds Integration" sits in Audio Overhauls, between Immersive Sounds and Regional
 # Sounds Expansion, not after every block; sending it to Patches made it win about 680 records the author gives to
 # Regional Sounds Expansion). When every mod a Patches mod patches - the owners of its plugins' masters, or the mods its
@@ -1957,7 +1957,7 @@ def _patch_home(mods):
 
 # P3: core by mechanism. A fix is filed by what it overwrites; a mod that is only an SKSE plugin changes behaviour in
 # the engine, conflicts with no file or record, and goes to SKSE Plugin Tweaks whatever its subject (Alchemy Plus, Wade
-# in Water, Encounter Zones Unlocked in Apostasy) - unless the evidence put it in an early block (a fix, a framework,
+# in Water, Encounter Zones Unlocked in the reference list) - unless the evidence put it in an early block (a fix, a framework,
 # the interface, controls, camera, dialogue, animation), which already sits at the top.
 FIX_FAMILY = ("Bug Fixes", "Script Fixes", "SKSE Plugin Fixes", "Mesh and Texture Fixes")
 _ART_EXT = (".nif", ".dds", ".hkx", ".wav", ".xwm", ".fuz", ".tri", ".bto", ".btr", ".swf")
@@ -2020,8 +2020,8 @@ def _icons(mods):
 
 
 # P5: a location or quest mod with five or more mods named for it (its name opens theirs) or built only on it gets a
-# separator of its own, straight after its category's block, holding all of them (Apostasy: Vigilant 42, Unslaad 12,
-# Wyrmstooth 16, Lux 25). Followers, equipment and frameworks keep their blocks (Apostasy does the same).
+# separator of its own, straight after its category's block, holding all of them (reference list: Vigilant 42, Unslaad 12,
+# Wyrmstooth 16, Lux 25). Followers, equipment and frameworks keep their blocks (the reference list does the same).
 HUB_CATEGORIES = {norm(x) for x in ("Quests and Adventures", "Locations - New", "Dungeons", "Buildings", "Player homes",
                                     "Location Overhauls - Town", "Location Overhauls - City", "Location Overhauls - Interior",
                                     "Location Overhauls - General", "Lighting", "Overhauls - Faction Overhauls", "Guilds/Factions")}
@@ -2114,7 +2114,7 @@ def read_nexus_names(instance_dir):
     """Every Nexus category NAME MO2 knows (normalised), mapped or not, from nexuscatmap.dat - the table MO2 fills when
     it imports categories from Nexus. Replaces asking Nexus per mod (2026-09-26): an MO2 category that only repeats one
     of these names is Nexus's label, not the user's statement."""
-    out = {norm(x) for x in NEXUS_SSE_CATEGORIES}     # the table can be empty (Apostasy's is): these always count
+    out = {norm(x) for x in NEXUS_SSE_CATEGORIES}     # the table can be empty (the reference list's is): these always count
     try:
         for line in open(os.path.join(instance_dir, "nexuscatmap.dat"), encoding="utf-8", errors="ignore"):
             parts = line.rstrip("\r\n").split("|")
@@ -2219,7 +2219,7 @@ def build(mods, rules=None, min_run=2):
     by_name = {m.name: m for m in real}
 
     def inner(m):
-        # P8 (the owner, 2026-09-26, from the Apostasy author's order: 77% of neighbours alphabetical, families together,
+        # P8 (the owner, 2026-09-26, from the reference list's order: 77% of neighbours alphabetical, families together,
         # their patch collections last): inside a block, by family (the name's first word), a family's patch
         # collections and patches after its other mods, then alphabetically. A base sorts before its addons because its
         # name is their prefix. The evidence edges (masters, the resolver's name / patch / specificity verdicts) still
@@ -2489,7 +2489,7 @@ def build(mods, rules=None, min_run=2):
         # across categories the category order is the stronger evidence (2026-09-23: More Accurate Collision, an
         # Immersion mod of 4,192 files, had pulled 36 texture packs under Immersion by size alone)
         # (the material-version verdict is same-block only as well: across blocks it pulled Illustrious Whiterun - Parallax
-        # Meshes below a Performance mod, and it then beat Lux and the Whiterun mods the Apostasy author has winning)
+        # Meshes below a Performance mod, and it then beat Lux and the Whiterun mods the reference list has winning)
         if verdict is not None and not same_cat_pair and not (verdict[2].startswith("named for") or verdict[2].startswith("a patch")):
             verdict = None
         if verdict is not None:

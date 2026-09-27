@@ -40,5 +40,5 @@ release tag and follow its shape. Read 2026-09-26 for MO2 **2.5.2** (the version
 
 None known. The four found when this file was first written (primary plugins written to plugins.txt, UTF-8 instead
 of the system code page, foreign `*` mods dropped from modlist.txt, no empty-list guard) were fixed in 1.0.0 before
-its release, 2026-09-26, and tested by an Apply on scratch copies of Njordlinger Test and the Apostasy author's list
+its release, 2026-09-26, and tested by an Apply on scratch copies of Njordlinger Test and a second, larger list
 (three foreign mods kept) and by a unit test of the Skyrim.ccc path.

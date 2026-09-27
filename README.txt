@@ -24,7 +24,7 @@ THE ORDER
 ---------
 Tiers from what everything stands on to what finishes the list: base game and engine, interface, characters and
 animation, the world and gameplay systems, content, patches, test builds, generated outputs, optional addons. Inside
-them, the conventions of a hand-built published list (Apostasy):
+them:
   - the world runs broad to specific - weather, landscape, water, architecture, towns and cities, roads, trees,
     grass, plants - and lighting loads after the meshes it re-authors;
   - fixes are filed by what they overwrite (plugin, script, SKSE or mesh fixes); an SKSE-only tweak of the world or

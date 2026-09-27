@@ -29,7 +29,7 @@ reasoning - a name that says fix is a fix, a mod that alters far more than it ad
 shipped with a DLL or animations are a mechanism, a readme names what a mod requires and not what it is, "X Menu" is
 about X, a leveled-list injector is the patch layer, and so on - each written beside its case in the source.
 
-The ORDER follows ten rules read off a hand-built published list (Apostasy) and measured on it: the world broad to
+The ORDER follows ten rules: the world broad to
 specific with lighting after what it re-authors; core blocks by mechanism (plugin, script, SKSE and mesh fixes; SKSE
 tweaks of the world and items); performance swaps after the patches; a big location or quest mod in a block of its own;
 asset patches that name two mods in Patches; physics after hair and body; icon packs after the UI overhaul; optional
