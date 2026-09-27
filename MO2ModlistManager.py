@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 
 import collections
 import configparser
@@ -86,7 +86,10 @@ TAXONOMY = [
         ("Mesh Improvements", None),
         ("Presets - ENB and ReShade", None),
         ("Environment", ["Weather", "Landscape", "Water", "Architecture"]),
-        ("Buildings", None), ("Location Overhauls", ["Town", "City", "Interior", "General"]),
+        # no "General" leaf anywhere (the owner, 2026-09-27: "nothing is ever actually general, it should be tied to
+        # something ... even if you have to make a new separator to replace it"); the evidence still votes into the old
+        # general names, which are pools that place(): _dissolve_general_pools empties into these specific blocks
+        ("Buildings", None), ("Location Overhauls", ["Town", "City", "Interior", "Strongholds and Castles", "Wilderness"]),
         ("Environment", ["Roads", "Trees", "Grass", "Plants", "Seasons"]),
         ("Models and Textures", ["Items", "Clutter", "Furniture", "Interiors"]),
         # the owner, 2026-09-27: "a separator for collision specifically that's separate from physics" - placed after the
@@ -95,10 +98,11 @@ TAXONOMY = [
         ("PBR Textures", None), ("Visual Effects", None), ("Lighting", None), ("Audio", None),
         # the owner, 2026-09-27: "Disable cinematic kills should go under optional gameplay tweaks" - a small change to
         # existing game records the player may or may not want
-        ("Gameplay", ["General", "Combat", "Stealth", "Economy", "Optional Tweaks"]), ("Immersion", None),
-        ("Alchemy", ["Potions", "Ingredients"]), ("Crafting", ["General", "Armour", "Weapons"]),
+        ("Gameplay", ["Difficulty and Progression", "Survival and Camping", "Travel", "Inventory and Equipment", "Combat",
+                      "Stealth", "Economy", "Optional Tweaks"]), ("Immersion", None),
+        ("Alchemy", ["Potions", "Ingredients"]), ("Crafting", ["Smithing", "Stations", "Armour", "Weapons"]),
         # the owner, 2026-09-27: "There's no such thing as a general overhaul. Overhauls are specific"
-        ("Enchanting", ["General", "Enchantments"]), ("Overhauls", ["Faction Overhauls"]),
+        ("Enchanting", ["Mechanics", "Enchantments"]), ("Overhauls", ["Faction Overhauls"]),
         ("Miscellaneous", None),
         # the owner, 2026-09-27: "I want the animation related mods much later in the ordering" (the reference list puts
         # Animations & Behavior after gameplay, before content). General became Character; Combat is its own block
@@ -546,7 +550,7 @@ TARGET_IN_SUBJECT = {"equipment positioning", "user interface"}   # "Fix Note ic
 TEXT_NAME_HIT, TEXT_DOC_HIT, TEXT_CAP = 1.0, 0.4, 2.5
 # rows (by leaf and weight) whose words count from the NAME only - every weapon readme mentions a forge, and a UI
 # framework's readme talks about maps (2026-09-23)
-NAME_ONLY_ROWS = {("Maps", 3.6), ("Crafting - General", 2.0), ("Environment - Architecture", 3.0), ("NPC - Followers", 3.6)}
+NAME_ONLY_ROWS = {("Maps", 3.6), ("Crafting - Stations", 2.0), ("Environment - Architecture", 3.0), ("NPC - Followers", 3.6)}
 # 2026-09-27: the UI / animation-engine / lock / weight rows count from the name only as well - a readme's "requires SkyUI"
 # or "carry weight" is not what the mod is (Skyrim Outfit System, moreHUD); NAMED_ROW weighs a name hit like a leaf the
 # owner defined by name
@@ -683,7 +687,7 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     # a crafting station is crafting, whatever its mesh paths say (the owner, 2026-09-23: Better Atronach Forge Offering Box)
     # "Grindstones is just a model replacer that doesn't need to be in the crafting separator" (the owner, 2026-09-27)
     (r"^(base object swapper|bos)\b", "Frameworks", DEFINITIVE),
-    (r"\b(atronach forge|forges?|workbench(es)?|tanning racks?|smelters?|crafting stations?|offering box)\b", "Crafting - General", 2.0),
+    (r"\b(atronach forge|forges?|workbench(es)?|tanning racks?|smelters?|crafting stations?|offering box)\b", "Crafting - Stations", 2.0),
     (r"\b(enchant(ing|ments?|ed)?|disenchant|enchanter)\b", "Enchanting - Enchantments", 1.5),
     # tier 4
     (r"\b(spells?|magic|magicka|scrolls?|wards?|destruction|conjuration|illusion|restoration|alteration|summon(s|ing)?|rituals?|tomes?|staff|staves|mysticism|apocalypse|odin|arcanum|invisibility|reanimation)\b", "Magic - Spells & Enchantments", 1.0),
@@ -2220,6 +2224,7 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
     _combat_animations(mods)
     _art_resource_packs(mods)
     _dissolve_general_art(mods)
+    _dissolve_general_pools(mods)
     for m in mods:
         if m.category:
             m.group = tier_of(m.category)
@@ -2362,6 +2367,11 @@ NAME_DECISIVE = (
     (r"\b(helmet|gear|equipment) management\b", "Gameplay - General", "a new system for gear"),
     # the owner, 2026-09-27: "Better Ogma Infinium ... should go to enchantments" - a named artifact's power, changed
     (r"\bogh?ma infinium\b(?! tweaks)", "Enchanting - Enchantments", "an artifact's power"),
+    # "Mannequins behave can be considered a bug fix"; "violins can go to combat gameplay" (VioLens, a killmove mod)
+    (r"\bmannequins? (behave|fix(es)?|stay|don'?t move)\b", "Bug Fixes", "a fix"),
+    # a difficulty mod is gameplay, whatever menu it uses (Custom Difficulty UI)
+    (r"\bdifficulty\b", "Gameplay - Difficulty and Progression", "how hard the game is"),
+    (r"^(?!.*\b(disable|disabled|no|remove[sd]?|less)\b).*\bkill ?moves?\b|^violens\b", "Gameplay - Combat", "combat gameplay"),
     (r"\bprompts?\b", "User Interface", "what the screen shows"),
 )
 DEFAULT_OFF = re.compile(r"\bcollision sentinel\b", re.I)
@@ -2443,6 +2453,99 @@ def _art_parent(m, cands):
         if ow == head or ow[len(head):] in (["all", "in", "one"], ["aio"], ["main"]):
             return o
     return None
+
+
+# The old general blocks are POOLS: the evidence may still vote a mod into one, and _dissolve_general_pools moves it to
+# a specific block - its own name's subject first, then the place it names, then the mod it belongs to, then what its
+# records are. (pool, rows of (pattern, block, why), records -> block, home block)
+_CITIES = r"whiterun|solitude|windhelm|riften|markarth|dragonsreach|blue palace"
+POOL_RULES = {
+    "Gameplay - General": ((
+        (r"\bauto-?run\b", "Improved Controls", "a control"),
+        (r"\benchant", "Enchanting - Mechanics", "how enchanting works"),
+        (r"surviv|\bcamp(ing|fire|site)?s?\b|\btents?\b|\bwet\b|wetness|wet ?function|\bcold\b|hunger|thirst|fatigue|"
+         r"\bneeds\b|wood ?cutting|cutting trees|\bchop\b|firewood|\bembers|leatherworking", "Gameplay - Survival and Camping",
+         "survival and camping"),
+        (r"fast travel|\btravel\b|\bhorses?\b|\bmounts?\b|carriages?|\bferr(y|ies)\b|\bpress h\b", "Gameplay - Travel",
+         "travel"),
+        (r"difficulty|stat growth|level ?up|\blevell?ing\b|progression|carry ?weight|attributes?|\bskills?\b",
+         "Gameplay - Difficulty and Progression", "difficulty and progression"),
+        (r"weightless|\bequip|outfits?|durability|degradation|soul ?gems?|\bloot|inventory|helmets?|\bgear\b|\bitems?\b|"
+         r"restrict", "Gameplay - Inventory and Equipment", "inventory and equipment"),
+        (r"\bcrime\b|\bbounty\b|\bguards?\b|\bjail\b", "Gameplay - Economy", "the law and its costs"),
+    ), {"CONT": "Gameplay - Inventory and Equipment", "LVLI": "Gameplay - Inventory and Equipment",
+        "PERK": "Gameplay - Difficulty and Progression", "AVIF": "Gameplay - Difficulty and Progression"},
+        "Gameplay - Optional Tweaks"),
+    "Location Overhauls - General": ((
+        (r"\bscript (tweak|fix)", "Script Fixes", "a script fix"),
+        (r"\b(" + _CITIES + r")\b(?!'?s? (hold|tundra|plains|wilds))", "Location Overhauls - City", "a city"),
+        (r"\b(" + TOWNS + r"|half-?moon mill|hamlet|village)\b", "Location Overhauls - Town", "a town"),
+        (r"carriages?|\bferr(y|ies)\b|fast travel|\bbridges?\b", "Environment - Roads", "a route across the world"),
+        (r"strongholds?|castles?|\bforts?\b|\bkeeps?\b|fortress|\bbeacon\b|watchtowers?", "Location Overhauls - Strongholds and Castles",
+         "a stronghold"),
+        (r"sound(scape)?s?\b", "Audio", "sound"),
+        (r"\bherds?\b|reindeer|wildlife", "Creatures - Animals", "animals"),
+        (r"\bproducers?\b", "Gameplay - Economy", "the goods places produce"),
+        (r"\bdynamic snow\b|\bsnow (on|shader)", "Environment - Landscape", "snow on the land"),
+    ), {"SNDR": "Audio", "SOUN": "Audio", "DIAL": "Quests and Adventures"},
+        "Location Overhauls - Wilderness"),
+    "Crafting - General": ((
+        (r"atronach forge|offering box|\bstations?\b|workbench|tanning", "Crafting - Stations", "a crafting station"),
+        (r"smith|\bforges?\b|\banvils?\b|smelt|metallica|temper", "Crafting - Smithing", "smithing"),
+    ), {}, "Crafting - Smithing"),
+    "Enchanting - General": ((), {}, "Enchanting - Mechanics"),
+}
+POOL_HOME = {norm(k): v[2] for k, v in POOL_RULES.items()}
+
+
+def _dissolve_general_pools(mods):
+    """Empty every general pool into specific blocks (the owner, 2026-09-27). A mod the rows, the places and its
+    records say nothing about goes to the pool's home block marked LEFT, which the self-check fails."""
+    real = [o for o in mods if not is_sep(o.name) and o.category]
+    pooled = [m for m in real if "missing" not in m.flags
+              and (norm(m.category) in POOL_HOME or norm(m.decided or "") in POOL_HOME)]
+    cands = [o for o in real if norm(o.category) not in POOL_HOME]
+    tests = []
+    for m in pooled:
+        if (m.why or "").startswith("test build of "):
+            tests.append(m)
+            continue
+        pool_ = m.category if norm(m.category) in POOL_HOME else m.decided
+        placed_elsewhere = norm(m.category) not in POOL_HOME     # a series block (P5) or displaced by a master
+        if placed_elsewhere and "(P5)" in (m.why or ""):
+            m.decided = m.category                               # the series' block is its specific home
+            continue
+        rows, by_rec, home = POOL_RULES[next(k for k in POOL_RULES if norm(k) == norm(pool_))]
+        dest = why = None
+        for rx, cat, w in rows:
+            if re.search(rx, m.name, re.I):
+                dest, why = cat, f"its name says {w}"
+                break
+        if not dest:
+            p = _art_parent(m, cands)
+            if p is not None and (norm(home) != norm("Location Overhauls - Wilderness") or tier_of(p.category) == tier_of(home)):
+                dest, why = p.category, f"part of {p.name}: it goes with it"
+        rec = {k: v for k, v in (m.records or {}).items() if v and not k.endswith("~")}
+        if not dest and rec:
+            top = max(rec, key=rec.get).rstrip("*")
+            if top in by_rec and (top != "DIAL" or rec.get("DIAL", 0) >= 20):
+                dest, why = by_rec[top], f"its records are mostly {top}"
+        if not dest and norm(home) == norm("Location Overhauls - Wilderness"):
+            dest, why = home, "a place out in the world, not a town, city, interior or stronghold"
+        if placed_elsewhere:                                     # keep where a master put it; name what it is
+            m.decided = canonical(dest or home)
+            continue
+        if dest:
+            m.why = f"not a general block - {why}: {canonical(dest)}; {m.why}"
+        else:
+            dest = home
+            m.why = f"LEFT IN A GENERAL POOL - no specific evidence, filed under {home}; {m.why}"
+        m.category = m.decided = canonical(dest)
+    by_name = {o.name: o for o in real}
+    for m in tests:                       # a test build sits with the mod it tests
+        base = re.match(r"test build of (.+?):", m.why)
+        b = by_name.get(base.group(1)) if base else None
+        m.category = m.decided = b.category if b is not None and norm(b.category) not in POOL_HOME else POOL_HOME[norm(m.category)]
 
 
 def _dissolve_general_art(mods):
@@ -2793,6 +2896,9 @@ def _hubs(mods):
         if not _movable(h) or norm(h.category) not in HUB_CATEGORIES:
             continue
         key, display = _hub_key(h.name)
+        base_ = re.match(r"^(.+?) - (master plugin|master|core|main|base)$", display, re.I)
+        if base_:
+            key, display = _hub_key(base_.group(1))              # Environs - Master Plugin: the series is "Environs"
         if len(key) < 3:
             continue
         own = {f.lower() for f, _ms, _e in h.plugins}
@@ -2817,7 +2923,8 @@ def _hubs(mods):
             continue
         t = tier_of(h.category)
         names = TIERS.get(t, ())
-        ci = next((i for i, n in enumerate(names) if norm(n) == norm(h.category)), len(names))
+        home_ = POOL_HOME.get(norm(h.category), h.category)      # a pool has no place of its own: its home block's
+        ci = next((i for i, n in enumerate(names) if norm(n) == norm(home_)), len(names))
         HUB_LEAVES[norm(display)] = (t, ci + 0.5)
         for m in [h] + sats:
             claimed.add(m.name)
@@ -3463,7 +3570,12 @@ def build(mods, rules=None, min_run=2):
                 return True
             if norm(a[0]) in FIXED_BLOCKS or norm(b[0]) in FIXED_BLOCKS:
                 return False
-            return run_tier(a) == run_tier(b)
+            if run_tier(a) != run_tier(b):
+                return False
+            # the same kind: two sub-blocks of one main (Crafting - Stations into Crafting - Smithing). A block of another
+            # kind is not a home for it (2026-09-27: "nothing is ever actually general, it should be tied to something")
+            ma, mb = MAIN_OF.get(a[0].lower()), MAIN_OF.get(b[0].lower())
+            return ma is not None and ma == mb
         while len(runs) > 1:
             def pick_key(j):
                 r = runs[j]
@@ -4329,8 +4441,12 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     facts["redundant"] = redundant
     facts["default_off"] = default_off
     # no general models-and-textures block (2026-09-27): a mod the dissolve pass could not place is a self-check FAIL
-    facts["general_left"] = [m.name for m in mods if m.category == "Mesh Improvements"
-                             and (m.why or "").startswith("LEFT IN MESH IMPROVEMENTS")]
+    facts["general_left"] = [m.name for m in mods if (m.category == "Mesh Improvements"
+                             and (m.why or "").startswith("LEFT IN MESH IMPROVEMENTS"))
+                             or (m.why or "").startswith("LEFT IN A GENERAL POOL")
+                             or (m.category or "").endswith(" - General")
+                             or norm(m.decided or "") in POOL_HOME]
+    facts["general_leaves"] = [x for x in LEAVES if x.endswith(" - General")]
     facts["community"] = len(community)
     facts["verdicts"] = collect_verdicts(mods, mo2_names)
     by_name = {m.name: m for m in mods}

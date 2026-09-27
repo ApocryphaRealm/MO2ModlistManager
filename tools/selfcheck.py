@@ -77,7 +77,9 @@ for prof in profiles:
     retired = {s.lower() for s in d["facts"]["retired"]}
     fails += [f"FAIL  separator created and retired under one folder name (case only): {s}" for s in d["facts"]["created"] if s.lower() in retired]
     # the owner, 2026-09-27: "there's no such thing as a general models and textures" - only baseline packs stay there
-    fails += [f"FAIL  left in Mesh Improvements with no specific block: {n}" for n in d["facts"].get("general_left", [])]
+    fails += [f"FAIL  left in a general block with no specific evidence: {n}" for n in d["facts"].get("general_left", [])]
+    # "I don't like separators that have a general suffix" (the owner, 2026-09-27): the taxonomy holds none
+    fails += [f"FAIL  the taxonomy has a general leaf: {n}" for n in d["facts"].get("general_leaves", [])]
     ex = d.get("facts", {}).get("expectations", [])
     missed = [e for e in ex if not e[3]]
     status = "PASS" if not fails and not missed else "FAIL"

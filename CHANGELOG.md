@@ -2,6 +2,40 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.0.6 - 2026-09-27 - untested
+
+- **No separator with a "General" suffix.** The owner: "nothing is ever actually general, it should be tied to
+  something". The old general blocks are replaced by specific ones:
+  - **Gameplay:** Difficulty and Progression, Survival and Camping (Campfire and its tents, wetness, woodcutting),
+    Travel (No Fast Travel, Press H to Horse), and Inventory and Equipment (Weightless, outfits, durability, loot,
+    soul gems). Combat, Stealth, Economy and Optional Tweaks stay.
+  - **Location Overhauls:** Strongholds and Castles (Orc strongholds, Imperial Castles, Castle Volkihar, Fort
+    Dawnguard) and Wilderness (barrows, occult sites, shrines, camps, standing stones, dragon mounds, Soul Cairn,
+    Cold Welcome). Town, City and Interior stay.
+  - **Crafting:** Smithing (Ars Metallica) and Stations (the Atronach Forge offering box).
+  - **Enchanting:** Mechanics.
+- **Filing order.** A mod the evidence still votes "general" is filed by:
+  1. its name's subject;
+  2. a place it names (a city unless the name means its hold or wilds, or a town);
+  3. the mod it belongs to (for a place, only if that mod is itself a place);
+  4. what its records mostly are (sounds go to Audio, a dialogue-heavy mod to Quests).
+
+  A mod with no evidence fails the self-check, and so does a general leaf in the taxonomy.
+- **Placements:**
+  - Sound mods (Volkihar Soundscape, Standing Sound Stones, Haunted Shipwrecks) go to Audio.
+  - Bridges and carriage and ferry travel go to Roads.
+  - Tales of Skyrim - Berserkyr goes to Quests.
+  - Reindeer Herds goes to Animals.
+  - Producers of Skyrim goes to Economy.
+  - Better Dynamic Snow goes to Landscape.
+- **A series whose base is "<name> - Master Plugin" gets its own separator** once ten mods are named for it. The
+  Environs mods (15) now form one block.
+- **A small separator folds only into a neighbour of its own kind** (Crafting - Stations into Crafting - Smithing).
+  It is never folded into an unrelated one: the Atronach Forge offering box had become an Alchemy mod. Otherwise it
+  keeps its own separator.
+- **Named mods:** Mannequins Behave goes to Bug Fixes. VioLens and killmove mods go to Gameplay - Combat; "disable
+  killmoves" goes to Optional Tweaks. A difficulty mod is gameplay, whatever menu it uses.
+
 ## 1.0.5 - 2026-09-27 - untested
 
 - **No general models and textures block.** Only whole-game baseline packs stay in the new **Mesh Improvements**

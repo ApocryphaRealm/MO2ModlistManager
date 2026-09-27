@@ -36,8 +36,8 @@
     "Visual Effects"
   ],
   "Press H to Horse": [
-    "Gameplay - General",
-    "Creatures - Mounts"
+    "Creatures - Mounts",
+    "Gameplay - Travel"
   ],
   "True Light [Patch]": "Lighting",
   "SmoothCam": "Camera",
@@ -93,8 +93,8 @@
   "Unofficial Skyrim Modder's Patch - USMP SE [Patch]": "Unofficial Patches",
   "Campfire 1.12.1SEVR Release": [
     "Immersion",
-    "Gameplay - General",
-    "Frameworks"
+    "Frameworks",
+    "Gameplay - Survival and Camping"
   ],
   "Steel Weapons Replacer": [
     "Weapons",
@@ -105,18 +105,17 @@
     "Location Overhauls - Interior",
     "Guilds/Factions",
     "Overhauls",
-    "Location Overhauls - General",
     "Overhauls - Faction Overhauls"
   ],
   "JK's Skyrim": "Location Overhauls - Town",
   "Whiterun Has Walls Redone - 3.0": "Location Overhauls - City",
   "The Great City of Solitude SSE": "Location Overhauls - City",
-  "Environs - The Shrines of Talos": "Location Overhauls - General",
+  "Environs - The Shrines of Talos": "Environs",
   "Snazzy Interiors - Morthal Falion's House": [
     "Location Overhauls - Interior",
     "Models and Textures - Interiors"
   ],
-  "Item Equip Restrictor": "Gameplay - General",
+  "Item Equip Restrictor": "Gameplay - Inventory and Equipment",
   "Dynamic Leveled Lists (SKSE)": "Patches",
   "Skyrim Priority SE AE - CPU Performance FPS Optimizer": "Performance Optimization",
   "Animation Motion Revolution": "Utilities",
@@ -131,15 +130,15 @@
   "Faster File Copy": "Performance Optimization",
   "Faster Decompression": "Performance Optimization",
   "Load Time Profiler": "Performance Optimization",
-  "Custom Difficulty UI": "Gameplay - General",
+  "Custom Difficulty UI": "Gameplay - Difficulty and Progression",
   "Fix Note icon for SkyUI (SKSE64 plugin)": "Bug Fixes",
   "Simple Dual Sheath for": "Equipment Positioning",
   "Immersive Equipment Displays": "Equipment Positioning",
   "Sell Unusual Gems - Stones of Barenziah": "Quests and Adventures",
-  "Acquisitive Soul Gems Multithreaded": "Gameplay - General",
+  "Acquisitive Soul Gems Multithreaded": "Gameplay - Inventory and Equipment",
   "Simple Degradation - A Durability Mod": [
-    "Gameplay - General",
-    "Gameplay - Combat"
+    "Gameplay - Combat",
+    "Gameplay - Inventory and Equipment"
   ],
   "Show Player In Inventory": "Camera",
   "OBody Next Generation": "Body",
@@ -147,7 +146,7 @@
     "Creatures - Animals",
     "Creatures - New Creatures"
   ],
-  "Carriage and Ferry Travel Overhaul (Formerly Complete Fast Travel Overhaul)": "Location Overhauls - General",
+  "Carriage and Ferry Travel Overhaul (Formerly Complete Fast Travel Overhaul)": "Environment - Roads",
   "Wolf Armor for The Companions - SPID": "NPC - Appearance",
   "Mark and Summon NPC Friends": "NPC - Followers",
   "Wyrmstooth": "Locations - New",
@@ -181,9 +180,9 @@
   "Njordlinger - ImmersiveHUD Settings": "User Interface",
   "Auto Draw": "Improved Controls",
   "First Person Sneak Strafe-Walk Stutter Fix": "Bug Fixes",
-  "Better Atronach Forge Offering Box": "Crafting - General",
+  "Better Atronach Forge Offering Box": "Crafting - Stations",
   "Raven Rock Building Tweaks": "Location Overhauls - Town",
-  "Praedy's Soul Cairn - SE": "Location Overhauls - General",
+  "Praedy's Soul Cairn - SE": "Location Overhauls - Wilderness",
   "Hagraven Houses - Animated": "Environment - Architecture",
   "Dragon Wall Wisdom - Readable Dragon Walls": "User Interface",
   "Cultist masks for Beast races": [
@@ -193,7 +192,7 @@
   "SMP Vanilla Armors Fur": "Armour",
   "Legacy of Ysgramor - My patches and fixes SE by Xtudo [Patch]": "New Weapons and Armour",
   "Legacy of Ysgramor - SE by Xtudo - Smaller Shields": "New Weapons and Armour",
-  "Old Holds - Cold Welcome sos patch [Patch]": "Location Overhauls - General",
+  "Old Holds - Cold Welcome sos patch [Patch]": "Location Overhauls - Wilderness",
   "LoY - SE by Xtudo - Color - Wolf Black 2K": "New Weapons and Armour",
   "Ultimate College of Winterhold": "Overhauls - Faction Overhauls",
   "JK's Guild HQ Interiors Patch Collection - Thieves Guild USSEP 4.3.0a patch [Patch]": "Models and Textures - Interiors",
@@ -222,10 +221,10 @@
   "The Great Cities- Resources": "Environment - Architecture",
   "Intellightent": "Lighting",
   "Security Overhaul SKSE - Lock Variations": "Models and Textures - Clutter",
-  "Weightless NG": "Gameplay - General",
+  "Weightless NG": "Gameplay - Inventory and Equipment",
   "SkyPatcher": "Frameworks",
   "Auto Audio Output Switch": "Audio",
-  "Carryweight on Level Up": "Gameplay - General",
+  "Carryweight on Level Up": "Gameplay - Difficulty and Progression",
   "Light Placer": "Lighting",
   "Model Swapper": "Utilities",
   "One Click Power Attack - Edited DLL": "Improved Controls",
@@ -296,16 +295,13 @@
   "EVG Animated Traversal": "Animation - Player",
   "Routa - Stormcloak and Warrior cabin": "Player homes",
   "Warrior's Cabin": "Player homes",
-  "Player Equipment Manager on Wheels": "Gameplay - General",
+  "Player Equipment Manager on Wheels": "Gameplay - Inventory and Equipment",
   "Volkihar Relic Sword": "New Weapons",
   "Ulfsvar": "New Weapons",
   "Sit on Stuff": "Improved Controls",
   "Winter Cove home": "Player homes",
   "Swelgn - A Nordic Home": "Player homes",
-  "Quaint Raven Rock - SE": [
-    "Location Overhauls - Town",
-    "Location Overhauls - General"
-  ],
+  "Quaint Raven Rock - SE": "Location Overhauls - Town",
   "Dynamic Cubemaps - Additions": "Cubemaps",
   "Dynamic Cubemaps - Metals": "Cubemaps",
   "The Great Village of Mixwater Mill SSE": "Location Overhauls - Town",
@@ -321,7 +317,7 @@
   "Simply Order Summons": "Improved Controls",
   "Skyrim Save System Overhaul 3 (SSSO 3)": "Save Games",
   "Sword of the First Ember": "New Weapons",
-  "Ars Metallica - Smithing Enhancement [Patch]": "Crafting - General",
+  "Ars Metallica - Smithing Enhancement [Patch]": "Crafting - Smithing",
   "Statue of Sithis": "Models and Textures - Interiors",
   "Collectibles Helper": "Quests and Adventures",
   "High Gate Ruins Puzzle Reset Fix": "Bug Fixes",
@@ -350,7 +346,9 @@
   "Cleaned Skyrim SE Textures": "Mesh Improvements",
   "Cleaned Skyrim SE Textures - Fixes": "Mesh Improvements",
   "Conditional tavern cheering": "NPC - AI and Behaviour",
-  "Read the Room - Immersive and Animated Helmet Management": "Gameplay - General",
+  "Read the Room - Immersive and Animated Helmet Management": "Gameplay - Inventory and Equipment",
   "Environs - Kolskeggr - Patch Collection [Patch]": "Patches",
-  "Better Oghma Infinium": "Enchanting - Enchantments"
+  "Better Oghma Infinium": "Enchanting - Enchantments",
+  "Mannequins Behave": "Bug Fixes",
+  "VioLens - A Killmove Mod SE": "Gameplay - Combat"
 }
