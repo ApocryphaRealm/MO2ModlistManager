@@ -25,6 +25,16 @@ cache_root = opt("--cache", os.path.join(tempfile.gettempdir(), "mm-selfcheck"))
 os.makedirs(cache_root, exist_ok=True)
 
 bad_total = 0
+# name comparison ignores [tags] (2026-09-27: "X [Patch]" kept "patch" in its core name, so no tagged parent was ever
+# recognised in its children's names) and reads a mod's initials with small words ("LoY" for Legacy of Ysgramor)
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("_mm", os.path.join(HERE, "MO2ModlistManager.py"))
+_mm = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_mm)
+for _got, _want, _what in ((_mm._core_name("Obscure's College of Winterhold [Patch]"), _mm._core_name("Obscure's College of Winterhold"), "a [Patch] tag"),
+                           (_mm._full_initials("Legacy of Ysgramor"), "loy", "full initials")):
+    if _got != _want:
+        print(f"FAIL  name comparison: {_what} gives {_got!r}, expected {_want!r}"); bad_total += 1
 for prof in profiles:
     cache = os.path.join(cache_root, re.sub(r"\W+", "-", prof))
     os.makedirs(cache, exist_ok=True)
