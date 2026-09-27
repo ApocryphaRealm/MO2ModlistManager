@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.0.8"
+__version__ = "1.0.9"
 
 import collections
 import configparser
@@ -284,11 +284,6 @@ def resolve_conflict(a, b, shared, files_of):
     #      in 1.2.0; when the names stopped matching as squashed letters the old copy won the plan)
     #      Nexus versions each FILE of a page on its own, so only an old COPY counts: every plugin the older mod ships
     #      is in the newer one (an AIO patch file at 1.0 is not an old copy of the page's main file at 1.6)
-    if GAME_RUNTIME and a.nexus_id and a.nexus_id == b.nexus_id:
-        ra, rb = mod_runtime(a), mod_runtime(b)
-        if ra != rb and GAME_RUNTIME in (ra, rb):
-            mine, other = (a, b) if ra == GAME_RUNTIME else (b, a)
-            return mine, other, f"made for this game's version ({GAME_RUNTIME}), over {other.name}"
     if a.nexus_id and a.nexus_id == b.nexus_id and a.version and b.version and a.version != b.version \
             and any(f.endswith((".esp", ".esm", ".esl")) for f in shared):
         new, old = (a, b) if a.version > b.version else (b, a)
@@ -1073,6 +1068,8 @@ def gather_votes(m, nexus_cat, mo2_names, structural_patch, nexus_names=frozense
             break
         if norm(name) in NEXUS_TO_LEAF or norm(name) in nexus_names:
             continue                                  # a Nexus category name (whoever wrote it): not his statement
+        if MO2_WRITTEN.get(m.name) and norm(name) == norm(MO2_WRITTEN[m.name]):
+            continue                                  # the category this plugin wrote: its own decision, not his
         if norm(name) in {norm(x) for x in LEAVES}:
             votes.append(("mo2", canonical(name), W_MO2_USER, f"MO2 category '{name}' you created"))
             break
@@ -1941,11 +1938,8 @@ def redundant_copies(mods, mods_dir):
     for old in live:
         if not paths[old.name] or not old.enabled:
             continue
-        if GAME_RUNTIME and mod_runtime(old) == GAME_RUNTIME:
-            continue                          # made for the game this instance runs: never an old copy
         newer = [n for n in live if n is not old and n.enabled and n.nexus_id == old.nexus_id and n.version > old.version
-                 and paths[old.name] <= paths[n.name]
-                 and not (GAME_RUNTIME and mod_runtime(n) not in (None, GAME_RUNTIME))]
+                 and paths[old.name] <= paths[n.name]]
         if newer:
             keep = max(newer, key=lambda n: (n.version, len(paths[n.name])))
             old.enabled = False
@@ -3075,39 +3069,51 @@ def read_nexus_names(instance_dir):
     return frozenset(out)
 
 
-def plan_mo2_category_updates(mods, nexus_names, instance_dir):
-    """[(mod name, meta.ini path, MO2 category id, decided category)] for every mod whose decided category MO2 has an id
-    for, and no MO2 category the user set himself. MO2's own "import categories from Nexus" only fills the
-    mapping table; a mod is categorised only when MO2 queries it, which 1,960 of the owner's 2,110 never were."""
-    catmap = read_nexus_catmap(instance_dir)
-    mods_dir = os.path.join(instance_dir, "mods")
-    out = []
-    # 2026-09-23: the DECIDED category (every signal weighed), not the bare Nexus one; a mod whose MO2 category the user
-    # set himself is left alone, one the updater wrote earlier from Nexus is corrected when the decision differs
+# the MO2 categories this plugin wrote itself, {mod: category name} - never read back as the user's own statement
+# (the owner, 2026-09-27: "assign an mo2 category to all the mods in the list ... that dont have one already")
+CATS_WRITTEN = "categories-written.json"
+MO2_WRITTEN = {}                                   # loaded by run() from the cache folder
+
+
+def load_written_categories(cache_dir):
+    try:
+        d = json.load(open(os.path.join(cache_dir, CATS_WRITTEN), encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_written_categories(cache_dir, written):
+    os.makedirs(cache_dir, exist_ok=True)
+    json.dump(written, open(os.path.join(cache_dir, CATS_WRITTEN), "w", encoding="utf-8"), indent=1, ensure_ascii=False,
+              sort_keys=True)
+
+
+def plan_mo2_category_updates(mods, instance_dir, written=None):
+    """[(mod name, category, the category of ours it replaces or None)]: every mod with NO MO2 category gets the block
+    the manager decided for it, and a category this plugin wrote earlier follows the decision when it moves. A
+    category the user set himself is never touched."""
+    written = written or {}
     names = read_mo2_categories(instance_dir)
+    out = []
     for m in mods:
-        if is_sep(m.name) or "missing" in m.flags or not m.category:
+        if is_sep(m.name) or "missing" in m.flags:
             continue
-        if norm(m.category) in (norm(SHAPE_CAT), norm("Test Builds"), norm("Base Game"), norm("Generated Outputs"), NODELETE_SEP.lower(), norm("Uncategorised")):
+        leaf = m.decided if m.decided and norm(m.decided) not in POOL_HOME else m.category
+        if not leaf or norm(leaf) in (NODELETE_SEP.lower(), norm("Uncategorised")) or leaf.startswith("displaced"):
             continue
-        if m.category.startswith("displaced") or " block; " in (m.why or ""):
-            continue
-        mo2_id = catmap.get(norm(m.category))
-        if not mo2_id:
-            continue
-        current = [names.get(c, "") for c in (m.mo2_cats or [])]
-        if any(norm(c) == norm(m.category) for c in current):
-            continue
-        # set by the user = a category that is neither a Nexus category name (whoever wrote it) nor our own markers
-        user_set = any(c and norm(c) not in nexus_names and norm(c) not in ("unpublished", "test") for c in current)
-        if user_set:
-            continue
-        out.append((m.name, os.path.join(mods_dir, m.name, "meta.ini"), mo2_id, m.category))
+        current = [names[c] for c in (m.mo2_cats or []) if c in names]
+        mine = written.get(m.name)
+        if not current:
+            out.append((m.name, canonical(leaf), None))
+        elif mine and len(current) == 1 and norm(current[0]) == norm(mine) and norm(mine) != norm(leaf):
+            out.append((m.name, canonical(leaf), mine))
     return out
 
 
 def apply_mo2_category_updates(updates, log=None):
-    """Write category="<id>," into each meta.ini (the form MO2 writes), keeping every other line as it is."""
+    """Write category="<id>," into each meta.ini (the form MO2 writes), keeping every other line as it is.
+    updates: [(mod name, meta.ini path, MO2 category id, category name)]."""
     done = 0
     for name, path, mo2_id, cat in updates:
         try:
@@ -3442,16 +3448,9 @@ def build(mods, rules=None, min_run=2):
     for f, ms in dll_owners.items():
         if len(ms) < 2:
             continue
-        # the build made for the game this instance runs wins (the owner, 2026-09-27: game-version aware, read from
-        # the Stock Game) - "for Skyrim 1.5" on 1.5.97, the AE build on 1.6. Unknown game: the old 1.5 rule
-        if GAME_RUNTIME:
-            ports = [m for m in ms if mod_runtime(m) == GAME_RUNTIME]
-            why_p = f"the build for this game ({GAME_RUNTIME}) wins {{dll}} over {{loser}}"
-        else:
-            ports = [m for m in ms if "1.5" in m.name]
-            why_p = "the 1.5 port wins {dll} over the AE build {loser}"
+        ports = [m for m in ms if "1.5" in m.name]
         if ports and len(ports) < len(ms):
-            winners, why = ports, why_p
+            winners, why = ports, "the 1.5 port wins {dll} over the AE build {loser}"
         else:
             stem = _squash(f.rsplit("/", 1)[1].rsplit(".", 1)[0])
             winners = [m for m in ms if len(stem) >= 5 and stem in _squash(m.name)]
@@ -3891,80 +3890,6 @@ def game_dir(instance_dir):
     except OSError:
         pass
     return None
-
-
-def game_exe(instance_dir):
-    """The game executable the instance runs: gamePath from ModOrganizer.ini (a Wabbajack list points it at its Stock
-    Game), else the instance's own Stock Game / Game Root folder."""
-    dirs = [game_dir(instance_dir)] + [os.path.join(instance_dir, n) for n in ("Stock Game", "Game Root", "Stock Folder")]
-    for d in dirs:
-        for exe in ("SkyrimSE.exe", "SkyrimVR.exe"):
-            p = os.path.join(d, exe) if d else None
-            if p and os.path.isfile(p):
-                return p
-    return None
-
-
-def exe_version(path):
-    """(major, minor, build, private) of an executable - from its FileVersion STRING, which Bethesda fills (SkyrimSE.exe
-    1.5.97: "1.5.97.0" while the binary VS_FIXEDFILEINFO says 1.0.0.0), else the fixed block. Read from the file
-    itself, so it works offline and on any machine. () when there is none."""
-    import struct
-    try:
-        data = open(path, "rb").read()
-    except OSError:
-        return ()
-    for key in ("FileVersion", "ProductVersion"):
-        i = data.find((key + "\0").encode("utf-16-le"))
-        while i >= 0:
-            j = i + len(key) * 2 + 2
-            while j + 1 < len(data) and data[j:j + 2] == b"\0\0":          # the padding to the value
-                j += 2
-            k = data.find(b"\0\0", j)
-            while k >= 0 and (k - j) % 2:
-                k = data.find(b"\0\0", k + 1)
-            val = data[j:k].decode("utf-16-le", "ignore") if k > j else ""
-            m = re.match(r"\s*(\d+)[.,]\s*(\d+)(?:[.,]\s*(\d+))?(?:[.,]\s*(\d+))?", val)
-            if m and (int(m.group(1)), int(m.group(2))) != (1, 0):
-                return tuple(int(x or 0) for x in m.groups())
-            i = data.find((key + "\0").encode("utf-16-le"), i + 2)
-    i = data.find(b"\xbd\x04\xef\xfe")                  # VS_FIXEDFILEINFO.dwSignature
-    if i < 0:
-        return ()
-    ms, ls = struct.unpack("<II", data[i + 8:i + 16])      # dwFileVersionMS, dwFileVersionLS
-    return (ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF)
-
-
-def game_runtime(instance_dir):
-    """{"exe", "version", "runtime"}: runtime is "1.5", "1.6" or "1.7" (Skyrim SE 1.5.97, AE 1.6.x, 1.7.x), or "vr"."""
-    exe = game_exe(instance_dir)
-    v = exe_version(exe) if exe else ()
-    rt = None
-    if exe and os.path.basename(exe).lower() == "skyrimvr.exe":
-        rt = "vr"
-    elif v[:2] in ((1, 5), (1, 6), (1, 7)):
-        rt = f"{v[0]}.{v[1]}"
-    return {"exe": exe, "version": ".".join(map(str, v)) if v else "", "runtime": rt}
-
-
-# the running game's runtime, set by run() before anything is placed; None: unknown, and nothing is decided by it
-GAME_RUNTIME = None
-_RT_15 = re.compile(r"1\.5\.97|\bfor (skyrim )?(se )?1\.5\b|\bskyrim (se )?1\.5\b|\b1\.5 (port|version|build|only)\b|\(1\.5\)|"
-                    r"\bpre-?ae\b|\bse only\b", re.I)
-_RT_16 = re.compile(r"1\.6\.\d{3,4}|\bfor (skyrim )?(ae|1\.6)\b|\bskyrim (ae|1\.6)\b|\bae (only|version|build)\b|\(ae\)|"
-                    r"\banniversary edition\b|\bae\b", re.I)
-_RT_17 = re.compile(r"1\.7\.\d{3}\b|\bfor (skyrim )?1\.7\b|\bskyrim 1\.7\b", re.I)    # 1.7.104, not a mod's 1.7.3
-_RT_BOTH = re.compile(r"\bs?se\s*(?:[-/&+]|and)?\s*ae\b|\bae\s*(?:[-/&+]|and)?\s*s?se\b|\ball versions\b", re.I)
-
-
-def mod_runtime(m):
-    """The game version a mod's NAME says it is for ("for Skyrim 1.5", "1.5.97", "1.6.1170", "AE", "1.7"), or None -
-    and None for a name that says both (SE-AE). A mod's own version number ("Stonehills 1.6") is not a game version."""
-    n = m.name
-    if _RT_BOTH.search(n):
-        return None
-    hits = [rt for rt, rx in (("1.5", _RT_15), ("1.6", _RT_16), ("1.7", _RT_17)) if rx.search(n)]
-    return hits[0] if len(hits) == 1 else None
 
 
 def primary_plugins(instance_dir):
@@ -4539,11 +4464,8 @@ def load_community(cache_dir):
 
 def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, min_run=2):
     """Everything up to (not including) writing. Returns a dict the dialog and the offline runner both use."""
-    global GAME_RUNTIME
-    game = game_runtime(instance_dir)
-    GAME_RUNTIME = game["runtime"]
-    if log:
-        log(f"game: {game['exe'] or 'not found'} {game['version']} (runtime {GAME_RUNTIME or 'unknown'})")
+    global MO2_WRITTEN
+    MO2_WRITTEN = load_written_categories(cache_dir)
     mods_dir = os.path.join(instance_dir, "mods")
     ml = os.path.join(instance_dir, "profiles", profile, "modlist.txt")
     rows, header = read_modlist(ml)
@@ -4593,12 +4515,11 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     facts["uncategorised"] = [m.name for m in mods if m.category == "Uncategorised" and "missing" not in m.flags
                               and not m.name.startswith("_")]
     facts["community"] = len(community)
-    facts["game"] = game
     facts["verdicts"] = collect_verdicts(mods, mo2_names)
     by_name = {m.name: m for m in mods}
     plugins = plugin_order(new_rows, by_name, theirs)
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
-            "category_updates": plan_mo2_category_updates(mods, nexus_names, instance_dir),
+            "category_updates": plan_mo2_category_updates(mods, instance_dir, MO2_WRITTEN),
             "plugin_groups": plugin_groups(new_rows, by_name), "bpm": bpm_installed(instance_dir),
             "plugin_state": plugin_state, "test_pairs": test_pairs,
             "plugins": plugins, "rules": ruler_rules(mods), "mod_rules": ours,
@@ -4914,7 +4835,9 @@ if mobase is not None:
             buttons = QHBoxLayout()
             buttons.addStretch(1)
             self.b_cats = QPushButton("Write decided categories to MO2")
-            self.b_cats.setToolTip("Write each mod's DECIDED category (every signal weighed: Nexus, records, files, its own words) into its meta.ini as its MO2 category. A category you set yourself is left alone.")
+            self.b_cats.setToolTip("Give every mod that has no MO2 category the block the manager decided for it, as its MO2 category "
+                                   "(created in MO2 when it is new). A category you set yourself is left alone, and the ones "
+                                   "this button wrote follow the decision when it changes.")
             self.b_cats.clicked.connect(self.update_categories)
             buttons.addWidget(self.b_cats)
             if self._p.is_owner():               # the receiving end only: users no longer send from the plugin
@@ -5112,9 +5035,7 @@ if mobase is not None:
                 + len(r["facts"].get("default_off", []))
             self.tabs.setTabText(self.tabs.indexOf(self.t_plug), f"Plugins ({n_plug})" if n_plug else "Plugins")
             self.b_apply.setEnabled(bool(r["moves"] or r["facts"]["created"] or r["facts"]["retired"] or n_plug))
-            g = r["facts"].get("game") or {}
-            gtxt = f"Game: {g.get('version') or 'version not read'} ({os.path.basename(os.path.dirname(g['exe'])) if g.get('exe') else 'no game executable found'}). "
-            self.status.setText(gtxt + "Nothing is written until Apply. Apply backs up modlist.txt, plugins.txt, loadorder.txt and the retired separators first.")
+            self.status.setText("Nothing is written until Apply. Apply backs up modlist.txt, plugins.txt, loadorder.txt and the retired separators first.")
 
         def verdicts(self):
             if not self._result:
@@ -5137,16 +5058,36 @@ if mobase is not None:
                 return
             ups = self._result.get("category_updates", [])
             if not ups:
-                self.status.setText("Every mod with a Nexus page already has an MO2 category.")
+                self.status.setText("Every mod already has an MO2 category.")
                 return
-            self.status.setText(f"Writing MO2 categories for {len(ups)} mod(s)...")
+            self.status.setText(f"Assigning MO2 categories to {len(ups)} mod(s)...")
             QApplication.processEvents()
-            done = apply_mo2_category_updates(ups, self._p._log)
-            try:
-                self._p._organizer.refresh(False)     # re-read the meta.ini files just written; never save over them
-            except Exception:  # noqa: BLE001
-                pass
-            self.status.setText(f"MO2 categories written for {done} of {len(ups)} mod(s) from their decided category; MO2 refreshed.")
+            org = self._p._organizer
+            cache = self._p._cache_dir()
+            written = load_written_categories(cache)
+            ml = org.modList()
+            tagged = []
+            for name, leaf, old in ups:
+                try:
+                    mod = ml.getMod(name)
+                    if mod is None or mod.isSeparator() or mod.isForeign():
+                        continue
+                    if old:
+                        mod.removeCategory(old)
+                    mod.addCategory(leaf)          # MO2 creates the category when it is new and saves categories.dat
+                    tagged.append((name, leaf))
+                except Exception as exc:  # noqa: BLE001
+                    self._p._log(f"category {leaf} for {name}: {exc!r}")
+            ids = {norm(v): k for k, v in read_mo2_categories(org.basePath()).items()}
+            mods_dir = os.path.join(org.basePath(), "mods")
+            lines = [(n, os.path.join(mods_dir, n, "meta.ini"), ids[norm(c)], c) for n, c in tagged if norm(c) in ids]
+            done = apply_mo2_category_updates(lines, self._p._log)
+            for n, c in tagged:
+                written[n] = c
+            save_written_categories(cache, written)
+            self._p._log(f"MO2 categories assigned to {len(tagged)} mod(s), {done} meta.ini line(s) written")
+            self.status.setText(f"MO2 categories assigned to {len(tagged)} of {len(ups)} mod(s), each the block it is placed by. "
+                                "A category you set yourself is left alone.")
             self.compute()
 
         def restore(self):

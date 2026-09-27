@@ -1,6 +1,6 @@
 MO2 Modlist Manager
 ===================
-Version 1.0.8
+Version 1.0.9
 
 A Mod Organizer 2 plugin that sorts the whole left pane for you: it generates the separators, places every mod under
 the category its own evidence decides, puts masters above the mods that need them, and makes the plugin list follow
@@ -74,21 +74,18 @@ Apply keeps a backup of the lists under plugins\data\MO2ModlistManager\backups\<
 "Write decided categories to MO2" stores each mod's decided category in its meta.ini as its MO2 category; a category
 you set yourself is left alone.
 
+MO2 CATEGORIES
+--------------
+"Write decided categories to MO2" gives every mod that has no MO2 category the block the manager placed it by, as its
+MO2 category - created in MO2 when it is new. A category you set yourself is never touched; the ones this button wrote
+follow the manager's decision when it changes, and are never mistaken for yours.
+
 RESTORE BACKUP
 --------------
 "Restore backup..." beside Apply lists every backup newest first, with the profile it came from. The one you choose
 puts the profile back as it was before that Apply: the mod list, plugin list, load order and plugin groups, the
 separators the Apply retired (and the ones it created set aside), and the plugins it moved to or from Optional ESPs.
 Your own rules stay. The state it replaces is backed up first, so a restore can itself be restored.
-
-GAME VERSION
-------------
-The manager reads the version of the game the instance runs - the executable in the instance's game folder (a
-Wabbajack list's Stock Game) - and prefers the build made for it: when two mods ship the same SKSE plugin, the one
-whose name says it is for your version ("for Skyrim 1.5", "1.5.97", "AE", "1.6.1170", "1.7.104") wins; of two copies
-from one Nexus page, the one for your version wins over a newer one for another; and a copy made for your version is
-never switched off as an old copy. A name that says both versions (SE-AE) fits either. Nothing is switched off for
-being made for another version.
 
 VERDICTS
 --------
@@ -101,6 +98,8 @@ DEBUGGING
 ---------
 Every decision is logged to plugins\data\MO2ModlistManager\log.txt. If MO2 crashes with this plugin on the stack,
 Python's fault handler writes the Python frames to plugins\data\faults.log, naming the line. Send both with a report.
+The verdicts from your last Apply are in plugins\data\MO2ModlistManager\verdicts - send them too if a mod was placed
+somewhere you did not expect.
 
 LICENCE
 -------

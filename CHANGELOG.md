@@ -2,6 +2,25 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.0.9 - 2026-09-27 - untested
+
+- **The game-version reading from 1.0.8 is removed.** The owner: "lets not make it game version specific as there are
+  too many ways it can go wrong".
+  - The executable is no longer read.
+  - Mod names are no longer tagged with a game version.
+  - The SKSE DLL, same-page copy and old-copy rules are back to their 1.0.7 form.
+- Restore backup and the verdicts file written after every Apply (both 1.0.8) stay. The README's debugging section now
+  names the verdicts folder.
+- **"Write decided categories to MO2" gives every mod that has no MO2 category the block the manager placed it by.**
+  The owner: "i want the button to assign an mo2 category to all the mods in the list as well that dont have one
+  already". It used to write only Nexus-named categories through MO2's Nexus map.
+  - It follows MO2's ModInfo::addCategory (modinfo.cpp at v2.5.2): MO2 creates a category that does not exist yet and
+    saves categories.dat, then tags the mod. The same category="<id>," line goes into meta.ini, so the file and MO2
+    agree at once.
+  - A category you set yourself is never touched.
+  - The categories the button wrote are recorded (categories-written.json in the plugin's data folder). They follow the
+    decision when it moves, and are never read back as your own statement, so they cannot freeze the placement.
+
 ## 1.0.8 - 2026-09-27 - untested
 
 - **Restore backup...** is a new button beside Apply. The owner: "lets add a restore backup button". It works like
