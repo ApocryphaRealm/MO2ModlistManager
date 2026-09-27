@@ -2,7 +2,25 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
-## 1.0.2 - 2026-09-27 - untested
+## 1.0.3 - 2026-09-27 - untested
+
+- One plugin name, two copies. When enabled mods ship different copies of one plugin and only some of them have every
+  master present, a copy that can load is the one MO2 takes. The mod with the unloadable copy sits below it, whatever
+  the name evidence says. Masters outrank evidence. A copy just parked in Optional ESPs still counts, so the order stays
+  safe wherever the files end up.
+- A behaviour patch for skeleton mods, like Auto Skeleton Patch - Universal Behaviour Runtime, goes to Animation. It
+  loads after every animation mod and every mod that ships a character skeleton. This does not count an animation mod
+  that its own masters pull into a later block.
+- "... of Light" in a name names an item, not a lighting mod. Auriel's Bow of Light is a weapon.
+- Names are compared as whole words, not as squashed letters. "XP32 Maximum Skeleton Special Extended" no longer
+  counts as an add-on of "Skeletons SE".
+- One Nexus page, one plugin, two versions: the newer copy wins, when every plugin of the older copy is also in the
+  newer one.
+- An older copy from one Nexus page is switched off beside the newer version when the newer version ships every one
+  of its files with the same path and the same size. Same paths with different contents are a choice, not a copy, and
+  stay on.
+
+## 1.0.2 - 2026-09-27 - working
 
 - An add-on whose name opens with its parent's initials, counting small words ("LoY - ..." for Legacy of Ysgramor),
   sits with the parent when it replaces the parent's files.

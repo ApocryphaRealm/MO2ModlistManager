@@ -201,5 +201,15 @@
   "Old Holds - Cold Welcome sos patch [Patch]": "Location Overhauls - General",
   "LoY - SE by Xtudo - Color - Wolf Black 2K": "New Weapons and Armour",
   "Ultimate College of Winterhold": "Overhauls - Faction Overhauls",
-  "JK's Guild HQ Interiors Patch Collection - Thieves Guild USSEP 4.3.0a patch [Patch]": "Models and Textures - Interiors"
+  "JK's Guild HQ Interiors Patch Collection - Thieves Guild USSEP 4.3.0a patch [Patch]": "Models and Textures - Interiors",
+  "Auriel's Bow of Light": [
+    "Weapons",
+    "New Weapons",
+    "Weapons and Armour"
+  ],
+  "Auto Skeleton Patch - Universal Behaviour Runtime [Patch]": [
+    "Animation - General",
+    "Animation - Player",
+    "Animation - NPC"
+  ]
 }

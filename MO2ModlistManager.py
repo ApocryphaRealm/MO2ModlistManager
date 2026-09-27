@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 import configparser
 import json
@@ -169,6 +169,25 @@ def _core_name(name):
     return _NAME_NOISE.sub("", re.sub(r"\[[^\]]*\]", " ", name.lower()))
 
 
+_NOISE_WORDS = {"sse", "se", "ae", "skyrim", "for", "the", "a", "an", "of", "and"}
+
+
+def _core_words(name):
+    """The name's words without tags and noise, apostrophes joined ("Auriel's" -> "auriels")."""
+    n = re.sub(r"\[[^\]]*\]|\((main|se|sse|ae)\)|special edition", " ", name.lower()).replace("'", "")
+    return [w for w in re.findall(r"[a-z0-9]+", n) if w not in _NOISE_WORDS and not re.fullmatch(r"v\d+", w)]
+
+
+def _names(a, b):
+    """True when mod name a names mod b: b's words appear in a, in order and together, and a says more. Whole words
+    only (2026-09-27): as squashed letters "XP32 Maximum Skeleton Special Extended" contained "skeletons" and was
+    ordered as an add-on of Skeletons SE."""
+    wa, wb = _core_words(a), _core_words(b)
+    if not wb or len(wa) <= len(wb) or len("".join(wb)) < 6:
+        return False
+    return any(wa[i:i + len(wb)] == wb for i in range(len(wa) - len(wb) + 1))
+
+
 def _is_patch_mod(m):
     """A patch is what the evidence DECIDED (structure: masters from other mods), not a word in the name. Until
     2026-09-23 the tag or the word was enough, and USSEP ('Unofficial ... Patch', Bug Fixes, a master to hundreds) was
@@ -191,6 +210,20 @@ def _pbr_kind(files, shared):
     return None
 
 
+def _meta_version(mod_dir):
+    """The mod's MO2 version (meta.ini version=) as a tuple of numbers: "1.2.3.0" -> (1, 2, 3); () when there is none."""
+    try:
+        for line in open(os.path.join(mod_dir, "meta.ini"), encoding="utf-8", errors="ignore"):
+            if line.lower().startswith("version="):
+                nums = [int(x) for x in re.findall(r"\d+", line.split("=", 1)[1])]
+                while nums and nums[-1] == 0:
+                    nums.pop()
+                return tuple(nums)
+    except OSError:
+        pass
+    return ()
+
+
 def _is_local_build(m):
     return bool(m.twin) or m.name.lower().startswith(("unpublished ", "test "))
 
@@ -206,11 +239,12 @@ def resolve_conflict(a, b, shared, files_of):
     if la != lb:
         local, other = (a, b) if la else (b, a)
         cl, co = (ca, cb) if la else (cb, ca)
-        if len(cl) >= 6 and (cl in co or co in cl):
+        if len(cl) >= 6 and (cl == co or _names(local.name, other.name) or _names(other.name, local.name)
+                             or _names(re.sub(r"^(unpublished|test)\s+", "", local.name, flags=re.I), other.name)):
             return local, other, f"local build of the same mod wins over {other.name}"
-    if len(cb) >= 6 and cb in ca and ca != cb and not (len(ca) >= 6 and ca in cb):
+    if _names(a.name, b.name) and not _names(b.name, a.name):
         return a, b, f"named for {b.name}"
-    if len(ca) >= 6 and ca in cb and ca != cb and not (len(cb) >= 6 and cb in ca):
+    if _names(b.name, a.name) and not _names(a.name, b.name):
         return b, a, f"named for {a.name}"
     # 1b. named by its INITIALS: "EFM SE - Racemenu plugin" is an addon of Expressive Facegen Morphs SE (the reference
     #     author loads it after, 94 files; 2026-09-26)
@@ -221,6 +255,17 @@ def resolve_conflict(a, b, shared, files_of):
         return a, b, f"named for {b.name} (by its initials, {ib.upper()})"
     if len(ia) >= 3 and ia in tb and ia != ib:
         return b, a, f"named for {a.name} (by its initials, {ia.upper()})"
+    # 1c0. the same Nexus page and the same plugin: the NEWER version wins (2026-09-27: "Craftable Saddles from Witcher3",
+    #      1.2.0, beside two 1.2.3 copies of ElrianSaddles.esp - the Witcher Horses patch fits 1.2.3 and misses 4 records
+    #      in 1.2.0; when the names stopped matching as squashed letters the old copy won the plan)
+    #      Nexus versions each FILE of a page on its own, so only an old COPY counts: every plugin the older mod ships
+    #      is in the newer one (an AIO patch file at 1.0 is not an old copy of the page's main file at 1.6)
+    if a.nexus_id and a.nexus_id == b.nexus_id and a.version and b.version and a.version != b.version \
+            and any(f.endswith((".esp", ".esm", ".esl")) for f in shared):
+        new, old = (a, b) if a.version > b.version else (b, a)
+        old_pl = {f.lower() for f, _ms, _e in old.plugins}
+        if old_pl and old_pl <= {f.lower() for f, _ms, _e in new.plugins}:
+                return new, old, f"a newer version of the same file from one Nexus page ({'.'.join(map(str, new.version))} over {'.'.join(map(str, old.version))})"
     # 1c. the same Nexus page: an optional file (an HDT-SMP version, a patch, a variant - often renamed to say what it
     #     patches) loads after the page's main file, the one with the plugin, else the larger one (2026-09-27)
     if a.nexus_id and a.nexus_id == b.nexus_id:
@@ -780,6 +825,10 @@ def _records_vote(m):
 def _text_votes(m):
     """Votes from the words the mod uses about itself: its name counts fully, its documents at a lower rate."""
     name, docs = m.name, (m.text or "")
+    # "... of Light" names an item (Auriel's Bow of Light), not a lighting mod (the owner, 2026-09-27: "auriels bow of
+    # light belongs in weapons not lighting")
+    name = re.sub(r"\bof (the )?light\b", " ", name, flags=re.I)
+    docs = re.sub(r"\bof (the )?light\b", " ", docs, flags=re.I)
     # "X from Y" / "X for Y": Y is the subject (Perks from Questing is about questing) - its words count triple
     subject, proper = "", name
     ms = re.search(r"\b(?:from|for)\s+(.+)$", TAG_PATCH.sub(" ", name), re.I)
@@ -1550,7 +1599,7 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 class Mod:
     __slots__ = ("name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records",
-                 "votes", "text", "decided", "refs", "raw_votes")
+                 "votes", "text", "decided", "refs", "raw_votes", "version")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
@@ -1563,6 +1612,7 @@ class Mod:
         self.raw_votes = []                                         # the same before decide()'s rules, for the verdict comparison
         self.decided = None                                         # the category the evidence decided, before any displacement or merge
         self.refs = None                                            # what the plugins reference: cells, worldspaces (plugin_refs)
+        self.version = ()                                           # meta.ini version as numbers, () when unknown
         self.text = ""                                              # what the mod says about itself (plugin descriptions, readme, FOMOD, Nexus description)
 
     @property
@@ -1690,7 +1740,26 @@ def redundant_copies(mods, mods_dir):
                 if m is not keep:
                     m.enabled = False
                     m.flags.add("redundant")
-                    out.append((m.name, keep.name, arc))
+                    out.append((m.name, keep.name, f"the same download ({arc}), the same files"))
+    # SUPERSEDED (2026-09-27): an older version of a file from one Nexus page whose every file - same path, same size - a
+    # newer enabled mod from that page ships is an old copy ("Gonzeh - Stonehills - AIO" 1.0, the AI Overhaul patch
+    # Stonehills 1.6 now ships in its main file) - switched off beside the newer one. Same paths with different bytes is
+    # a CHOICE, never a copy: an alternative texture set, or an older patch kept because it fits an older master
+    live = [m for m in mods if not is_sep(m.name) and m.enabled and "missing" not in m.flags and m.nexus_id and m.version]
+    paths = {}
+    for m in live:
+        paths[m.name] = set(_content_key(os.path.join(mods_dir, m.name)))
+    for old in live:
+        if not paths[old.name] or not old.enabled:
+            continue
+        newer = [n for n in live if n is not old and n.enabled and n.nexus_id == old.nexus_id and n.version > old.version
+                 and paths[old.name] <= paths[n.name]]
+        if newer:
+            keep = max(newer, key=lambda n: (n.version, len(paths[n.name])))
+            old.enabled = False
+            old.flags.add("redundant")
+            out.append((old.name, keep.name, f"an older version ({'.'.join(map(str, old.version))}) whose every file "
+                                              f"{keep.name} ({'.'.join(map(str, keep.version))}, the same Nexus page) ships"))
     return out
 
 
@@ -1706,6 +1775,7 @@ def scan(mods_dir, rows, progress=None):
             m.flags.add("missing")
             continue
         m.nexus_id, m.mo2_cats, meta_text = read_meta(d)
+        m.version = _meta_version(d)
         texts = [meta_text, read_self_text(d)]
         try:
             for f in os.listdir(d):
@@ -1943,6 +2013,7 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
         if m.category:
             m.decided = m.category              # what the evidence decided: the scorecard reads this, not a hub block
     _hubs(mods)                                 # P5 last: a big mod's block takes its satellites whatever they are
+    _skeleton_behaviour_patches(mods)
     for m in mods:
         if m.category:
             m.group = tier_of(m.category)
@@ -1951,6 +2022,30 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
 # --- the reference-order rules' passes (the owner, 2026-09-26) -------------------------------------------------------------------
 _FROZEN_WHY = ("pinned", "carries the [NoDelete]", "name starts", "every plugin", "no Nexus page and", "Shape:", "test build")
 _FROZEN_CATS = {norm(x) for x in ("Base Game", "Generated Outputs", "Test Builds", SHAPE_CAT, NODELETE_SEP)}
+
+
+SKELETON_BEHAVIOUR = re.compile(r"skeleton.{0,60}behaviou?r|behaviou?r.{0,60}skeleton", re.I)
+# the CHARACTER skeleton (XPMSSE and its kind) - what a behaviour patch for skeletons is about; creature skeletons
+# (wolves, spiders, dragon ragdolls) and a generated output's re-exported meshes are not skeleton mods here
+SKELETON_NIF = re.compile(r"^meshes/actors/character/character assets[^/]*/skeleton[^/]*\.nif$")
+
+
+def _is_skeleton_mod(m):
+    return norm(m.category or "") != norm("Generated Outputs") and any(SKELETON_NIF.match(f) for f in (m.files or ()))
+
+
+def _skeleton_behaviour_patches(mods):
+    """A behaviour patch for skeleton mods (Auto Skeleton Patch - Universal Behaviour Runtime: "Behavior patch for
+    Skeleton mod like XPMSSE") is animation work and loads after every animation and skeleton mod (the owner,
+    2026-09-27: "should go after any animation mods and skeleton mods"). Named so, or saying so in its own text, and
+    shipping no skeleton itself. build() adds the edges (flag "after_animation")."""
+    for m in mods:
+        if not _movable(m) or _is_skeleton_mod(m):
+            continue
+        if SKELETON_BEHAVIOUR.search(m.name) or re.search(r"behaviou?r patch for skeleton", m.text or "", re.I):
+            m.category, m.why = "Animation - General", f"a behaviour patch for skeleton mods: after every animation and skeleton mod; {m.why}"
+            m.decided = m.category              # a rule's decision, like the evidence's (the scorecard reads this)
+            m.flags.add("after_animation")
 
 
 def _movable(m):
@@ -2018,7 +2113,7 @@ def _named_mods(m, cores, initials):
     plain = TAG_PATCH.sub(" ", m.name)
     mine = _core_name(m.name)
     tokens = set(re.findall(r"[a-z0-9]+", plain.lower()))
-    named = {o.name for c, o in cores.items() if o is not m and c != mine and c in mine}
+    named = {o.name for c, o in cores.items() if o is not m and c != mine and _names(m.name, o.name)}
     named |= {o.name for i, o in initials.items() if o is not m and i in tokens}
     return {n for n in named if not any(n != k and _core_name(n) in _core_name(k) for k in named)}
 
@@ -2445,6 +2540,49 @@ def build(mods, rules=None, min_run=2):
             edge(o, m, f"{f} needs its master {mast}")
             if o.index > m.index:
                 fixes.append((m.name, o.name))
+    # ONE PLUGIN NAME, TWO COPIES (2026-09-27): when enabled mods ship different copies of one plugin and only some
+    # copies have every master present, a loadable copy must be the one MO2 takes - the mod with the unloadable copy
+    # sits below it, whatever the name evidence says (Auriel's Crossbow and Swords Technical Overhaul ships a
+    # Ghosu - Auriel.esp needing mihailundeadsnowelf.esp, which the list lacks; named for Auriels Crossbow and Swords
+    # SE, it had been put after that mod and its copy won, a missing master at launch). Structural: it outranks evidence.
+    present = {f.lower() for m in real if m.enabled for f, _ms, _e in m.plugins}
+    def loadable_copy(masters):
+        return all(x.lower() in present or x.lower() in BASE_MASTERS or x.lower().startswith(("cc", "_resourcepack"))
+                   for x in masters)
+    copies = {}
+    for m in real:
+        if m.enabled:
+            # a copy the plugin plan has just parked still orders its mod: the plan is decided on today's winner, and
+            # the order must not hand the plugin to the unloadable copy wherever the files end up
+            for f, masters, _esm in list(m.plugins) + list(m.optional):
+                copies.setdefault(f.lower(), []).append((m, masters))
+    for f, cs in copies.items():
+        if len(cs) < 2:
+            continue
+        good = [m for m, ms in cs if loadable_copy(ms)]
+        bad = [(m, ms) for m, ms in cs if not loadable_copy(ms)]
+        for m, ms in bad:
+            miss = [x for x in ms if not loadable_copy([x])]
+            for g in good:
+                edge(m, g, f"its copy of {f} needs {', '.join(miss)}, which no enabled mod has: {g.name}'s loadable copy wins")
+    for p in (m for m in real if "after_animation" in m.flags):
+        # an animation mod that its own masters pull into a later block (Paragon - Magic Addon needs ParagonPerks.esp
+        # and follows Paragon into Perks) has left the animation section the patch follows
+        def pulled_later(o):
+            # the build's own rule: a mod follows a master's mod only when EVERY one of its plugins needs that mod
+            t = index_tier(o.category)
+            need = None
+            for _f, masters, _e in o.plugins:
+                later = {w.name for w in (owner.get(x.lower()) for x in masters)
+                         if w is not None and w is not o and w.enabled and w.category and index_tier(w.category) > t}
+                need = later if need is None else need & later
+            return bool(need)
+        for o in real:
+            if o is p or not o.enabled or "after_animation" in o.flags:
+                continue
+            anim = (o.category or "").startswith("Animation") and not pulled_later(o)
+            if anim or _is_skeleton_mod(o):
+                edge(o, p, "a behaviour patch for skeleton mods loads after every animation and skeleton mod")
     outputs = [m for m in real if norm(m.category) == norm("Generated Outputs")]
     for o in outputs:
         for m in real:
@@ -2648,7 +2786,7 @@ def build(mods, rules=None, min_run=2):
         # Meshes below a Performance mod, and it then beat Lux and the Whiterun mods the reference list has winning)
         # (an optional file from a mod's own Nexus page holds across tiers too: the owner, 2026-09-27, "optional files
         # from the same mod ... would come after it")
-        if verdict is not None and not same_cat_pair and not verdict[2].startswith(("named for", "a patch", "an optional file from")):
+        if verdict is not None and not same_cat_pair and not verdict[2].startswith(("named for", "a patch", "an optional file from", "a newer version")):
             verdict = None
         if verdict is not None:
             w, l, why = verdict
@@ -3623,7 +3761,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
         g.plugins = []                                 # its plugins are the kept copy's: no master edge of its own
         if k.category:
             g.category, g.group = k.category, k.group
-            g.why = f"a second copy of {kept} (the same download, the same files): switched off, beside it"
+            g.why = f"a second copy of {kept} ({_arc}): switched off, beside it"
     new_rows, facts = build(mods, ours.get("rules"), min_run)
     facts["expectations"] = check_expectations(mods)
     facts["redundant"] = redundant
@@ -4029,7 +4167,7 @@ if mobase is not None:
             self._fill(self.t_plug, [(f, m, "activate", w) for f, m, w in ps.get("activate", [])]
                        + [(f, m, "move to Optional ESPs", w) for f, m, w in ps.get("to_optional", [])]
                        + [(f, m, "back from Optional ESPs, activate", w) for f, m, w in ps.get("from_optional", [])]
-                       + [("(the whole mod)", g, "switch off", f"a second copy of {k}: the same download ({a}), the same files")
+                       + [("(the whole mod)", g, "switch off", f"a second copy of {k}: {a}")
                           for g, k, a in r["facts"].get("redundant", [])])
             n_plug = sum(len(ps.get(k, [])) for k in ("activate", "to_optional", "from_optional")) + len(r["facts"].get("redundant", []))
             self.tabs.setTabText(self.tabs.indexOf(self.t_plug), f"Plugins ({n_plug})" if n_plug else "Plugins")
@@ -4403,7 +4541,7 @@ if __name__ == "__main__" and mobase is None:       # offline dry run: python MO
             if not good:
                 print(f"   MISS  {name[:48]:48s} wanted {want[:44]:44s} got {got[:60]}")
     for gone, kept, arc in res["facts"].get("redundant", []):
-        print(f"   REDUNDANT  {gone}  - the same files as {kept} ({arc}): switched off")
+        print(f"   REDUNDANT  {gone}  - beside {kept}: {arc}; switched off")
     print(res["nexus"]); print("moves", len(res["moves"]), "created", len(res["facts"]["created"]), "retired", len(res["facts"]["retired"]),
                                "fixes", len(res["facts"]["fixes"]), "plugins", len(res["plugins"]),
                                "| activate", len(ps["activate"]), "to optional", len(ps["to_optional"]), "from optional", len(ps["from_optional"]))
