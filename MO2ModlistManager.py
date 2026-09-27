@@ -1609,9 +1609,18 @@ def read_modlist(path):
     return rows, header
 
 
-def write_modlist(path, rows, header):
-    """rows top-first -> file bottom-first, CRLF, like MO2 writes it."""
-    body = [("+" if en else "-") + nm for nm, en in reversed(rows)]
+def read_foreign(path):
+    """The foreign mods MO2 writes with '*' (DLC and other content it does not manage from a mod folder), in file order.
+    MO2 2.5.2 writes them with the rest (profile.cpp, Profile::doWriteModlist); read_modlist leaves them out of the
+    rows the manager orders, and write_modlist puts them back, so an Apply never drops them (MO2-REFERENCE.md)."""
+    text = open(path, "rb").read().decode("utf-8-sig")
+    return [l[1:] for l in text.replace("\r\n", "\n").split("\n") if l.startswith("*") and len(l) > 1]
+
+
+def write_modlist(path, rows, header, foreign=()):
+    """rows top-first -> file bottom-first, CRLF, like MO2 writes it; the foreign (*) mods after them - the lowest
+    priority, where MO2 keeps them - in the order they came."""
+    body = [("+" if en else "-") + nm for nm, en in reversed(rows)] + ["*" + nm for nm in foreign]
     open(path, "wb").write(("\r\n".join(header + body) + "\r\n").encode("utf-8"))
 
 
@@ -2715,8 +2724,12 @@ def build(mods, rules=None, min_run=2):
         if index_tier(ml.category) == index_tier(mw.category) and len(mw.files) > len(ml.files) and mw.files and ml.files:
             advice.append((w, l, n, f"the larger mod ({len(mw.files)} files) wins over the smaller ({len(ml.files)}) - check it is meant to"))
     advice.sort(key=lambda x: -x[2])
-    new_seps = {nm for nm, _ in rows if is_sep(nm)}
+    # A planned separator that differs from an existing one only in letter case IS that folder on Windows: keep the
+    # existing spelling, or Apply would create "Player homes" and then retire "Player Homes" - the same folder
     old_seps = {m.name for m in mods if is_sep(m.name)}
+    existing = {nm.lower(): nm for nm in old_seps}
+    rows = [(existing.get(nm.lower(), nm) if is_sep(nm) else nm, en) for nm, en in rows]
+    new_seps = {nm for nm, _ in rows if is_sep(nm)}
     return rows, {"fixes": fixes, "rule_moves": rule_moves, "flips": flips, "conflict_pairs": len(pairs),
                   "displaced": displaced, "absorbed": absorbed, "advice": advice, "cycles": [m.name for m in cycles], "cycle_edges": cycle_edges, "rules_ignored": rules_ignored, "winners_yielded": winners_yielded, "resolved": resolved, "undecided": undecided,
                   "created": sorted(new_seps - old_seps), "retired": sorted(old_seps - new_seps)}
@@ -2791,13 +2804,58 @@ def plugin_order(rows, mods_by_name, ruler_user_rules=()):
 RULES_FILE = "modlist_order_rules.json"
 
 
+SKYRIM_SE_PRIMARY = ("skyrim.esm", "update.esm", "dawnguard.esm", "hearthfires.esm", "dragonborn.esm")
+
+
+def game_dir(instance_dir):
+    """MO2's gamePath from the instance's ModOrganizer.ini, or None."""
+    try:
+        for line in open(os.path.join(instance_dir, "ModOrganizer.ini"), encoding="utf-8", errors="ignore"):
+            if line.startswith("gamePath="):
+                v = line.split("=", 1)[1].strip()
+                m = re.match(r"^@ByteArray\((.*)\)$", v)
+                if m:
+                    v = m.group(1)
+                v = v.replace("\\\\", "\\")                     # QSettings' escape; a path saved doubled is collapsed
+                return os.path.normpath(v) if v else None
+    except OSError:
+        pass
+    return None
+
+
+def primary_plugins(instance_dir):
+    """The game's PRIMARY plugins, which MO2 leaves out of plugins.txt (GameSkyrimSE::primaryPlugins at the pinned
+    game_bethesda commit): the five base masters and every line of Skyrim.ccc in the game folder. With no Skyrim.ccc
+    - a Stock Game without one - the CC plugins and _ResourcePack.esl are ordinary plugins, starred like the rest."""
+    out = set(SKYRIM_SE_PRIMARY)
+    g = game_dir(instance_dir)
+    ccc = os.path.join(g, "Skyrim.ccc") if g else None
+    if ccc and os.path.isfile(ccc):
+        for line in _read_text(ccc).splitlines():
+            if line.strip():
+                out.add(line.strip().lower())
+    return out
+
+
+def _read_text(path):
+    """A list file as text: UTF-8 when it is, else the system code page MO2 writes plugins.txt in."""
+    raw = open(path, "rb").read()
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            return raw.decode("mbcs", errors="replace")
+        except LookupError:
+            return raw.decode("cp1252", errors="replace")
+
+
 def read_active_plugins(profile_dir):
-    """Plugins MO2 will load: the '*' lines of plugins.txt plus the game's forced masters and CC content, which MO2
-    lists without a star."""
+    """Plugins MO2 will load: the '*' lines of plugins.txt plus the game's primary plugins, which MO2 leaves out (and
+    unstarred base or CC lines an older writer left)."""
     active = set()
     p = os.path.join(profile_dir, "plugins.txt")
     if os.path.isfile(p):
-        for line in open(p, encoding="utf-8-sig"):
+        for line in _read_text(p).splitlines():
             line = line.strip()
             if line.startswith("*"):
                 active.add(line[1:].lower())
@@ -3257,6 +3315,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     mods_dir = os.path.join(instance_dir, "mods")
     ml = os.path.join(instance_dir, "profiles", profile, "modlist.txt")
     rows, header = read_modlist(ml)
+    foreign = read_foreign(ml)
     mods = scan(mods_dir, rows, progress)
     test_pairs = pair_test_builds(mods)
     nexus_names = read_nexus_names(instance_dir)     # MO2's own table: no Nexus request (2026-09-26)
@@ -3284,7 +3343,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
             "plugin_state": plugin_state, "test_pairs": test_pairs,
             "plugins": plugins, "rules": ruler_rules(mods), "mod_rules": ours,
             "nexus": f"no Nexus request; {len(nexus_names)} Nexus category names read from nexuscatmap.dat",
-            "modlist_path": ml, "mods_dir": mods_dir}
+            "modlist_path": ml, "mods_dir": mods_dir, "foreign": foreign}
 
 
 def apply(result, instance_dir, profile, cache_dir, log=None):
@@ -3324,22 +3383,25 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
         if os.path.isdir(d):
             os.makedirs(retired_dir, exist_ok=True)
             shutil.move(d, os.path.join(retired_dir, name))
-    write_modlist(result["modlist_path"], result["rows"], result["header"])
+    write_modlist(result["modlist_path"], result["rows"], result["header"], result.get("foreign", ()))
     apply_plugin_state(result.get("plugin_state", {}), mods_dir, backup, log)
     plugins = result["plugins"]
-    open(os.path.join(prof, "loadorder.txt"), "wb").write(("# This file was automatically generated by Mod Organizer.\r\n" + "\r\n".join(plugins) + "\r\n").encode("utf-8"))
-    # plugins.txt: every plugin left in a mod's root is active - what must not load now sits in optional - except the
-    # game's forced masters and CC content, which MO2 lists without a star and which keep the line they had
-    p = os.path.join(prof, "plugins.txt")
-    forced_line = {}
-    if os.path.isfile(p):
-        for line in open(p, encoding="utf-8-sig"):
-            line = line.strip()
-            k = line.lstrip("*").lower()
-            if k in BASE_MASTERS or k.startswith("cc"):
-                forced_line[k] = line
-    open(p, "wb").write(("# This file was automatically generated by Mod Organizer.\r\n"
-                         + "\r\n".join(forced_line.get(f.lower(), "*" + f) for f in plugins) + "\r\n").encode("utf-8"))
+    # As MO2 2.5.2 writes them (MO2-REFERENCE.md: the game's CreationGamePlugins::writePluginList and
+    # GamebryoGamePlugins::writeList). loadorder.txt: every plugin, UTF-8. plugins.txt: every plugin except the game's
+    # PRIMARY ones (primary_plugins), '*' before each - every plugin left in a mod's root is meant to load, what must
+    # not load now sits in Optional ESPs - in the SYSTEM code page. Neither is written empty, as MO2 never saves one.
+    if not plugins:
+        if log:
+            log("the plan has no plugins: plugins.txt and loadorder.txt left as they were (MO2 never saves an empty list)")
+    else:
+        open(os.path.join(prof, "loadorder.txt"), "wb").write(("# This file was automatically generated by Mod Organizer.\r\n" + "\r\n".join(plugins) + "\r\n").encode("utf-8"))
+        primary = primary_plugins(instance_dir)
+        text = "# This file was automatically generated by Mod Organizer.\r\n" + "".join("*" + f + "\r\n" for f in plugins if f.lower() not in primary)
+        try:
+            data = text.encode("mbcs", errors="replace")      # Windows: the system code page, as MO2 writes it
+        except LookupError:
+            data = text.encode("cp1252", errors="replace")
+        open(os.path.join(prof, "plugins.txt"), "wb").write(data)
     ours, _ = load_rules(prof)
     ours["auto_master_rules"] = result["rules"]          # the facts the order was built on, for reading; never edited
     save_rules(prof, ours)

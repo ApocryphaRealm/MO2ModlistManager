@@ -63,6 +63,9 @@ for prof in profiles:
         if m and {x.strip() for x in m.group(1).split(";")} <= parked:
             continue          # parked in Optional ESPs by the real apply
         fails.append(line)
+    # a created separator that differs from a retired one only in case is the SAME folder on Windows (2026-09-26)
+    retired = {s.lower() for s in d["facts"]["retired"]}
+    fails += [f"FAIL  separator created and retired under one folder name (case only): {s}" for s in d["facts"]["created"] if s.lower() in retired]
     ex = d.get("facts", {}).get("expectations", [])
     missed = [e for e in ex if not e[3]]
     status = "PASS" if not fails and not missed else "FAIL"

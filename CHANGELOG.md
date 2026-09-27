@@ -41,6 +41,13 @@ untouched 3.2.0 lists) and measured there - `4. plans\modlist-methodology\aposta
 - The toolbar button follows the theme (the owner: "make sure that the button ... responds to theme changes and style
   sheet changes"): the icon is painted in the colour the current stylesheet gives MO2's toolbar buttons and repainted
   when that changes - light on Njordlinger (#f1f1f1), black on Paper Light, where a fixed pale icon disappeared.
+- The lists are written the way MO2 2.5.2 writes them (MO2-REFERENCE.md; the owner kept these in 1.0.0 because the
+  plugin is unreleased). Foreign mods in modlist.txt (`*DLC: Dawnguard` and the like) are carried through at the bottom
+  instead of dropped. plugins.txt leaves out the game's primary plugins (the five base masters and whatever Skyrim.ccc
+  lists) and is written in the system code page, not UTF-8. An empty plugin list is never written.
+- A planned separator that differs from an existing one only in letter case keeps the existing folder's spelling. Before,
+  Apply on the Apostasy author's list created "Player homes" and then retired "Player Homes" - the same folder on
+  Windows - so both separators vanished. The self-check and the Apostasy score now fail such a plan.
 
 ### The first build (2026-09-23, never released)
 

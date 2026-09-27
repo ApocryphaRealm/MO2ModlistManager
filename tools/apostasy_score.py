@@ -104,6 +104,13 @@ if r.returncode != 0:
     print(f"FAIL  the dry run failed\n{r.stdout[-600:]}{r.stderr[-600:]}")
     sys.exit(1)
 run = json.load(open(os.path.join(cache, "dry-run.json"), encoding="utf-8"))
+# A separator the plan creates must not differ only in letter case from one it retires: on Windows they are the same
+# folder, so Apply made the new one and then moved it away with the old (2026-09-26, "Player homes" / "Player Homes")
+_retired = {s.lower() for s in run["facts"]["retired"]}
+_clash = [s for s in run["facts"]["created"] if s.lower() in _retired]
+if _clash:
+    print(f"FAIL  separators created and retired under the same folder name (case only): {'; '.join(_clash)}")
+    sys.exit(1)
 
 # --- scoring -------------------------------------------------------------------------------------------------------------
 enabled = [n for n, e in author if e and not n.endswith("_separator") and os.path.isdir(os.path.join(mods_dir, n))]

@@ -10,21 +10,21 @@ THIS IS NOT A MOD. Do not install it with the mod manager.
 
 HOW A MOD IS PLACED
 -------------------
-Every signal a mod carries becomes a vote, and the heaviest category wins:
+A mod is placed by what it contains and changes, not by its Nexus category or where it sits today:
   - what the folder ships: a DLL, animations, sound, meshes and textures, and which asset paths they sit under;
   - what its plugins add or alter: the record groups, and the cells and worldspaces they add or edit;
   - what the mod says about itself: its name, its plugins' descriptions, its readme and FOMOD info;
   - its structure: plugins built on other mods (a patch), a master many mods depend on (a framework), a name that
     says it is an addon of another mod in the list;
   - a category you set yourself in MO2, if it names one of the manager's categories - your word, and decisive.
-Nexus categories are not used and Nexus is never contacted. The "Every placement" tab shows every vote for every mod,
-so each placement explains itself.
+Nexus categories are not used and Nexus is never contacted. The "Every placement" tab shows every mod's block and
+what it was placed by.
 
 THE ORDER
 ---------
 Tiers from what everything stands on to what finishes the list: base game and engine, interface, characters and
 animation, the world and gameplay systems, content, patches, test builds, generated outputs, optional addons. Inside
-them, rules read off a hand-built published list (Apostasy) and measured on it:
+them, the conventions of a hand-built published list (Apostasy):
   - the world runs broad to specific - weather, landscape, water, architecture, towns and cities, roads, trees,
     grass, plants - and lighting loads after the meshes it re-authors;
   - fixes are filed by what they overwrite (plugin, script, SKSE or mesh fixes); an SKSE-only tweak of the world or
