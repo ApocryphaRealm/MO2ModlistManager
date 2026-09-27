@@ -2,9 +2,49 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
-## 1.0.0 - 2026-09-23 - untested
+## 1.0.0 - 2026-09-26 - working
 
-First version. The evidence model: every signal a mod carries votes (files and their paths, the plugins' record
+First release. The Apostasy rules: ten placement rules the owner agreed after they were read off the Apostasy author's own order (its
+untouched 3.2.0 lists) and measured there - `4. plans\modlist-methodology\apostasy-placement-rules.md`.
+
+- Lighting loads after every architecture, town, city, clutter and furniture block it re-authors (P1); the world runs
+  broad to specific - weather, landscape, water, architecture, buildings, towns and cities, then roads, trees, grass,
+  plants, seasons, then models and textures, PBR, visual effects and lighting (P2). Location Overhauls and Buildings
+  move from tier 4 into the world tier.
+- Core by mechanism (P3): Bug Fixes (plugin), Script Fixes, SKSE Plugin Fixes, Mesh and Texture Fixes; an SKSE-only
+  tweak of the world, items, audio or visuals goes to SKSE Plugin Tweaks, while an SKSE-only gameplay, combat or AI
+  system keeps its subject (as the author files Precision, Maxsu Poise, Modern Combat AI). A ruling that names "Bug
+  Fixes" is met by any block of the fix family.
+- Performance Optimization moves after Patches (P4); a location or quest mod with ten or more mods named for it or built
+  on it gets a separator of its own right after its category's block (P5); a patch that names two or more mods and ships
+  loose files goes to Patches (P6); Physics loads after Hair and Races (P7); Icon Overhauls after the UI overhaul,
+  never a mod with fonts or fontconfig.txt (P9); a new Optional Addons tier after the generated outputs for
+  [Addon] / [Optional] / [Ultrawide] variants, with DynDOLOD.esp and Occlusion.esp still ending the plugin order (P10).
+- Inside a block, nothing else deciding (P8): a family together, its patches and patch collections last, then
+  alphabetical - no longer today's position. The order is now the same whatever order the list starts in (a shuffled
+  Apostasy gives the same result as the author's).
+- No Nexus request: the category fetch is gone (the owner: "we don't need it to check Nexus"). Nexus category names
+  come from MO2's nexuscatmap.dat plus a built-in Skyrim SE list; the Shape rule's "the body itself" reads body meshes,
+  and a CBBE/3BA-named texture-only mod (overlays, tattoos) is no longer a refit.
+- Measured: the shuffled author's list is rebuilt to 62.1% of its pairs in the author's order (the first build: 56.7%);
+  Visuals 43.7% -> 60.0%, Content 41.0% -> 49.7%. Self-check: Njordlinger 107/107 and Njordlinger Test 108/108 rulings,
+  launch audit clean on both; Apostasy 31/31.
+- Where it matters in game - the WINNERS of real conflicts (the owner, 2026-09-26: "is it functionally meaningful"; 99.96%
+  of mod pairs never share a file or record): three evidence rules. A mod named by another's initials is its addon
+  ("EFM SE - Racemenu plugin" after Expressive Facegen Morphs SE). A complex-material, parallax or PBR version wins over
+  the plain one in the same block, after specificity (ERM - Complex Materials over ERM; the small FYX fixes still win).
+  A patch whose targets all sit in one block stays in that block rather than going to Patches (Audio Overhaul -
+  Immersive Sounds Integration stays in Audio; about 680 records went to the wrong winner).
+- tools\apostasy_score.py and its gate: against the author's shuffled order, contested files 95.76% (the first build:
+  95.39%) and contested records 87.79% (86.25%) where the manager picks the author's winner; tools\selfcheck.py fails a
+  change that lowers either (tools\apostasy-baseline.json), and the package gate runs selfcheck.py.
+- The toolbar button follows the theme (the owner: "make sure that the button ... responds to theme changes and style
+  sheet changes"): the icon is painted in the colour the current stylesheet gives MO2's toolbar buttons and repainted
+  when that changes - light on Njordlinger (#f1f1f1), black on Paper Light, where a fixed pale icon disappeared.
+
+### The first build (2026-09-23, never released)
+
+The evidence model: every signal a mod carries votes (files and their paths, the plugins' record
 groups and the cells and worldspaces they reference, the mod's own words, its structure, a category the user set
 himself), rules over the votes carry the owner's reasoning, and the heaviest category wins; the owner's taxonomy as
 data (tiers, empty mains with sub-separators); the conflict resolver by evidence; plugin order and Bethesda Plugin

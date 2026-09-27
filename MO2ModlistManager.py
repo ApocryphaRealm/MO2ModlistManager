@@ -4,8 +4,8 @@ The owner, 2026-09-22: "a new plugin for mo2 that generates separators and their
 right order and separator", after the tier-and-guess sorter on Nexus scattered a hand-built pane.
 
 What it does, and only from evidence a mod carries:
-  * every mod's Nexus category is read from Nexus (v2 GraphQL, twenty mods a request, no key needed, cached);
-    a mod with no Nexus id is placed by what it IS - a generated output, a test build, a base-game folder, or what
+  * nothing is asked of Nexus (the owner, 2026-09-26): a mod is placed by what it IS - what it ships, what its plugins
+    add, what it says about itself - and a mod with no evidence is placed by what it IS - a generated output, a test build, a base-game folder, or what
     it ships - or left under "Uncategorised", never guessed from words in its name; an "unpublished " build of the
     owner's sits in its proper category like any other mod (his placement rule);
   * separators are generated: one group header per group of categories, one separator per category, in a fixed
@@ -47,21 +47,40 @@ OUTPUT_TOOLS = re.compile(r"\b(dyndolod|texgen|xlodgen|occlusion|pgpatcher|paral
 # split by target) vs models and textures (inventory-scope items, clutter, furniture, interiors), engine fixes vs
 # frameworks vs utilities, controls (action) vs interface (visual), camera, dialogue, physics, performance, lighting
 # and effects, animation by subject, NPC / creature / player sub-blocks, alchemy / crafting / enchanting as headers.
+# THE APOSTASY RULES (the owner, 2026-09-26, agreeing to what the Apostasy author's own order shows -
+# 4. plans\modlist-methodology\apostasy-placement-rules.md, P1-P10, measured on the author's untouched 3.2.0 lists):
+#   P1 light-edited meshes (Lighting) load AFTER every architecture, town, city, clutter and furniture block they re-author
+#   P2 the world runs broad to specific: weather, landscape, water, architecture, towns and cities, roads, trees, grass,
+#      plants, seasons; clutter and furniture after the towns and cities
+#   P3 core is split by HOW a mod works: plugin, script, SKSE and mesh fixes apart; an SKSE-only tweak of the world,
+#      items, audio or visuals in a block of its own; an SKSE-only gameplay, combat or AI system keeps its subject, as
+#      the author files them (place(): _mechanism)
+#   P4 performance swaps (eFPS and its patches) after the content and patch layers, not in tier 0
+#   P5 a location or quest mod with five or more mods named for it gets a separator of its own (place(): _hubs)
+#   P6 a patch naming two or more mods goes to Patches, after all its targets (place(): _multi_patch)
+#   P7 physics after hair and body, so its physics files win
+#   P8 inside a block: base, then its addons and patches; a family together, its patch collection last; smaller over
+#      bigger where files overlap (resolve_conflict); alphabetical where nothing else decides (build(): rank)
+#   P9 icon packs after the HUD and the UI overhaul (place(): _icons)
+#   P10 optional addons ([Addon], [Optional], [Ultrawide]) after the generated outputs, so switching one on wins
 TAXONOMY = [
     (0, "--- 0 BASE & ENGINE ---", [
         ("Base Game", None), ("Unofficial Patches", None), ("Essential Engine Fixes", None), ("Frameworks", None),
-        ("Utilities", None), ("Bug Fixes", None), ("Performance Optimization", None), ("Uncategorised", None)]),
+        ("Utilities", None), ("Bug Fixes", None), ("Script Fixes", None), ("SKSE Plugin Fixes", None),
+        ("Mesh and Texture Fixes", None), ("SKSE Plugin Tweaks", None), ("Uncategorised", None)]),
     (1, "--- 1 INTERFACE & INTERACTION ---", [
         ("User Interface", None), ("Improved Controls", None), ("Camera", None),
         ("Dialogue", None), ("Alternate Start", None), ("Save Games", None)]),
     (2, "--- 2 CHARACTERS & ANIMATION ---", [
-        ("Physics", None), ("Body", None), ("Face", None), ("Hair", None), ("Races, Classes, and Birthsigns", None),
+        ("Body", None), ("Face", None), ("Hair", None), ("Races, Classes, and Birthsigns", None), ("Physics", None),
         ("Animation", ["General", "Player", "NPC", "Enemy", "Creature"])]),
     (3, "--- 3 WORLD, VISUALS & SYSTEMS ---", [
-        ("Lighting", None), ("Visual Effects", None), ("Presets - ENB and ReShade", None),
-        ("Environment", ["Landscape", "Grass", "Trees", "Plants", "Water", "Weather", "Seasons", "Architecture", "Roads"]),
+        ("Presets - ENB and ReShade", None),
+        ("Environment", ["Weather", "Landscape", "Water", "Architecture"]),
+        ("Buildings", None), ("Location Overhauls", ["Town", "City", "Interior", "General"]),
+        ("Environment", ["Roads", "Trees", "Grass", "Plants", "Seasons"]),
         ("Models and Textures", ["General", "Items", "Clutter", "Furniture", "Interiors"]),
-        ("PBR Textures", None), ("Audio", None),
+        ("PBR Textures", None), ("Visual Effects", None), ("Lighting", None), ("Audio", None),
         ("Gameplay", ["General", "Combat", "Stealth", "Economy"]), ("Immersion", None),
         ("Alchemy", ["Potions", "Ingredients"]), ("Crafting", ["General", "Armour", "Weapons"]),
         ("Enchanting", ["General", "Enchantments"]), ("Overhauls", ["General", "Faction Overhauls"]),
@@ -75,8 +94,7 @@ TAXONOMY = [
         ("Collectables, Treasure Hunts, and Puzzles", None),
         ("Creatures", ["Appearance", "Monster Appearance", "Behaviour", "Mounts", "Animals", "New Creatures"]),
         ("NPC", ["Appearance", "AI and Behaviour", "Followers", "Other"]), ("Player", ["Appearance", "Other"]),
-        ("Quests and Adventures", None), ("Player homes", None), ("Buildings", None),
-        ("Location Overhauls", ["City", "Town", "Interior", "General"]), ("Dungeons", None), ("Locations - New", None),
+        ("Quests and Adventures", None), ("Player homes", None), ("Dungeons", None), ("Locations - New", None),
         ("Guilds/Factions", None), ("Cheats and God items", None),
         # every map-related mod in one block toward the end (the owner, 2026-09-23): markers, paper and world maps,
         # local maps, minimaps - they load late so their markers and map art win
@@ -85,10 +103,14 @@ TAXONOMY = [
         # alone is so that it always overwrites the ui elements"). Norden UI restyles QuickLoot, BTPS, the dialogue menu,
         # Alternate Perspective's start menu, TDM and the minimap - mods filed in tiers 1-4 - so its block is the LAST
         # content block, after Maps and before Patches; fontconfig.txt included.
-        ("UI Overhaul", None)]),
-    (5, "--- 5 PATCHES ---", [("Patches", None)]),
+        ("UI Overhaul", None),
+        # P9: icon packs win over the HUD widgets and the overhaul's icons (Apostasy: icons over the HUD on 63 files).
+        # A mod that ships fonts or fontconfig.txt is never filed here: the overhaul's fontconfig must win (2026-09-24)
+        ("Icon Overhauls", None)]),
+    (5, "--- 5 PATCHES ---", [("Patches", None), ("Performance Optimization", None)]),
     (6, "--- 6 TEST BUILDS ---", [("Test Builds", None)]),
     (7, "--- 7 GENERATED OUTPUTS ---", [("Generated Outputs", None)]),
+    (8, "--- 8 OPTIONAL ADDONS ---", [("Optional Addons", None)]),
 ]
 LEAVES, MAIN_OF, TIERS, TIER_HEADERS, GROUPS = [], {}, {}, {}, []
 for _t, _h, _mains in TAXONOMY:
@@ -107,7 +129,7 @@ for _t, _h, _mains in TAXONOMY:
     GROUPS.append((_h, list(_names)))
 OTHER_GROUP_HEADER = "--- OTHER ---"           # an MO2 category of the user's that the tree does not know: tier 3, last
 INDEX_TIER = {n.strip().lower(): t for t, names in TIERS.items() for n in names}
-FIXED_BLOCKS = ("base game", "unofficial patches", "test builds", "generated outputs", "[nodelete]", "shape")
+FIXED_BLOCKS = ("base game", "unofficial patches", "test builds", "generated outputs", "[nodelete]", "shape", "optional addons")
 # a Nexus category's DEFAULT leaf; the signals below refine it (Body -> Face / Hair, Models and Textures -> a sub...)
 NEXUS_TO_LEAF = {
     "utilities": "Utilities", "bug fixes": "Bug Fixes", "modders resources": "Utilities", "vr": "Utilities",
@@ -138,6 +160,7 @@ for _k, _v in NEXUS_TO_LEAF.items():
 _NAME_NOISE = re.compile(r"\[[^\]]*\]|\((main|se|sse|ae)\)|\b(sse|se|ae|special edition|skyrim|for|the|a|an|of|and|v\d+(\.\d+)*)\b|[^a-z0-9]+", re.I)
 _PATCH_WORD = re.compile(r"\bpatch(es)?\b|\bpatch collection\b|\bcompatibility\b", re.I)
 _PBR_COMPANION = (("_rmaos.dds", "pbr"), ("_p.dds", "parallax"), ("_cnr.dds", "pbr"), ("_f.dds", "pbr"))
+_MATERIAL_VERSION = re.compile(r"\bcomplex (material|parallax)s?\b|\bcpm\b|\bparallax(ed|ified)?\b|\bpbr\b", re.I)
 
 
 def _core_name(name):
@@ -187,6 +210,15 @@ def resolve_conflict(a, b, shared, files_of):
         return a, b, f"named for {b.name}"
     if len(ca) >= 6 and ca in cb and ca != cb and not (len(cb) >= 6 and cb in ca):
         return b, a, f"named for {a.name}"
+    # 1b. named by its INITIALS: "EFM SE - Racemenu plugin" is an addon of Expressive Facegen Morphs SE (the Apostasy
+    #     author loads it after, 94 files; 2026-09-26)
+    ia, ib = _initials(a.name), _initials(b.name)
+    ta = set(re.findall(r"[a-z0-9]+", a.name.lower()))
+    tb = set(re.findall(r"[a-z0-9]+", b.name.lower()))
+    if len(ib) >= 3 and ib in ta and ia != ib:
+        return a, b, f"named for {b.name} (by its initials, {ib.upper()})"
+    if len(ia) >= 3 and ia in tb and ia != ib:
+        return b, a, f"named for {a.name} (by its initials, {ia.upper()})"
     pa, pb = _is_patch_mod(a), _is_patch_mod(b)
     if pa != pb:
         return (a, b, f"a patch loads after {b.name}") if pa else (b, a, f"a patch loads after {a.name}")
@@ -200,6 +232,15 @@ def resolve_conflict(a, b, shared, files_of):
     ns, nbg = min(na, nb), max(na, nb)
     if ns and len(shared) >= 0.5 * ns and nbg >= 2 * ns:
         return small, big, f"specific over general: {len(shared)} of its {ns} files are also in {big.name} ({nbg} files)"
+    # 5. a complex-material, parallax or PBR VERSION wins over the plain one in the same block, when specificity has not
+    #    decided (the Apostasy author: ERM - Complex Materials over ERM, Tomato's Complex Landscape over Skyland; the
+    #    owner's PBR rule, 2026-09-23, "superseding other textures"). After specificity: the author's small targeted
+    #    fixes (FYX's Whiterun meshes) still win over a big parallax pack. Read from the name when the maps themselves
+    #    are packed or named otherwise.
+    va, vb = bool(_MATERIAL_VERSION.search(a.name)), bool(_MATERIAL_VERSION.search(b.name))
+    if va != vb:
+        w, l = (a, b) if va else (b, a)
+        return w, l, f"a material version: {w.name} is the complex-material / parallax / PBR version; {l.name} is not"
     return None
 
 
@@ -215,15 +256,22 @@ EQUIPMENT_CATS = {"armour", "armour - shields", "weapons", "weapons and armour",
                   "new armour", "new weapons", "new weapons and armour", "new clothing"}
 
 
-def shape_reason(m, nexus_cat):
+# the body itself ships the character's body meshes (CBBE, 3BA, HIMBO, The New Gentleman); a refit of gear to that body
+# does not. Read from the files since 2026-09-26 - the Nexus category that decided it before is no longer fetched
+BODY_MESH = re.compile(r"^meshes/actors/character/character assets( female)?/[^/]*(body|hands|feet)[^/]*\.nif$")
+
+
+def shape_reason(m):
     """Why this mod is a Shape mod, or None."""
     files = m.files or []
     shape_only = bool(files) and all(f.startswith("calientetools/") for f in files)
     if shape_only:
         return "ships shape data only (CalienteTools/BodySlide)"
     if SHAPE_WORDS.search(m.name):
-        if norm(nexus_cat or "") == norm("Body, Face, and Hair") and not SHAPE_REFIT_WORDS.search(m.name):
+        if any(BODY_MESH.match(f) for f in files) and not SHAPE_REFIT_WORDS.search(m.name):
             return None                       # the body itself, not a refit of something to it
+        if not any(f.endswith(".nif") or f.startswith("calientetools/") for f in files):
+            return None                       # textures only: an overlay, tattoo or skin pack made FOR the body, not a refit
         return f"a body's name in the mod's name ({SHAPE_WORDS.search(m.name).group(0)})"
     return None
 
@@ -234,10 +282,18 @@ def index_tier(category, mod=None):
     label - is now a category decision in the evidence model, rule R4, so a replacer IS Models and Textures.)"""
     k = re.sub(r"\s+", " ", category or "").strip().lower()
     if k == NODELETE_SEP.lower():
-        return 8
+        return len(TAXONOMY) + 1                  # below every tier, Optional Addons (8) included
     if k == SHAPE_CAT.lower():
         return 4                                  # a refit stays with the equipment it refits, plugin or not
+    if k in HUB_LEAVES:
+        return HUB_LEAVES[k][0]
     return INDEX_TIER.get(k, 3)
+
+
+# P5 - A BIG MOD'S OWN SEPARATOR (the owner, 2026-09-26). Filled per run by place(): {leaf (normalised): (tier, place
+# in the tier)} for every location or quest mod with five or more mods named for it (Apostasy: Vigilant, Unslaad,
+# Wyrmstooth, Lux). The block sits straight after the block of the hub's own category.
+HUB_LEAVES = {}
 
 
 # --- COMMUNITY VERDICTS (the owner, 2026-09-23: a "send rules" feature - users share the verdicts they hold for mods we
@@ -258,9 +314,6 @@ DISCLOSURE = ("Share verdicts sends this and nothing else: for each mod whose MO
               "no machine or account identity. It is off unless you turn it on, and you see every row before it goes. "
               "Without a drop-box address in the plugin settings it opens a GitHub issue in your browser, prefilled, "
               "for you to post yourself.")
-GRAPHQL = "https://api.nexusmods.com/v2/graphql"
-BATCH = 20
-GAME_IDS = {"skyrimspecialedition": 1704, "skyrim": 110, "fallout4": 1151, "starfield": 4187, "oblivion": 101, "falloutnv": 130}
 
 
 def norm(cat):
@@ -300,6 +353,8 @@ def tier_of(category):
     k = norm(category)
     if k == NODELETE_SEP.lower():
         return len(GROUPS) + 1
+    if k in HUB_LEAVES:
+        return HUB_LEAVES[k][0]
     return INDEX_TIER.get(k, 3)
 
 
@@ -410,6 +465,7 @@ NAME_DEFINED = {"camera", "dialogue", "improved controls", "physics", "performan
                 "models and textures - furniture", "environment - architecture", "player homes", "gameplay - general", "utilities",
                 "equipment positioning", "maps"}
 TIER0 = {norm(c) for c in TIERS[0]}            # the leaves a mod's own documents may not vote for: a readme names its requirements
+TIER0.add(norm("Performance Optimization"))    # a tier-0 leaf in meaning though it now loads after the patches (P4, 2026-09-26)
 TARGET_IN_SUBJECT = {"equipment positioning"}  # a "for X" subject naming these is what the mod targets (an IED add-on), not what it is
 TEXT_NAME_HIT, TEXT_DOC_HIT, TEXT_CAP = 1.0, 0.4, 2.5
 # rows (by leaf and weight) whose words count from the NAME only - every weapon readme mentions a forge, and a UI
@@ -1608,56 +1664,16 @@ def scan(mods_dir, rows, progress=None):
     return mods
 
 
-# --- Nexus categories, twenty a request, cached --------------------------------------------------------------------------
-def fetch_categories(mod_ids, cache_path, domain="skyrimspecialedition", progress=None, log=None):
-    cache = {}
-    if os.path.isfile(cache_path):
-        try:
-            cache = json.load(open(cache_path, encoding="utf-8"))
-        except (OSError, ValueError):
-            cache = {}
-    game = GAME_IDS.get(domain, 1704)
-    todo = [i for i in sorted(set(mod_ids)) if i and str(i) not in cache]
-    queue = [todo[i:i + BATCH] for i in range(0, len(todo), BATCH)]
-    done, failures = 0, 0
-    while queue and failures < 3:
-        chunk = queue.pop(0)
-        query = "{ " + " ".join(f"m{i}: mod(modId: {i}, gameId: {game}) {{ modCategory {{ name }} }}" for i in chunk) + " }"
-        try:
-            req = urllib.request.Request(GRAPHQL, data=json.dumps({"query": query}).encode("utf-8"),
-                                         headers={"Content-Type": "application/json", "User-Agent": "MO2ModlistManager/" + __version__})
-            with urllib.request.urlopen(req, timeout=30) as fh:
-                reply = json.loads(fh.read().decode("utf-8"))
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            failures += 1
-            if log:
-                log(f"nexus: batch failed ({exc}); {failures} in a row")
-            continue
-        data = reply.get("data") or {}
-        if reply.get("errors") and not data and len(chunk) > 1:     # one dead id can sink a batch: split it
-            half = len(chunk) // 2
-            queue[:0] = [chunk[:half], chunk[half:]]
-            continue
-        failures = 0
-        for i in chunk:
-            node = data.get(f"m{i}") or {}
-            cat = ((node.get("modCategory") or {}).get("name")) if node else None
-            cache[str(i)] = cat or ""          # "" = asked, Nexus has nothing (hidden, removed, off-site)
-        done += len(chunk)
-        if progress and not progress(done, len(todo), "nexus"):
-            break
-        time.sleep(0.2)
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-    json.dump(cache, open(cache_path, "w", encoding="utf-8"), indent=0)
-    return cache, len(todo), done
-
-
 # --- placing every mod ----------------------------------------------------------------------------------------------------
-def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=None, community=None):
+def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete=(), pins=None, community=None):
     """Set .category / .why on every mod. Returns nothing; every decision is a fact the dialog can show.
+    nexus_names: every category name Nexus uses, from MO2's own nexuscatmap.dat (read_nexus_names) - an MO2 category
+    that only mirrors one of them is not the user's statement. Nothing is fetched from Nexus (the owner, 2026-09-26: "we
+    don't need it to check Nexus ... nexus categories are more unhelpful than they are helpful").
     community: {core name: {leaf: users}} pooled from other users' verdicts (fetch_community_verdicts) - one more vote."""
     order, _headers = category_order()
     pins = pins or {}
+    HUB_LEAVES.clear()
     owner_of = {}                      # plugin file -> the mod MO2 takes it from (the lowest enabled one that ships it)
     dependents = {}
     for m in mods:
@@ -1670,13 +1686,11 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             for mast in masters:
                 dependents.setdefault(mast.lower(), set()).add(m.name)
     framework_masters = frozenset(k for k, ds in dependents.items() if len(ds) >= 10)
-    nexus_names = frozenset(norm(c) for c in categories.values() if c)      # every category name Nexus uses: never a vote
 
     def owner_tier(o):
         if o.category:                                   # decided already (the list is walked top-down, masters first)
             return index_tier(o.category)
-        c = categories.get(str(o.nexus_id), "") if o.nexus_id else ""
-        return index_tier(c) if c else 3
+        return 3
     for m in mods:
         if is_sep(m.name):
             continue
@@ -1700,8 +1714,8 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
         if not m.nexus_id and OUTPUT_TOOLS.search(n):
             m.category, m.why = "Generated Outputs", "no Nexus page and a tool's output name"
             continue
-        cat = categories.get(str(m.nexus_id), "") if m.nexus_id else ""
-        why_shape = shape_reason(m, cat)
+        cat = ""                                  # no Nexus category (2026-09-26): decide() and the votes never read one
+        why_shape = shape_reason(m)
         if why_shape:
             m.category, m.why = SHAPE_CAT, "Shape: " + why_shape
             continue
@@ -1746,7 +1760,7 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
                     parent = cand
         if parent is None:
             continue
-        cat = categories.get(str(m.nexus_id), "") if m.nexus_id else ""
+        cat = ""                                  # no Nexus category (2026-09-26): decide() and the votes never read one
         votes = [tuple(v) for v in m.votes] + [("addon", parent.category, 3.0, f"named for {parent.name}, which is {parent.category}")]
         decided, why, m.votes = decide(m, votes, cat)
         if decided:
@@ -1780,13 +1794,19 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
                 tweak[o.category] = tweak.get(o.category, 0.0) + 1.0 / len(owners)
         if not every or not tweak:
             continue
-        cat = categories.get(str(m.nexus_id), "") if m.nexus_id else ""
+        cat = ""                                  # no Nexus category (2026-09-26): decide() and the votes never read one
         votes = [[v[0], v[1], v[2] * (0.5 if v[0] == "records" else 1.0), v[3]] for v in m.votes]
         for c, w in tweak.items():
             votes.append(["tweaks", c, min(4.0, w), f"tweaks mods that are {c} ({w:.1f} of its {len(m.plugins)} plugins)"])
         decided, why, m.votes = decide(m, votes, cat)
         if decided:
             m.category, m.why = decided, why
+    # THE APOSTASY RULES that decide on how a mod is built rather than what it is about (2026-09-26, see TAXONOMY)
+    _optional_addons(mods)
+    _multi_patch(mods)
+    _patch_home(mods)
+    _mechanism(mods)
+    _icons(mods)
     for m in mods:
         if m.twin and by_name_.get(m.twin) is not None and by_name_[m.twin].category:
             t = by_name_[m.twin]
@@ -1795,8 +1815,262 @@ def place(mods, categories, mo2_category_names=None, under_nodelete=(), pins=Non
             m.category, m.why = "Test Builds", "test build; its official copy has no category yet"
     for m in mods:
         if m.category:
+            m.decided = m.category              # what the evidence decided: the scorecard reads this, not a hub block
+    _hubs(mods)                                 # P5 last: a big mod's block takes its satellites whatever they are
+    for m in mods:
+        if m.category:
             m.group = tier_of(m.category)
-            m.decided = m.category
+
+
+# --- the Apostasy rules' passes (the owner, 2026-09-26) -------------------------------------------------------------------
+_FROZEN_WHY = ("pinned", "carries the [NoDelete]", "name starts", "every plugin", "no Nexus page and", "Shape:", "test build")
+_FROZEN_CATS = {norm(x) for x in ("Base Game", "Generated Outputs", "Test Builds", SHAPE_CAT, NODELETE_SEP)}
+
+
+def _movable(m):
+    """A mod the passes may refile: decided by the evidence model, not by a hard gate or the user."""
+    if is_sep(m.name) or "missing" in m.flags or not m.category or m.twin:
+        return False
+    if norm(m.category) in _FROZEN_CATS or (m.why or "").startswith(_FROZEN_WHY):
+        return False
+    return not any(v[0] == "mo2" for v in (m.votes or ()))          # a category the user set himself stands
+
+
+# P10: user-toggled variants, named so by their authors. "[Performance]" variants are performance swaps (P4).
+_ADDON_TAG = re.compile(r"^\s*\[(addon|optional|ultrawide)\]", re.I)
+_PERFORMANCE_TAG = re.compile(r"^\s*\[performance\]", re.I)
+_ULTRAWIDE = re.compile(r"\b(ultra ?wide|super ?wide|21[ :x]9|32[ :x]9)\b", re.I)
+
+
+def _optional_addons(mods):
+    for m in mods:
+        if not _movable(m):
+            continue
+        if _PERFORMANCE_TAG.match(m.name):
+            m.category, m.why = "Performance Optimization", "a [Performance] variant: an opt-in performance swap (P4)"
+        elif _ADDON_TAG.match(m.name) or _ULTRAWIDE.search(m.name):
+            m.category, m.why = "Optional Addons", "a user-toggled variant ([Addon] / ultrawide): after the outputs, so switching it on wins (P10)"
+
+
+# P6: a patch that names two or more mods of the list - by name, or by the initials a mod goes by ("GDPR" for Golden
+# Dwemer Pipeworks Redone) - AND ships loose files goes to Patches, after all of them: its files must beat both targets
+# wherever they sit (Apostasy: 52 GDPR patches in one block). A plugin-only patch stays with the mod it is about - its
+# masters already order it in the plugin list, and the author keeps "Orc Strongholds - Largashbur - Lux Orbis" with the
+# stronghold, not with Lux.
+_INITIAL_NOISE = {"se", "sse", "ae", "the", "of", "a", "an", "and", "for", "le", "hd", "skse", "ng", "by", "in", "to"}
+
+
+def _initials(name):
+    ws = [w for w in re.findall(r"[a-z][a-z']*", TAG_PATCH.sub(" ", name).lower()) if w not in _INITIAL_NOISE]
+    return "".join(w[0] for w in ws) if len(ws) >= 3 else ""
+
+
+def _name_index(real):
+    """{core name: mod} and {initials: mod} over the list - how a name can name another mod."""
+    cores, initials = {}, {}
+    for m in real:
+        c = _core_name(m.name)
+        if len(c) >= 6:
+            cores.setdefault(c, m)
+        i = _initials(m.name)
+        if len(i) >= 3:
+            initials.setdefault(i, []).append(m)
+    return cores, {k: v[0] for k, v in initials.items() if len(v) == 1}     # an ambiguous abbreviation names nobody
+
+
+def _named_mods(m, cores, initials):
+    """The other mods of the list that m's name names, by name or by initials; a name inside a longer named one is the
+    same mod ("Lux" in "Lux Orbis")."""
+    plain = TAG_PATCH.sub(" ", m.name)
+    mine = _core_name(m.name)
+    tokens = set(re.findall(r"[a-z0-9]+", plain.lower()))
+    named = {o.name for c, o in cores.items() if o is not m and c != mine and c in mine}
+    named |= {o.name for i, o in initials.items() if o is not m and i in tokens}
+    return {n for n in named if not any(n != k and _core_name(n) in _core_name(k) for k in named)}
+
+
+def _multi_patch(mods):
+    real = [m for m in mods if not is_sep(m.name) and "missing" not in m.flags]
+    cores, initials = _name_index(real)
+    for m in real:
+        if not _movable(m) or norm(m.category) == norm("Patches"):
+            continue
+        plain = TAG_PATCH.sub(" ", m.name)
+        if not (_PATCH_WORD.search(plain) or TAG_PATCH.search(m.name)):
+            continue
+        if not any(f.endswith(_ART_EXT + (".pex",)) for f in (m.files or ())):
+            continue                          # plugin-only: its masters order it; it stays with its subject
+        named = _named_mods(m, cores, initials)
+        if len(named) >= 2:
+            m.category, m.why = "Patches", f"a patch naming {len(named)} mods ({', '.join(sorted(named)[:3])}): loads after all of them (P6)"
+
+
+# A PATCH BETWEEN MODS OF ONE BLOCK STAYS IN THAT BLOCK (2026-09-26, the owner: "go ahead" - from the Apostasy author's
+# order: "Audio Overhaul - Immersive Sounds Integration" sits in Audio Overhauls, between Immersive Sounds and Regional
+# Sounds Expansion, not after every block; sending it to Patches made it win about 680 records the author gives to
+# Regional Sounds Expansion). When every mod a Patches mod patches - the owners of its plugins' masters, or the mods its
+# name names when it ships no plugin - is in ONE block, it joins that block; its master edges still put it after them.
+# Engine, framework and interface masters (tiers 0-1) are dependencies, not targets.
+_NOT_A_HOME = {norm(x) for x in ("Patches", "Performance Optimization", "Optional Addons", "Uncategorised")}
+
+
+def _patch_home(mods):
+    real = [m for m in mods if not is_sep(m.name) and "missing" not in m.flags]
+    by_plugin = {}
+    for m in real:
+        for f, _ms, _e in m.plugins:
+            if m.enabled or f.lower() not in by_plugin:
+                by_plugin[f.lower()] = m
+    cores, initials = _name_index(real)
+    by_name = {m.name: m for m in real}
+    for m in real:
+        if not _movable(m) or norm(m.category) != norm("Patches"):
+            continue
+        own = {f.lower() for f, _ms, _e in m.plugins}
+        targets = set()
+        for _f, masters, _e in m.plugins:
+            for mast in masters:
+                k = mast.lower()
+                o = by_plugin.get(k)
+                if k in BASE_MASTERS or k in own or o is None or o is m or not o.category:
+                    continue
+                if tier_of(o.category) <= 1:
+                    continue
+                targets.add(o.name)
+        if not m.plugins:
+            targets = {n for n in _named_mods(m, cores, initials) if by_name[n].category and tier_of(by_name[n].category) > 1}
+        homes = {norm(by_name[n].category) for n in targets}
+        if targets and len(homes) == 1:
+            home = by_name[next(iter(targets))].category
+            if norm(home) not in _NOT_A_HOME and norm(home) not in _FROZEN_CATS:
+                m.category, m.why = home, f"a patch of {len(targets)} mod(s) all in one block ({home}): stays in it; {m.why}"
+
+
+# P3: core by mechanism. A fix is filed by what it overwrites; a mod that is only an SKSE plugin changes behaviour in
+# the engine, conflicts with no file or record, and goes to SKSE Plugin Tweaks whatever its subject (Alchemy Plus, Wade
+# in Water, Encounter Zones Unlocked in Apostasy) - unless the evidence put it in an early block (a fix, a framework,
+# the interface, controls, camera, dialogue, animation), which already sits at the top.
+FIX_FAMILY = ("Bug Fixes", "Script Fixes", "SKSE Plugin Fixes", "Mesh and Texture Fixes")
+_ART_EXT = (".nif", ".dds", ".hkx", ".wav", ".xwm", ".fuz", ".tri", ".bto", ".btr", ".swf")
+# A DLL that IS a system keeps its subject - the author files Maxsu Poise, Precision, Stances and TK Dodge under Combat
+# Systems and Modern Combat AI / Difficulty Global under AI & Difficulty, never under SKSE Plugin Tweaks; the owner ruled
+# Localized Damage combat, Wait Your Turn NPC AI, Item Equip Restrictor and Custom Difficulty UI gameplay (2026-09-23)
+_TWEAK_EXEMPT = {norm(x) for x in ("Patches", "Maps", "UI Overhaul", "Icon Overhauls", "Optional Addons",
+                                   "Performance Optimization", "Equipment Positioning", "Gameplay - General",
+                                   "Gameplay - Combat", "Gameplay - Stealth", "Gameplay - Economy", "NPC - AI and Behaviour")}
+
+
+def mechanism(m):
+    """'plugin', 'skse', 'script' or 'art' - how the mod does what it does - or None for a mix."""
+    files = m.files or []
+    dll = any(f.startswith("skse/plugins/") and f.endswith(".dll") for f in files)
+    scripts = any(f.endswith(".pex") for f in files)
+    art = any(f.endswith(_ART_EXT) for f in files)
+    if m.plugins:
+        return "plugin"
+    if dll and not art:
+        return "skse"
+    if scripts and not art and not dll:
+        return "script"
+    if art and not dll and not scripts:
+        return "art"
+    return None
+
+
+def _mechanism(mods):
+    to_fix = {"plugin": "Bug Fixes", "script": "Script Fixes", "skse": "SKSE Plugin Fixes", "art": "Mesh and Texture Fixes"}
+    for m in mods:
+        if not _movable(m):
+            continue
+        how = mechanism(m)
+        if norm(m.category) in {norm(x) for x in FIX_FAMILY}:
+            if how and to_fix[how] != m.category:
+                m.category, m.why = to_fix[how], f"a fix, filed by what it overwrites ({how}) (P3); {m.why}"
+        elif how == "skse" and tier_of(m.category) >= 3 and norm(m.category) not in _TWEAK_EXEMPT \
+                and norm(m.category) not in HUB_LEAVES:
+            m.category, m.why = "SKSE Plugin Tweaks", f"only an SKSE plugin: an engine-side behaviour change, filed by mechanism (P3); its subject: {m.category}"
+
+
+# P9: icon packs - named for icons, shipping interface files, no DLL, and never a font or fontconfig.txt (a font's
+# config must lose to the UI overhaul's, 2026-09-24: the blank message boxes)
+_ICON_WORDS = re.compile(r"\b(icons?|iconography|i4)\b", re.I)
+_FONT_FILE = re.compile(r"^interface[\\/](fontconfig\.txt|fonts?_[^\\/]*\.swf|[^\\/]*font[^\\/]*\.swf)$", re.I)
+
+
+def _icons(mods):
+    for m in mods:
+        if not _movable(m) or norm(m.category) not in (norm("User Interface"), norm("UI Overhaul")):
+            continue
+        if not _ICON_WORDS.search(m.name):
+            continue
+        files = m.files or []
+        if any(_FONT_FILE.match(f) for f in files) or any(f.endswith(".dll") for f in files):
+            continue
+        if any(f.startswith("interface/") or f.startswith("skse/plugins/inventoryinjector/") for f in files):
+            m.category, m.why = "Icon Overhauls", f"an icon pack: after the HUD and the UI overhaul (P9); {m.why}"
+
+
+# P5: a location or quest mod with five or more mods named for it (its name opens theirs) or built only on it gets a
+# separator of its own, straight after its category's block, holding all of them (Apostasy: Vigilant 42, Unslaad 12,
+# Wyrmstooth 16, Lux 25). Followers, equipment and frameworks keep their blocks (Apostasy does the same).
+HUB_CATEGORIES = {norm(x) for x in ("Quests and Adventures", "Locations - New", "Dungeons", "Buildings", "Player homes",
+                                    "Location Overhauls - Town", "Location Overhauls - City", "Location Overhauls - Interior",
+                                    "Location Overhauls - General", "Lighting", "Overhauls - Faction Overhauls", "Guilds/Factions")}
+# ten, not the "say five" first proposed: in the author's own order every mod with a block of its own has 12 or more
+# (Northern Roads 12, Unslaad 12, Environs 15, Wyrmstooth 16, Lux 25, Vigilant 42) and every town kept in a shared
+# block has 8 or fewer (Rorikstead 8, Stonehills 7, Thuldor's Ivarstead 6) - measured 2026-09-26
+HUB_MIN = 10
+_HUB_TRAIL = re.compile(r"(\s+(se|sse|ae|special edition|v?\d+(\.\d+)*))+$", re.I)
+
+
+def _hub_key(name):
+    n = re.sub(r"\[[^\]]*\]", " ", name)
+    n = _HUB_TRAIL.sub("", n.strip())
+    return " ".join(re.findall(r"[a-z0-9']+", n.lower())), n.strip()
+
+
+def _hubs(mods):
+    real = [m for m in mods if not is_sep(m.name) and "missing" not in m.flags and m.category]
+    by_plugin = {}
+    for m in real:
+        for f, _ms, _e in m.plugins:
+            by_plugin.setdefault(f.lower(), m)
+    satellite_ok = [m for m in real if _movable(m)]
+    cands = []
+    for h in real:
+        if not _movable(h) or norm(h.category) not in HUB_CATEGORIES:
+            continue
+        key, display = _hub_key(h.name)
+        if len(key) < 3:
+            continue
+        own = {f.lower() for f, _ms, _e in h.plugins}
+        sats = []
+        for o in satellite_ok:
+            if o is h:
+                continue
+            ok_, _d = _hub_key(o.name)
+            by_name_ = ok_.startswith(key + " ")
+            foreign = {mm.lower() for f, ms, _e in o.plugins for mm in ms if mm.lower() not in BASE_MASTERS}
+            built_on = bool(own) and bool(o.plugins) and bool(foreign) and foreign <= own
+            if by_name_ or built_on:
+                sats.append(o)
+        if len(sats) >= HUB_MIN:
+            cands.append((len(sats), h, display, sats))
+    claimed = set()
+    for _n, h, display, sats in sorted(cands, key=lambda x: -x[0]):
+        if h.name in claimed:
+            continue
+        sats = [s for s in sats if s.name not in claimed]
+        if len(sats) < HUB_MIN or norm(display) in {norm(x) for x in LEAVES}:
+            continue
+        t = tier_of(h.category)
+        names = TIERS.get(t, ())
+        ci = next((i for i, n in enumerate(names) if norm(n) == norm(h.category)), len(names))
+        HUB_LEAVES[norm(display)] = (t, ci + 0.5)
+        for m in [h] + sats:
+            claimed.add(m.name)
+            m.category, m.why = display, (f"a big mod's own block: {len(sats)} mods are named for {h.name} or built on it (P5); {m.why}"
+                                          if m is h else f"with {h.name}, in its own block (P5); {m.why}")
 
 
 def read_nexus_catmap(instance_dir):
@@ -1814,9 +2088,37 @@ def read_nexus_catmap(instance_dir):
     return out
 
 
-def plan_mo2_category_updates(mods, categories, instance_dir):
-    """[(mod name, meta.ini path, MO2 category id, Nexus category name)] for every mod that has a Nexus page whose
-    category Nexus reports, and no MO2 category of its own. MO2's own "import categories from Nexus" only fills the
+# Skyrim Special Edition's Nexus category names, as MO2's nexuscatmap.dat lists them (Njordlinger, 2026-09-26)
+NEXUS_SSE_CATEGORIES = (
+    "Skyrim Special Edition", "Buildings", "Gameplay", "Guilds/Factions", "Body, Face, and Hair", "Items and Objects - Player",
+    "Miscellaneous", "Models and Textures", "NPC", "Races, Classes, and Birthsigns", "Quests and Adventures",
+    "Weapons and Armour", "Utilities", "Cheats and God items", "User Interface", "Save Games", "Animation",
+    "Cities, Towns, Villages, and Hamlets", "Armour", "Weapons", "Clothing and Accessories", "Visuals and Graphics",
+    "Followers & Companions - Creatures", "Player homes", "Skills and Leveling", "Environmental",
+    "Magic - Spells & Enchantments", "Stealth", "Combat", "Immersion", "Overhauls", "Modders Resources",
+    "Creatures and Mounts", "Patches", "Items and Objects - World", "Dungeons", "Locations - New", "Locations - Vanilla",
+    "Collectables, Treasure Hunts, and Puzzles", "Magic - Gameplay", "Alchemy", "Bug Fixes", "Followers & Companions",
+    "Presets - ENB and ReShade", "Crafting", "Armour - Shields", "Shouts", "VR", "Audio")
+
+
+def read_nexus_names(instance_dir):
+    """Every Nexus category NAME MO2 knows (normalised), mapped or not, from nexuscatmap.dat - the table MO2 fills when
+    it imports categories from Nexus. Replaces asking Nexus per mod (2026-09-26): an MO2 category that only repeats one
+    of these names is Nexus's label, not the user's statement."""
+    out = {norm(x) for x in NEXUS_SSE_CATEGORIES}     # the table can be empty (Apostasy's is): these always count
+    try:
+        for line in open(os.path.join(instance_dir, "nexuscatmap.dat"), encoding="utf-8", errors="ignore"):
+            parts = line.rstrip("\r\n").split("|")
+            if len(parts) >= 3 and parts[1].strip():
+                out.add(norm(parts[1]))
+    except OSError:
+        pass
+    return frozenset(out)
+
+
+def plan_mo2_category_updates(mods, nexus_names, instance_dir):
+    """[(mod name, meta.ini path, MO2 category id, decided category)] for every mod whose decided category MO2 has an id
+    for, and no MO2 category the user set himself. MO2's own "import categories from Nexus" only fills the
     mapping table; a mod is categorised only when MO2 queries it, which 1,960 of the owner's 2,110 never were."""
     catmap = read_nexus_catmap(instance_dir)
     mods_dir = os.path.join(instance_dir, "mods")
@@ -1837,8 +2139,8 @@ def plan_mo2_category_updates(mods, categories, instance_dir):
         current = [names.get(c, "") for c in (m.mo2_cats or [])]
         if any(norm(c) == norm(m.category) for c in current):
             continue
-        nexus_cat = categories.get(str(m.nexus_id), "") if m.nexus_id else ""
-        user_set = any(c and norm(c) not in (norm(nexus_cat), "unpublished", "test") for c in current)
+        # set by the user = a category that is neither a Nexus category name (whoever wrote it) nor our own markers
+        user_set = any(c and norm(c) not in nexus_names and norm(c) not in ("unpublished", "test") for c in current)
         if user_set:
             continue
         out.append((m.name, os.path.join(mods_dir, m.name, "meta.ini"), mo2_id, m.category))
@@ -1907,10 +2209,22 @@ def build(mods, rules=None, min_run=2):
     real = [m for m in mods if not is_sep(m.name) and "missing" not in m.flags]
     by_name = {m.name: m for m in real}
 
+    def inner(m):
+        # P8 (the owner, 2026-09-26, from the Apostasy author's order: 77% of neighbours alphabetical, families together,
+        # their patch collections last): inside a block, by family (the name's first word), a family's patch
+        # collections and patches after its other mods, then alphabetically. A base sorts before its addons because its
+        # name is their prefix. The evidence edges (masters, the resolver's name / patch / specificity verdicts) still
+        # decide every pair they know about; this only orders what nothing else does - never today's position.
+        plain = TAG_PATCH.sub(" ", TAG_NODELETE.sub("", m.name)).strip().lower()
+        words_ = re.findall(r"[a-z0-9]+", plain)
+        family = words_[0] if words_ else ""
+        patchy = 1 if (_PATCH_WORD.search(plain) or TAG_PATCH.search(m.name) or re.search(r"\bpatch hub\b", plain)) else 0
+        return (family, patchy, plain)
+
     def rank(m):
         k = norm(m.category)
         if k == NODELETE_SEP.lower():
-            return (index_tier(NODELETE_SEP), 0, m.index)
+            return (index_tier(NODELETE_SEP), 0, ("", 0, f"{m.index:08d}"))     # the NoDelete block keeps its own order
         if True:
             # tier, then the category's place in that tier's own list, then today's position. Until 2026-09-23 the
             # order inside a tier was today's position alone, and the blocks were labels stamped over runs of it -
@@ -1919,12 +2233,15 @@ def build(mods, rules=None, min_run=2):
             # edges below, which pull a winner down under its loser and relabel it there (the 'displaced' list).
             if m.twin and m.twin in by_name and by_name[m.twin] is not m:
                 base = rank(by_name[m.twin])
-                return (base[0], base[1], base[2] + 0.5)      # directly behind the copy it supersedes
+                return (base[0], base[1], base[2] + (1,))     # directly behind the copy it supersedes
             t = index_tier(m.category)
             names = TIERS.get(t, ())
             k = norm(m.category)
-            ci = next((i for i, n in enumerate(names) if norm(n) == k), len(names))
-            return (t, ci, m.index)
+            if k in HUB_LEAVES:                               # P5: a big mod's block, straight after its category's
+                t, ci = HUB_LEAVES[k]
+            else:
+                ci = next((i for i, n in enumerate(names) if norm(n) == k), len(names))
+            return (t, ci, inner(m))
 
     # --- edges: x above y ----------------------------------------------------------------------------------------
     above = {}                     # above[y] = {x}
@@ -1966,8 +2283,12 @@ def build(mods, rules=None, min_run=2):
     outputs = [m for m in real if norm(m.category) == norm("Generated Outputs")]
     for o in outputs:
         for m in real:
-            if m is not o and m.enabled and norm(m.category) not in (norm("Generated Outputs"), norm("Test Builds"), NODELETE_SEP.lower()):
+            if m is not o and m.enabled and norm(m.category) not in (norm("Generated Outputs"), norm("Test Builds"), norm("Optional Addons"), NODELETE_SEP.lower()):
                 edge(m, o, "generated output loads last")
+    for a in (m for m in real if m.enabled and norm(m.category) == norm("Optional Addons")):
+        for o in outputs:                   # P10: a switched-on addon wins over the list's outputs as well
+            if o.enabled:
+                edge(o, a, "an optional addon loads after the generated outputs")
     # DYNDOLOD'S OUTPUT IS THE LAST OF THE OUTPUTS (2026-09-24): DynDOLOD.esp, then Occlusion.esp, end the plugin order -
     # DynDOLOD generates against everything before it. The main-profile plan put PGPatcher's PG_1.esp after them, which
     # nj-order-audit.py fails a launch on ("active plugin(s) load after DynDOLOD.esp / Occlusion.esp").
@@ -2158,6 +2479,8 @@ def build(mods, rules=None, min_run=2):
         # categories); PBR and specificity only between mods of the SAME category, where nothing else orders them -
         # across categories the category order is the stronger evidence (2026-09-23: More Accurate Collision, an
         # Immersion mod of 4,192 files, had pulled 36 texture packs under Immersion by size alone)
+        # (the material-version verdict is same-block only as well: across blocks it pulled Illustrious Whiterun - Parallax
+        # Meshes below a Performance mod, and it then beat Lux and the Whiterun mods the Apostasy author has winning)
         if verdict is not None and not same_cat_pair and not (verdict[2].startswith("named for") or verdict[2].startswith("a patch")):
             verdict = None
         if verdict is not None:
@@ -2421,7 +2744,9 @@ def plugin_order(rows, mods_by_name, ruler_user_rules=()):
         for mst in masters_of.get(f.lower(), ()):
             if mst in present:
                 edges.setdefault(f.lower(), set()).add(mst)
-    first, last = set(), set()
+    # DynDOLOD.esp, then Occlusion.esp, end the plugin order whatever sits below the outputs in the pane (an Optional
+    # Addon, P10): DynDOLOD generates against everything before it, and the launch audit fails a plugin after them
+    first, last = set(), {f for f in present if f in ("dyndolod.esp", "occlusion.esp")}
     for r in ruler_user_rules:
         if not r.get("enabled", True):
             continue
@@ -2731,11 +3056,12 @@ def check_expectations(mods):
         placed = m.category or ""
         wants = want if isinstance(want, list) else [want]
         ok = False
+        fixes = {norm(x) for x in FIX_FAMILY}
         for w in wants:
             if w.startswith("!"):
                 ok = norm(got) != norm(w[1:])
-            elif norm(got) == norm(w):
-                ok = True
+            elif norm(got) == norm(w) or (norm(w) == norm("Bug Fixes") and norm(got) in fixes):
+                ok = True                     # "a bug fix" is the family; P3 files it by what it overwrites (2026-09-26)
             if ok:
                 break
         shown = got if norm(placed) == norm(got) else f"{got} (placed under {placed}: {(m.why or '').split(':', 1)[0]})"
@@ -2933,7 +3259,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     rows, header = read_modlist(ml)
     mods = scan(mods_dir, rows, progress)
     test_pairs = pair_test_builds(mods)
-    cats, asked, got = fetch_categories([m.nexus_id for m in mods], os.path.join(cache_dir, "nexus-categories.json"), domain, progress, log)
+    nexus_names = read_nexus_names(instance_dir)     # MO2's own table: no Nexus request (2026-09-26)
     under = set()
     inside = False
     for nm, _ in rows:
@@ -2945,7 +3271,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     plugin_state = plan_plugin_state(mods, os.path.join(instance_dir, "profiles", profile), theirs)
     community = load_community(cache_dir)
     mo2_names = read_mo2_categories(instance_dir)
-    place(mods, cats, mo2_names, under, ours.get("pins"), community)
+    place(mods, nexus_names, mo2_names, under, ours.get("pins"), community)
     new_rows, facts = build(mods, ours.get("rules"), min_run)
     facts["expectations"] = check_expectations(mods)
     facts["community"] = len(community)
@@ -2953,11 +3279,11 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     by_name = {m.name: m for m in mods}
     plugins = plugin_order(new_rows, by_name, theirs)
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
-            "category_updates": plan_mo2_category_updates(mods, cats, instance_dir),
+            "category_updates": plan_mo2_category_updates(mods, nexus_names, instance_dir),
             "plugin_groups": plugin_groups(new_rows, by_name), "bpm": bpm_installed(instance_dir),
             "plugin_state": plugin_state, "test_pairs": test_pairs,
             "plugins": plugins, "rules": ruler_rules(mods), "mod_rules": ours,
-            "nexus": f"{len(cats)} categories cached, {got} of {asked} fetched now",
+            "nexus": f"no Nexus request; {len(nexus_names)} Nexus category names read from nexuscatmap.dat",
             "modlist_path": ml, "mods_dir": mods_dir}
 
 
@@ -3039,13 +3365,13 @@ except ImportError:      # the offline runner
 if mobase is not None:
     try:
         from PyQt6.QtCore import QSize, Qt, QTimer, QUrl
-        from PyQt6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QShortcut
+        from PyQt6.QtGui import QAction, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap, QShortcut
         from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView,
                                      QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
                                      QToolButton, QTreeView, QVBoxLayout, QWidget)
     except ImportError:
         from PyQt5.QtCore import QSize, Qt, QTimer, QUrl
-        from PyQt5.QtGui import QDesktopServices, QIcon, QKeySequence
+        from PyQt5.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap
         from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView,
                                      QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
@@ -3119,7 +3445,7 @@ if mobase is not None:
             self.setWindowTitle("MO2 Modlist Manager")
             self.resize(1100, 720)
             root = QVBoxLayout(self)
-            self.summary = QLabel("Reading the list and asking Nexus for categories...")
+            self.summary = QLabel("Reading the list...")
             self.summary.setWordWrap(True)
             root.addWidget(self.summary)
             self.tabs = QTabWidget()
@@ -3308,15 +3634,11 @@ if mobase is not None:
 
         def compute(self):
             self.b_apply.setEnabled(False)
-            self.summary.setText("Reading the list and asking Nexus for categories...")
+            self.summary.setText("Reading the list...")
             QApplication.processEvents()
             try:
                 def progress(done, total, what):
-                    # the first run asks Nexus for every mod's category, twenty a request - a couple of minutes on a
-                    # 2,000-mod list; say so instead of sitting on "reading the list"
-                    if what == "nexus":
-                        self.summary.setText(f"Asking Nexus for categories: {done} of {total} mods (cached after this run)...")
-                    elif total and done % 200 == 0:
+                    if total and done % 200 == 0:
                         self.summary.setText(f"Reading the list: {done} of {total}...")
                     QApplication.processEvents()
                     return True
@@ -3327,7 +3649,7 @@ if mobase is not None:
                 return
             r = self._result
             mods = [m for m in r["mods"] if not is_sep(m.name)]
-            self.b_cats.setText(f"Update MO2 categories from Nexus ({len(r.get('category_updates', []))} without one)")
+            self.b_cats.setText(f"Write decided categories to MO2 ({len(r.get('category_updates', []))} to write)")
             self.summary.setText(
                 f"{len(mods)} mods - {r['nexus']} - {len(r['moves'])} mod(s) change separator or line - "
                 f"{len(r['facts']['created'])} separator(s) created, {len(r['facts']['retired'])} retired - "
@@ -3388,7 +3710,7 @@ if mobase is not None:
                 self._p._organizer.refresh(False)     # re-read the meta.ini files just written; never save over them
             except Exception:  # noqa: BLE001
                 pass
-            self.status.setText(f"MO2 categories written for {done} of {len(ups)} mod(s) from their Nexus category; MO2 refreshed.")
+            self.status.setText(f"MO2 categories written for {done} of {len(ups)} mod(s) from their decided category; MO2 refreshed.")
             self.compute()
 
         def apply(self):
@@ -3424,6 +3746,7 @@ if mobase is not None:
             # toolbar exists, insert the action before Settings, then keep checking lightly - MO2 rebuilds parts of
             # the toolbar when executables or its style change, and the button is put back when that drops it.
             self._toolbar_action = None
+            self._icon_colour = None                     # the colour the button's icon is painted in now
             self._toolbar_timer = QTimer()
             self._toolbar_timer.setInterval(500)
             self._toolbar_timer.timeout.connect(self._keep_toolbar_button)
@@ -3453,6 +3776,7 @@ if mobase is not None:
                 tb = toolbars[0]
                 if self._toolbar_action is not None and self._toolbar_action in tb.actions():
                     self._toolbar_timer.setInterval(2000)      # in place: just keep an eye on it
+                    self._tint_button(tb)                      # and on the theme it is drawn in
                     return
                 act = QAction(self.icon(), self.displayName(), window)
                 act.setObjectName("MO2ModlistManagerAction")
@@ -3475,9 +3799,50 @@ if mobase is not None:
                     btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
                     btn.setIconSize(tb.iconSize())
                 self._toolbar_action = act
+                self._icon_colour = None
+                self._tint_button(tb)
                 self._log("toolbar button added")
             except Exception as exc:  # noqa: BLE001
                 self._log(f"toolbar button: {exc!r}")
+
+        # THE BUTTON FOLLOWS THE THEME (the owner, 2026-09-26: "make sure that the button that's included with the plugin
+        # responds to theme changes and style sheet changes"). The PNG is only the SHAPE: its alpha is filled with the
+        # colour MO2's current stylesheet gives this toolbar button (the palette Qt resolves from the QSS on polish -
+        # button text, else window text), and repainted whenever that colour changes. The button is re-checked every two
+        # seconds already, so switching the theme, editing the .qss or MO2 rebuilding the toolbar all reach it.
+        def _themed_icon(self, colour):
+            src = QPixmap(os.path.join(os.path.dirname(os.path.abspath(__file__)), "MO2ModlistManager.png"))
+            if src.isNull():
+                return QIcon()
+            out = QPixmap(src.size())
+            out.fill(QColor(0, 0, 0, 0))
+            p = QPainter(out)
+            p.drawPixmap(0, 0, src)
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+            p.fillRect(out.rect(), colour)
+            p.end()
+            return QIcon(out)
+
+        def _button_colour(self, widget):
+            widget.ensurePolished()
+            pal = widget.palette()
+            c = pal.color(QPalette.ColorRole.ButtonText)
+            if not c.isValid() or c.alpha() == 0:
+                c = pal.color(QPalette.ColorRole.WindowText)
+            return c
+
+        def _tint_button(self, tb):
+            act = self._toolbar_action
+            btn = tb.widgetForAction(act) if act is not None else None
+            if btn is None:
+                return
+            c = self._button_colour(btn)
+            key = c.name(QColor.NameFormat.HexArgb)
+            if key == self._icon_colour:
+                return
+            act.setIcon(self._themed_icon(c))
+            self._icon_colour = key
+            self._log(f"toolbar icon painted in {key} (the theme's button colour)")
 
         def name(self):
             return "MO2 Modlist Manager"
@@ -3486,8 +3851,8 @@ if mobase is not None:
             return "ApocryphaRealm"
 
         def description(self):
-            return ("Generates the left pane: separators named after each mod's Nexus category in load order, mods placed "
-                    "under them, masters above dependents, the plugin list following the pane. Preview first, one Apply.")
+            return ("Generates the left pane: separators for each mod's category in load order, mods placed under them from "
+                    "their own evidence, masters above dependents, the plugin list following the pane. Preview first, one Apply.")
 
         def version(self):
             return mobase.VersionInfo(1, 0, 0, mobase.ReleaseType.FINAL)
@@ -3545,6 +3910,11 @@ if mobase is not None:
             return "Generate separators and place every mod in order"
 
         def icon(self):
+            # the Tools-menu entry: the application's text colour at the moment MO2 asks (the toolbar button is kept in
+            # the stylesheet's colour by _tint_button)
+            app = QApplication.instance()
+            if app is not None:
+                return self._themed_icon(app.palette().color(QPalette.ColorRole.WindowText))
             p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MO2ModlistManager.png")
             return QIcon(p) if os.path.isfile(p) else QIcon()
 

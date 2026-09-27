@@ -71,4 +71,14 @@ for prof in profiles:
     for e in missed: print(f"       ruling missed: {e[0]} wanted {e[1]} got {e[2]}")
     bad_total += status == "FAIL"
 
+# THE WINNERS MUST NOT GET WORSE (2026-09-26): against the Apostasy author's own order, the share of contested files and
+# records where the manager picks the author's winner may not fall below tools\apostasy-baseline.json. Skipped (not
+# failed) on a machine without the Apostasy instance.
+if "--no-reference" not in args:
+    s = subprocess.run([sys.executable, os.path.join(HERE, "tools", "apostasy_score.py")], capture_output=True, text=True)
+    out = (s.stdout or s.stderr).strip().splitlines()
+    for line in out:
+        print(("      " if not line.startswith(("PASS", "FAIL", "SKIP", "Apostasy")) else "") + line)
+    bad_total += s.returncode != 0
+
 sys.exit(1 if bad_total else 0)

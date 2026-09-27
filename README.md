@@ -24,10 +24,17 @@ Placement tab shows every vote for every mod, so a placement is always explainab
 * **a category you set yourself in MO2** that names one of the tree's leaves - your statement, and decisive;
 * **community verdicts** - what other users filed for the same mod (below), weighted by how many agree.
 
-No Nexus category is used: they got in the way. Rules over the votes encode the owner's reasoning - a name that says
-fix is a fix, a mod that alters far more than it adds is about existing things, spells shipped with a DLL or
-animations are a mechanism, a readme names what a mod requires and not what it is, "X Menu" is about X, a leveled-list
-injector is the patch layer, and so on - each written beside its case in the source.
+No Nexus category is used and nothing is asked of Nexus: they got in the way. Rules over the votes encode the owner's
+reasoning - a name that says fix is a fix, a mod that alters far more than it adds is about existing things, spells
+shipped with a DLL or animations are a mechanism, a readme names what a mod requires and not what it is, "X Menu" is
+about X, a leveled-list injector is the patch layer, and so on - each written beside its case in the source.
+
+The ORDER follows ten rules read off a hand-built published list (Apostasy) and measured on it: the world broad to
+specific with lighting after what it re-authors; core blocks by mechanism (plugin, script, SKSE and mesh fixes; SKSE
+tweaks of the world and items); performance swaps after the patches; a big location or quest mod in a block of its own;
+asset patches that name two mods in Patches; physics after hair and body; icon packs after the UI overhaul; optional
+addons after the outputs; and inside a block, families together with their patches last, then alphabetical - never
+today's position, so the result does not depend on the order the list starts in.
 
 `expectations.json` holds the owner's rulings as a scorecard. The offline dry run
 (`python MO2ModlistManager.py <instance dir> <profile> <cache dir>`) reports how many are met; a ruling is folded

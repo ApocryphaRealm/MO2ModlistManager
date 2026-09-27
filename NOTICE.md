@@ -8,6 +8,7 @@ License as published by the Free Software Foundation, either version 3 of the Li
 version. It is distributed WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 PARTICULAR PURPOSE. See LICENSE for the full text.
 
-It links against nothing but Mod Organizer 2's own Python plugin API (`mobase`) and the PyQt bindings MO2 ships. The
-Nexus Mods v2 GraphQL endpoint is queried only for a mod's category name (cached), and the community-verdict exchange
-sends only what README.md's disclosure lists, and only when the user presses Send.
+It links against nothing but Mod Organizer 2's own Python plugin API (`mobase`) and the PyQt bindings MO2 ships. It
+contacts no service except the optional community-verdict exchange (GitHub issues, or a drop box the user sets), which
+sends only what the README's disclosure lists, and only when the user presses Send. Third-party notices:
+THIRD_PARTY_NOTICES.md.
