@@ -18,6 +18,23 @@ Every version, beside the code it describes. Status is the version ledger's word
 - Apply now records its profile and the separators it created and retired (applied.json in the backup). For older
   backups the profile is a guess, from which profile's mod list the backup matches best, and the guess is marked in
   the list.
+- **Game-version aware.** The owner: "make the plugin game version aware by checking stock game". The manager reads
+  the game executable in the instance's game folder (gamePath, a Wabbajack list's Stock Game, else Stock Game or Game
+  Root). It reads the FileVersion string, because Bethesda's fixed version block says 1.0.0.0; the owner's
+  instances read 1.5.97, 1.6.1170 and 1.7.104.
+  - A mod's name says which game version it is for ("for Skyrim 1.5", "1.5.97", "AE", "1.6.1170", "1.7.104"). A name
+    that says both (SE-AE, "SSE and AE") fits either, and a mod's own version number (Dragon's Eye 1.7.3) is not a game
+    version.
+  - Two mods shipping one SKSE DLL: the build for this game wins. This replaces the old rule that anything saying "1.5"
+    wins, which was wrong on AE.
+  - Two copies from one Nexus page: the copy for this game wins over a newer one for another version.
+  - A copy for this game is never switched off as an old copy.
+  - Nothing is ever switched off for being made for another version.
+- **Verdicts are no longer sent from the plugin.** The owner: "remove the send verdicts button and make the verdicts
+  folder populated after an apply". The Share verdicts button, its send window, the GitHub-issue sending and the
+  one-time sharing notice are gone. Every Apply, headless included, writes the verdicts to
+  plugins\data\MO2ModlistManager\verdicts\verdicts-<profile>-<stamp>.json for the user to send by hand. The owner's
+  copy keeps "Fetch community verdicts", which pools the files dropped in its inbox.
 
 ## 1.0.7 - 2026-09-27 - untested
 

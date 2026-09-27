@@ -41,6 +41,9 @@ release tag and follow its shape. Read 2026-09-26 for MO2 **2.5.2** (the version
 
 ## Departures
 
+The game version (1.0.8) is read from the game executable's FileVersion string in the instance's gamePath, the folder MO2 itself launches; MO2 exposes it as `managedGame().gameVersion()`, which the offline runner cannot call, so the file is read the same way in both.
+
+
 Restore backup (1.0.8) lists its choices in a QInputDialog rather than MO2's SelectionDialog, which mobase does not expose; the order, the wording and the no-save refresh are MO2's.
 
 

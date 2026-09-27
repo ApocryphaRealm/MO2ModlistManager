@@ -1,6 +1,6 @@
 MO2 Modlist Manager
 ===================
-Version 1.0.7
+Version 1.0.8
 
 A Mod Organizer 2 plugin that sorts the whole left pane for you: it generates the separators, places every mod under
 the category its own evidence decides, puts masters above the mods that need them, and makes the plugin list follow
@@ -74,12 +74,28 @@ Apply keeps a backup of the lists under plugins\data\MO2ModlistManager\backups\<
 "Write decided categories to MO2" stores each mod's decided category in its meta.ini as its MO2 category; a category
 you set yourself is left alone.
 
-SHARING VERDICTS (optional, off unless you use it)
---------------------------------------------------
-"Share verdicts..." lists the mods whose MO2 category you set yourself where the evidence alone would have placed
-them elsewhere, and exactly what would be sent: the mod's name, its Nexus id, your category, the evidence's category
-and a coarse summary of the evidence. No file paths, user names or machine details. Every row is on screen before
-Send, and without a drop-box address in the plugin settings Send opens a prefilled GitHub issue for you to post.
+RESTORE BACKUP
+--------------
+"Restore backup..." beside Apply lists every backup newest first, with the profile it came from. The one you choose
+puts the profile back as it was before that Apply: the mod list, plugin list, load order and plugin groups, the
+separators the Apply retired (and the ones it created set aside), and the plugins it moved to or from Optional ESPs.
+Your own rules stay. The state it replaces is backed up first, so a restore can itself be restored.
+
+GAME VERSION
+------------
+The manager reads the version of the game the instance runs - the executable in the instance's game folder (a
+Wabbajack list's Stock Game) - and prefers the build made for it: when two mods ship the same SKSE plugin, the one
+whose name says it is for your version ("for Skyrim 1.5", "1.5.97", "AE", "1.6.1170", "1.7.104") wins; of two copies
+from one Nexus page, the one for your version wins over a newer one for another; and a copy made for your version is
+never switched off as an old copy. A name that says both versions (SE-AE) fits either. Nothing is switched off for
+being made for another version.
+
+VERDICTS
+--------
+After every Apply, the mods whose MO2 category you set yourself where the manager would have placed them elsewhere
+are written to plugins\data\MO2ModlistManager\verdicts\verdicts-<profile>-<date>.json: each mod's name, its Nexus
+id, your category, the manager's category and a coarse summary of the mod - no file paths, user names or machine
+details. Nothing is sent from the plugin. If you want future versions to place those mods your way, send us the file.
 
 DEBUGGING
 ---------
