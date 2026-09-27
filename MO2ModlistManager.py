@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.0.9"
+__version__ = "1.1.0"
 
 import collections
 import configparser
@@ -3089,7 +3089,7 @@ def save_written_categories(cache_dir, written):
               sort_keys=True)
 
 
-def plan_mo2_category_updates(mods, instance_dir, written=None):
+def plan_mo2_category_updates(mods, instance_dir, written=None, placed_as=None):
     """[(mod name, category, the category of ours it replaces or None)]: every mod with NO MO2 category gets the block
     the manager decided for it, and a category this plugin wrote earlier follows the decision when it moves. A
     category the user set himself is never touched."""
@@ -3099,7 +3099,7 @@ def plan_mo2_category_updates(mods, instance_dir, written=None):
     for m in mods:
         if is_sep(m.name) or "missing" in m.flags:
             continue
-        leaf = m.decided if m.decided and norm(m.decided) not in POOL_HOME else m.category
+        leaf = (placed_as or {}).get(m.name) or m.category
         if not leaf or norm(leaf) in (NODELETE_SEP.lower(), norm("Uncategorised")) or leaf.startswith("displaced"):
             continue
         current = [names[c] for c in (m.mo2_cats or []) if c in names]
@@ -4465,7 +4465,8 @@ def load_community(cache_dir):
 def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, min_run=2):
     """Everything up to (not including) writing. Returns a dict the dialog and the offline runner both use."""
     global MO2_WRITTEN
-    MO2_WRITTEN = load_written_categories(cache_dir)
+    MO2_WRITTEN = dict(load_written_categories(os.path.join(instance_dir, "plugins", "data", "MO2ModlistManager")))
+    MO2_WRITTEN.update(load_written_categories(cache_dir))
     mods_dir = os.path.join(instance_dir, "mods")
     ml = os.path.join(instance_dir, "profiles", profile, "modlist.txt")
     rows, header = read_modlist(ml)
@@ -4500,6 +4501,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
         if k.category:
             g.category, g.group = k.category, k.group
             g.why = f"a second copy of {kept} ({_arc}): switched off, beside it"
+    placed_as = {m.name: m.category for m in mods}          # before build() displaces or folds anything
     new_rows, facts = build(mods, ours.get("rules"), min_run)
     facts["expectations"] = check_expectations(mods)
     facts["redundant"] = redundant
@@ -4519,7 +4521,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     by_name = {m.name: m for m in mods}
     plugins = plugin_order(new_rows, by_name, theirs)
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
-            "category_updates": plan_mo2_category_updates(mods, instance_dir, MO2_WRITTEN),
+            "category_updates": plan_mo2_category_updates(mods, instance_dir, MO2_WRITTEN, placed_as),
             "plugin_groups": plugin_groups(new_rows, by_name), "bpm": bpm_installed(instance_dir),
             "plugin_state": plugin_state, "test_pairs": test_pairs,
             "plugins": plugins, "rules": ruler_rules(mods), "mod_rules": ours,

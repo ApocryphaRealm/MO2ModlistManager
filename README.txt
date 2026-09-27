@@ -1,10 +1,11 @@
 MO2 Modlist Manager
 ===================
-Version 1.0.9
+Version 1.1.0
 
 A Mod Organizer 2 plugin that sorts the whole left pane for you: it generates the separators, places every mod under
 the category its own evidence decides, puts masters above the mods that need them, and makes the plugin list follow
-the pane. Nothing is written until you press Apply, and Apply backs up the profile's lists first.
+the pane. Nothing is written until you press Apply, Apply backs up the profile's lists first, and any backup can
+be restored.
 
 THIS IS NOT A MOD. Do not install it with the mod manager.
 
@@ -16,7 +17,8 @@ A mod is placed by what it contains and changes, not by its Nexus category or wh
   - what the mod says about itself: its name, its plugins' descriptions, its readme and FOMOD info;
   - its structure: plugins built on other mods (a patch), a master many mods depend on (a framework), a name that
     says it is an addon of another mod in the list;
-  - a category you set yourself in MO2, if it names one of the manager's categories - your word, and decisive.
+  - a category you set yourself in MO2, if it names one of the manager's categories - your word, and decisive (the
+    categories the manager's own category button wrote are not counted as yours).
 Nexus categories are not used and Nexus is never contacted. The "Every placement" tab shows every mod's block and
 what it was placed by.
 

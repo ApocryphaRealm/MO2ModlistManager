@@ -2,6 +2,17 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.1.0 - 2026-09-27 - untested
+
+- **The record of categories the button wrote is read from the instance's own plugins\data\MO2ModlistManager folder**,
+  as well as the cache folder in use. After the owner pressed the button (2,122 categories), the offline runner and the
+  self-check read those categories as his own statements, from their own cache folders, and 10 rulings missed. Inside
+  MO2 the two folders are the same, so the plugin itself was not affected.
+- **The category a mod is given is the block placement ended on**, taken after every pass and before a master
+  displaces the mod or a small block is folded into a neighbour. It had been the evidence's first decision; for the
+  owner's list the two agree.
+- README: any backup can be restored, and the button's own categories are not counted as yours.
+
 ## 1.0.9 - 2026-09-27 - untested
 
 - **The game-version reading from 1.0.8 is removed.** The owner: "lets not make it game version specific as there are
