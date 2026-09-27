@@ -2,6 +2,23 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.0.8 - 2026-09-27 - untested
+
+- **Restore backup...** is a new button beside Apply. The owner: "lets add a restore backup button". It works like
+  MO2's own restore (mainwindow.cpp at v2.5.2):
+  1. Every backup is listed newest first by its time, with the profile it came from.
+  2. You choose one and confirm.
+  3. The profile's mod list, plugin list, load order and plugin groups are copied back, and MO2 refreshes without
+     saving.
+- A restore also undoes what the Apply did outside those files. The separators it retired come back, and the empty
+  separators it created are set aside. Plugins it moved to or from Optional ESPs are moved back. From the rules file
+  only the automatic facts are restored; your own rules stay.
+- The state a restore replaces is backed up first, in the same shape, so a restore can be undone by restoring that
+  backup.
+- Apply now records its profile and the separators it created and retired (applied.json in the backup). For older
+  backups the profile is a guess, from which profile's mod list the backup matches best, and the guess is marked in
+  the list.
+
 ## 1.0.7 - 2026-09-27 - untested
 
 - **No "Other" blocks and no Miscellaneous.** The owner: "yes break them up".

@@ -12,6 +12,7 @@ release tag and follow its shape. Read 2026-09-26 for MO2 **2.5.2** (the version
 | a separator | https://github.com/ModOrganizer2/modorganizer/blob/v2.5.2/src/modlistviewactions.cpp (`ModListViewActions::createSeparator`), https://github.com/ModOrganizer2/modorganizer/blob/v2.5.2/src/modinfoseparator.cpp, https://github.com/ModOrganizer2/modorganizer/blob/v2.5.2/src/modinfo.cpp (the `.*_separator` name test) |
 | a mod's category in meta.ini | https://github.com/ModOrganizer2/modorganizer/blob/v2.5.2/src/modinforegular.cpp (`ModInfoRegular::saveMeta`) |
 | the toolbar | https://github.com/ModOrganizer2/modorganizer/blob/v2.5.2/src/mainwindow.cpp (`setupToolbar`, `setupActionMenu`, `updatePinnedExecutables`) |
+| restoring a backup (read 2026-09-27 for 1.0.8) | https://github.com/ModOrganizer2/modorganizer/blob/v2.5.2/src/mainwindow.cpp (`createBackup`, `queryRestore`, `on_restoreButton_clicked`, `on_restoreModsButton_clicked`) |
 
 ## What MO2 does
 
@@ -23,6 +24,7 @@ release tag and follow its shape. Read 2026-09-26 for MO2 **2.5.2** (the version
 | lockedorder.txt | `name|priority` lines for locked plugins |
 | a separator | an ordinary mod folder named `<name>_separator`, created through `createMod` (a folder with a meta.ini), placed at the priority the user picked; ModInfo recognises it by the `_separator` suffix alone |
 | category | `category="<primary>,<others>"` in meta.ini's [General], written with every other meta field by QSettings |
+| restoring a backup | a backup is a copy of the file beside it named `<file>.yyyy_MM_dd_hh_mm_ss` (ten kept); `queryRestore` lists them newest first by their time in a SelectionDialog ("Choose backup to restore"), or says "There are no backups to restore" ("No Backups"); the chosen copy is shell-copied over the profile's file (plugins.txt, loadorder.txt and lockedorder.txt together; modlist.txt alone), "Restore failed" on an error, then `refreshESPList(true)` for the plugins and `refresh(false)` - no save - for the mod list |
 | toolbar | `ui->toolBar` from the .ui file; action menus (Tools, Help, ...) are InstantPopup; a spacer before the last separator right-aligns the links; pinned executables are `custom__*` actions MO2 removes and re-inserts on every executables change. Plugin tools live in the Tools menu (`actionTool`); MO2 has no API for a plugin's own toolbar button |
 
 ## What the Modlist Manager does, and how it follows MO2
@@ -34,9 +36,13 @@ release tag and follow its shape. Read 2026-09-26 for MO2 **2.5.2** (the version
 | loadorder.txt | the planned order, primary plugins included, the same header, CRLF, UTF-8; never written empty |
 | a separator | a folder `<name>_separator` with a meta.ini (modid 0, category 0, the colour the list's existing separators use); retired separators are moved into the Apply backup, never deleted |
 | category | `category="<id>,"` - the form saveMeta writes - replacing only that line and keeping every other line as it was |
+| restoring a backup | "Restore backup..." beside Apply: every Apply backup and every before-restore backup newest first by its time (`list_backups`, a QInputDialog list - mobase has no SelectionDialog), with the profile it came from (recorded in `applied.json` from 1.0.8; a guess from the list's contents for older ones, marked); MO2's own "No Backups" and "Restore failed" messages; then the lists (modlist.txt, plugins.txt, loadorder.txt, plugingroups.txt) copied back and `refresh(False)` - no save - then the load order set from the restored loadorder.txt, as after Apply. Beyond MO2's files it puts back what an Apply changed outside them - the separators it retired (copied back from the backup), the empty separators it created (set aside), the plugins it moved to or from Optional ESPs (moved back) - and only the automatic facts of the rules file, keeping the rules the user wrote. The state it replaces is backed up first as a backup of the same shape, so a restore can be restored |
 | toolbar | its own QAction inserted before Settings on the first QToolBar, re-inserted when MO2 rebuilds the toolbar (checked every 2 s); object names `MO2ModlistManagerAction` / `MO2ModlistManagerBtn`, so it is never mistaken for a `custom__` executable; the icon painted in the colour Qt's stylesheet style resolves for the button (palette ButtonText), repainted when it changes |
 
 ## Departures
+
+Restore backup (1.0.8) lists its choices in a QInputDialog rather than MO2's SelectionDialog, which mobase does not expose; the order, the wording and the no-save refresh are MO2's.
+
 
 None known. The four found when this file was first written (primary plugins written to plugins.txt, UTF-8 instead
 of the system code page, foreign `*` mods dropped from modlist.txt, no empty-list guard) were fixed in 1.0.0 before

@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.0.7"
+__version__ = "1.0.8"
 
 import collections
 import configparser
@@ -4628,10 +4628,160 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
             log(f"plugin groups written for {n_groups} plugins ({len(set(result.get('plugin_groups', {}).values()))} groups)")
     elif log:
         log("Bethesda Plugin Manager not installed: no plugingroups.txt written")
+    # what this Apply did, for Restore backup: the profile, and the separators it created and retired
+    try:
+        json.dump({"kind": "apply", "profile": profile, "stamp": stamp, "manager": __version__,
+                   "created": list(result["facts"]["created"]), "retired": list(result["facts"]["retired"])},
+                  open(os.path.join(backup, BACKUP_INFO), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    except OSError:
+        pass
     if log:
         log(f"applied: {len(result['rows'])} rows, {len(result['facts']['created'])} separators created, "
             f"{len(result['facts']['retired'])} retired, {len(plugins)} plugins ordered, {len(result['rules'])} auto rules; backups in {backup}")
     return backup
+
+
+# --- Restore backup -----------------------------------------------------------------------------------------------
+# MO2's own Restore Backup (mainwindow.cpp at v2.5.2, queryRestore / on_restoreModsButton_clicked /
+# on_restoreButton_clicked): the backups listed newest first by their time, one chosen, the files copied back over the
+# profile's, then refresh WITHOUT saving (refresh(false)) so MO2 re-reads what was just written. The manager's backup
+# holds more than MO2's - the separators an Apply retired and the plugins it moved - so a restore puts those back too,
+# and it first backs up the state it replaces, so a restore can itself be restored (see MO2-REFERENCE.md).
+BACKUP_INFO = "applied.json"
+BACKUP_LISTS = ("modlist.txt", "plugins.txt", "loadorder.txt", "plugingroups.txt")
+_BACKUP_NAME = re.compile(r"^(\d{8})-(\d{6})(-before-restore)?$")
+
+
+def _modlist_names(path):
+    try:
+        return {ln.strip()[1:] for ln in open(path, encoding="utf-8-sig", errors="replace") if ln[:1] in "+-*"}
+    except OSError:
+        return set()
+
+
+def list_backups(cache_dir, instance_dir):
+    """[(folder, when, profile, profile_known, note)] newest first: every Apply backup and every before-restore backup.
+    A backup older than 1.0.8 did not record its profile: the profile whose modlist.txt shares the most names with it
+    is shown, marked as a guess."""
+    root = os.path.join(cache_dir, "backups")
+    try:
+        names = sorted((n for n in os.listdir(root) if _BACKUP_NAME.match(n)), reverse=True)
+    except OSError:
+        return []
+    profiles_dir = os.path.join(instance_dir, "profiles")
+    try:
+        profiles = {p: _modlist_names(os.path.join(profiles_dir, p, "modlist.txt"))
+                    for p in os.listdir(profiles_dir) if os.path.isdir(os.path.join(profiles_dir, p)) and not p.startswith("_")}
+    except OSError:
+        profiles = {}
+    out = []
+    for n in names:
+        d = os.path.join(root, n)
+        if not os.path.isfile(os.path.join(d, "modlist.txt")):
+            continue
+        mt = _BACKUP_NAME.match(n)
+        when = time.strftime("%d %b %Y %H:%M:%S", time.strptime(mt.group(1) + mt.group(2), "%Y%m%d%H%M%S"))
+        info = {}
+        try:
+            info = json.load(open(os.path.join(d, BACKUP_INFO), encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        prof, known = info.get("profile"), bool(info.get("profile"))
+        if not known and profiles:
+            mine = _modlist_names(os.path.join(d, "modlist.txt"))
+            prof = max(profiles, key=lambda p: len(mine & profiles[p]) / max(1, len(mine | profiles[p])))
+        kind = "before a restore" if mt.group(3) or info.get("kind") == "before-restore" else "before an Apply"
+        out.append((n, when, prof or "", known, kind))
+    return out
+
+
+def restore_backup(backup_dir, instance_dir, profile, cache_dir, log=None):
+    """Put a profile back as the backup holds it. Returns the folder where the replaced state was backed up first."""
+    prof = os.path.join(instance_dir, "profiles", profile)
+    mods_dir = os.path.join(instance_dir, "mods")
+    try:
+        info = json.load(open(os.path.join(backup_dir, BACKUP_INFO), encoding="utf-8"))
+    except (OSError, ValueError):
+        info = {}
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    safety = os.path.join(cache_dir, "backups", stamp + "-before-restore")
+    # never the folder being restored, nor one already there (two restores in one second: the second backup had
+    # overwritten the first before copying it back)
+    while os.path.exists(safety) or os.path.abspath(safety) == os.path.abspath(backup_dir):
+        time.sleep(1)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        safety = os.path.join(cache_dir, "backups", stamp + "-before-restore")
+    os.makedirs(safety)
+    for f in BACKUP_LISTS + (RULES_FILE,):
+        p = os.path.join(prof, f)
+        if os.path.isfile(p):
+            shutil.copy2(p, os.path.join(safety, f))
+    # the separators the Apply created: not in the backup's list, holding nothing but their meta.ini - set aside
+    wanted = _modlist_names(os.path.join(backup_dir, "modlist.txt"))
+    created = info.get("created")
+    if created is None:
+        created = [n for n in os.listdir(mods_dir) if n.endswith("_separator") and n not in wanted]
+    set_aside = []
+    for n in created:
+        d = os.path.join(mods_dir, n)
+        if n in wanted or not os.path.isdir(d):
+            continue
+        try:
+            if any(e.lower() != "meta.ini" for e in os.listdir(d)):
+                continue                                   # not an empty separator folder: never moved
+        except OSError:
+            continue
+        os.makedirs(os.path.join(safety, "retired-separators"), exist_ok=True)
+        shutil.move(d, os.path.join(safety, "retired-separators", n))
+        set_aside.append(n)
+    # the separators the Apply retired: copied back (the backup keeps its copy)
+    brought = []
+    rdir = os.path.join(backup_dir, "retired-separators")
+    if os.path.isdir(rdir):
+        for n in os.listdir(rdir):
+            dst = os.path.join(mods_dir, n)
+            if not os.path.exists(dst):
+                shutil.copytree(os.path.join(rdir, n), dst)
+                brought.append(n)
+    # the plugins the Apply moved to or from Optional ESPs: moved back
+    undone = []
+    try:
+        moves = json.load(open(os.path.join(backup_dir, "plugin-moves.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        moves = []
+    for mv in moves:
+        f, mod = mv.get("plugin"), mv.get("mod")
+        if not f or not mod:
+            continue
+        root_p, opt_p = os.path.join(mods_dir, mod, f), os.path.join(mods_dir, mod, "optional", f)
+        src, dst = (opt_p, root_p) if mv.get("to") == "optional" else (root_p, opt_p)
+        if os.path.isfile(src) and not os.path.exists(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.move(src, dst)
+            undone.append({"plugin": f, "mod": mod, "from": mv.get("to"), "to": mv.get("from"), "why": "restore backup"})
+    if undone:
+        json.dump(undone, open(os.path.join(safety, "plugin-moves.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    # the lists, as they were
+    for f in BACKUP_LISTS:
+        p = os.path.join(backup_dir, f)
+        if os.path.isfile(p):
+            shutil.copy2(p, os.path.join(prof, f))
+    # the rules file: only the automatic facts go back; the rules the user wrote since stay
+    try:
+        old = json.load(open(os.path.join(backup_dir, RULES_FILE), encoding="utf-8"))
+        ours, _ = load_rules(prof)
+        ours["auto_master_rules"] = old.get("auto_master_rules", [])
+        save_rules(prof, ours)
+    except (OSError, ValueError):
+        pass
+    # the state it replaced is an Apply-shaped backup of its own: restoring it undoes this restore
+    json.dump({"kind": "before-restore", "profile": profile, "stamp": stamp, "manager": __version__,
+               "restored": os.path.basename(backup_dir), "created": brought, "retired": set_aside},
+              open(os.path.join(safety, BACKUP_INFO), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    if log:
+        log(f"restored {os.path.basename(backup_dir)} into {profile}: {len(set_aside)} separator(s) set aside, "
+            f"{len(brought)} brought back, {len(undone)} plugin move(s) undone; the replaced state is in {safety}")
+    return safety, set_aside, brought, undone
 
 
 # --- MO2 -------------------------------------------------------------------------------------------------------------------
@@ -4645,14 +4795,14 @@ if mobase is not None:
         from PyQt6.QtCore import QSize, Qt, QTimer, QUrl
         from PyQt6.QtGui import QAction, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap, QShortcut
         from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView,
-                                     QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
+                                     QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
                                      QToolButton, QTreeView, QVBoxLayout, QWidget)
     except ImportError:
         from PyQt5.QtCore import QSize, Qt, QTimer, QUrl
         from PyQt5.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap
         from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QHeaderView,
-                                     QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
+                                     QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar,
                                      QToolButton, QTreeView, QVBoxLayout, QWidget)
         from PyQt5.QtWidgets import QAction
 
@@ -4774,12 +4924,16 @@ if mobase is not None:
             self.b_verdicts.clicked.connect(self.verdicts)
             buttons.addWidget(self.b_verdicts)
             self.b_refresh = QPushButton("Compute again")
+            self.b_restore = QPushButton("Restore backup...")
+            self.b_restore.setToolTip("Put this profile back as it was before an Apply: its mod list, plugin list and load order, "
+                                      "the separators Apply retired and the plugins it moved. What is replaced is backed up first.")
             self.b_apply = QPushButton("Apply")
             self.b_close = QPushButton("Close")
-            for b in (self.b_refresh, self.b_apply, self.b_close):
+            for b in (self.b_refresh, self.b_restore, self.b_apply, self.b_close):
                 buttons.addWidget(b)
             root.addLayout(buttons)
             self.b_refresh.clicked.connect(self.compute)
+            self.b_restore.clicked.connect(self.restore)
             self.b_apply.clicked.connect(self.apply)
             self.b_close.clicked.connect(self.close)
             self.b_apply.setEnabled(False)
@@ -4994,6 +5148,47 @@ if mobase is not None:
             except Exception:  # noqa: BLE001
                 pass
             self.status.setText(f"MO2 categories written for {done} of {len(ups)} mod(s) from their decided category; MO2 refreshed.")
+            self.compute()
+
+        def restore(self):
+            # MO2's shape (queryRestore): the backups newest first, one chosen, a clear "no backups" when there are none
+            org = self._p._organizer
+            backups = list_backups(self._p._cache_dir(), org.basePath())
+            if not backups:
+                QMessageBox.information(self, "No Backups", "There are no backups to restore")
+                return
+            cur = org.profileName()
+            labels = []
+            for n, when, prof, known, kind in backups:
+                who = prof if known else (f"{prof}?" if prof else "profile not recorded")
+                labels.append(f"{when}  -  {who}  -  {kind}")
+            first = next((i for i, b in enumerate(backups) if b[2] == cur), 0)
+            choice, ok = QInputDialog.getItem(self, "Choose backup to restore",
+                                              f"Restore into the profile '{cur}':", labels, first, False)
+            if not ok:
+                return
+            n, when, prof, known, kind = backups[labels.index(choice)]
+            warn = ""
+            if prof != cur:
+                warn = (f"\n\nThis backup was taken from the profile '{prof}'" + ("" if known else " (a guess: older backups did not record it)")
+                        + f", not '{cur}'.")
+            if QMessageBox.question(self, "Restore backup",
+                                    f"Restore the backup of {when} ({kind}) into '{cur}'?\n\n"
+                                    "The mod list, plugin list and load order go back to what the backup holds; separators the Apply "
+                                    "created are set aside, the ones it retired come back, and plugins it moved to or from Optional ESPs "
+                                    f"are moved back. The current state is backed up first, so this can be undone.{warn}") != QMessageBox.StandardButton.Yes:
+                return
+            self.status.setText("Restoring...")
+            QApplication.processEvents()
+            try:
+                safety, aside, brought, undone = self._p.restore(os.path.join(self._p._cache_dir(), "backups", n))
+            except Exception as exc:  # noqa: BLE001
+                self._p._log(f"restore failed: {exc!r}")
+                QMessageBox.critical(self, "Restore failed", f"Failed to restore the backup: {exc}")
+                self.status.setText(f"Restore failed: {exc}")
+                return
+            self.status.setText(f"Restored the backup of {when}: {len(aside)} separator(s) set aside, {len(brought)} brought back, "
+                                f"{len(undone)} plugin(s) moved back. MO2 has been refreshed. The state it replaced is in {safety}.")
             self.compute()
 
         def apply(self):
@@ -5260,6 +5455,19 @@ if mobase is not None:
                 self._log(f"setLoadOrder skipped: {exc!r}")
             self._verify_groups_later(result)
             return backup
+
+        def restore(self, backup_dir):
+            org = self._organizer
+            out = restore_backup(backup_dir, org.basePath(), org.profileName(), self._cache_dir(), self._log)
+            org.refresh(False)                 # re-read the restored files; never save the in-memory lists over them
+            try:
+                lo = os.path.join(org.basePath(), "profiles", org.profileName(), "loadorder.txt")
+                order = [ln.strip() for ln in open(lo, encoding="utf-8-sig", errors="replace") if ln.strip() and not ln.startswith("#")]
+                if order:
+                    org.pluginList().setLoadOrder(order)
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"setLoadOrder after restore skipped: {exc!r}")
+            return out
 
         def _verify_groups_later(self, result):
             """A few seconds after Apply, read plugingroups.txt back: if BPM has written older groups over it, put
