@@ -20,8 +20,9 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 
+import collections
 import configparser
 import json
 import os
@@ -66,33 +67,51 @@ OUTPUT_TOOLS = re.compile(r"\b(dyndolod|texgen|xlodgen|occlusion|pgpatcher|paral
 TAXONOMY = [
     (0, "--- 0 BASE & ENGINE ---", [
         ("Base Game", None), ("Unofficial Patches", None), ("Essential Engine Fixes", None), ("Frameworks", None),
-        ("Utilities", None), ("Bug Fixes", None), ("Script Fixes", None), ("SKSE Plugin Fixes", None),
+        ("Utilities", None), ("Bug Fixes", None),
+        ("Debugging", None),   # the owner, 2026-09-27: "a new category separator called debugging, which goes directly after bug fixes"
+        ("Script Fixes", None), ("SKSE Plugin Fixes", None),
         ("Mesh and Texture Fixes", None), ("SKSE Plugin Tweaks", None), ("Uncategorised", None)]),
     (1, "--- 1 INTERFACE & INTERACTION ---", [
         ("User Interface", None), ("Improved Controls", None), ("Camera", None),
         ("Dialogue", None), ("Alternate Start", None), ("Save Games", None)]),
-    (2, "--- 2 CHARACTERS & ANIMATION ---", [
-        ("Body", None), ("Face", None), ("Hair", None), ("Races, Classes, and Birthsigns", None), ("Physics", None),
-        # the owner, 2026-09-27: General became Character, and Combat is its own block
-        ("Animation", ["Character", "Combat", "Player", "NPC", "Enemy", "Creature"])]),
-    (3, "--- 3 WORLD, VISUALS & SYSTEMS ---", [
+    (2, "--- 2 CHARACTERS ---", [
+        ("Body", None), ("Face", None), ("Hair", None), ("Races, Classes, and Birthsigns", None), ("Physics", None)]),
+    (3, "--- 3 WORLD, VISUALS, SYSTEMS & ANIMATION ---", [
+        # the owner, 2026-09-27: SMIM "is a baseline mod that's supposed to be overridden by other mods" - the whole-game
+        # mesh and texture packs load FIRST in the world tier (the reference list's Mesh Improvements / Texture
+        # Foundations), so every environment, location and object mod after them wins. There is NO general models and
+        # textures block ("there's no such thing as a general models and textures ... it's going to have something
+        # specific to go to"): only a baseline pack stays here, everything else goes to the block its art is for
+        # (place(): _dissolve_general_art)
+        ("Mesh Improvements", None),
         ("Presets - ENB and ReShade", None),
         ("Environment", ["Weather", "Landscape", "Water", "Architecture"]),
         ("Buildings", None), ("Location Overhauls", ["Town", "City", "Interior", "General"]),
         ("Environment", ["Roads", "Trees", "Grass", "Plants", "Seasons"]),
-        ("Models and Textures", ["General", "Items", "Clutter", "Furniture", "Interiors"]),
+        ("Models and Textures", ["Items", "Clutter", "Furniture", "Interiors"]),
+        # the owner, 2026-09-27: "a separator for collision specifically that's separate from physics" - placed after the
+        # model and texture blocks, because a collision fix rewrites meshes those mods ship and has to win them
+        ("Collision", None),
         ("PBR Textures", None), ("Visual Effects", None), ("Lighting", None), ("Audio", None),
-        ("Gameplay", ["General", "Combat", "Stealth", "Economy"]), ("Immersion", None),
+        # the owner, 2026-09-27: "Disable cinematic kills should go under optional gameplay tweaks" - a small change to
+        # existing game records the player may or may not want
+        ("Gameplay", ["General", "Combat", "Stealth", "Economy", "Optional Tweaks"]), ("Immersion", None),
         ("Alchemy", ["Potions", "Ingredients"]), ("Crafting", ["General", "Armour", "Weapons"]),
-        ("Enchanting", ["General", "Enchantments"]), ("Overhauls", ["General", "Faction Overhauls"]),
-        ("Miscellaneous", None)]),
+        # the owner, 2026-09-27: "There's no such thing as a general overhaul. Overhauls are specific"
+        ("Enchanting", ["General", "Enchantments"]), ("Overhauls", ["Faction Overhauls"]),
+        ("Miscellaneous", None),
+        # the owner, 2026-09-27: "I want the animation related mods much later in the ordering" (the reference list puts
+        # Animations & Behavior after gameplay, before content). General became Character; Combat is its own block
+        ("Animation", ["Character", "Combat", "Player", "NPC", "Enemy", "Creature"])]),
     (4, "--- 4 CONTENT ---", [
         ("Magic - Spells & Enchantments", None), ("Class, Perks, Powers and Blessings", None), ("Shouts", None),
         ("Clothing and Accessories", None), ("New Clothing", None), ("Armour", None), ("New Armour", None),
         ("Armour - Shields", None), ("Weapons", None), ("New Weapons", None), ("Weapons and Armour", None),
         ("New Weapons and Armour", None), ("Shape", None), ("Equipment Positioning", None),
+        # the owner, 2026-09-27: Dynamic Cubemaps "has to overwrite all of the equipment related mods" - the cubemaps
+        # block follows every equipment block, refits and positioning included
+        ("Cubemaps", None),
         ("Items and Objects - World", None),
-        ("Collectables, Treasure Hunts, and Puzzles", None),
         ("Creatures", ["Appearance", "Monster Appearance", "Behaviour", "Mounts", "Animals", "New Creatures"]),
         ("NPC", ["Appearance", "AI and Behaviour", "Followers", "Other"]), ("Player", ["Appearance", "Other"]),
         ("Quests and Adventures", None), ("Player homes", None), ("Dungeons", None), ("Locations - New", None),
@@ -135,9 +154,9 @@ FIXED_BLOCKS = ("base game", "unofficial patches", "test builds", "generated out
 NEXUS_TO_LEAF = {
     "utilities": "Utilities", "bug fixes": "Bug Fixes", "modders resources": "Utilities", "vr": "Utilities",
     "uncategorised": "Uncategorised", "user interface": "User Interface", "save games": "Save Games",
-    "body, face, and hair": "Body", "animation": "Animation - Character", "models and textures": "Models and Textures - General",
+    "body, face, and hair": "Body", "animation": "Animation - Character", "models and textures": "Mesh Improvements",
     "visuals and graphics": "Visual Effects", "environmental": "Environment - Landscape", "audio": "Audio",
-    "overhauls": "Overhauls - General", "gameplay": "Gameplay - General", "immersion": "Immersion", "combat": "Gameplay - Combat",
+    "overhauls": "Gameplay - General", "gameplay": "Gameplay - General", "immersion": "Immersion", "combat": "Gameplay - Combat",
     "stealth": "Gameplay - Stealth", "skills and leveling": "Class, Perks, Powers and Blessings",
     "magic - gameplay": "Magic - Spells & Enchantments", "alchemy": "Alchemy - Potions", "crafting": "Crafting - General",
     "items and objects - player": "Items and Objects - World", "npc": "NPC - Appearance",
@@ -536,7 +555,8 @@ NAME_DEF = 3.61     # DEFINITIVE's weight for a name-only row: its own value kee
 NAME_ONLY_ROWS |= {("User Interface", NAMED_ROW), ("Animation - Character", NAMED_ROW),
                    ("Face", NAMED_ROW), ("Races, Classes, and Birthsigns", NAMED_ROW),
                    ("Creatures - Monster Appearance", NAMED_ROW), ("NPC - AI and Behaviour", NAMED_ROW),
-                   ("Models and Textures - General", NAME_DEF), ("Gameplay - General", NAME_DEF),
+                   ("Collision", NAMED_ROW), ("Debugging", NAMED_ROW),
+                   ("Mesh Improvements", NAME_DEF), ("Gameplay - General", NAME_DEF),
                    ("Audio", NAME_DEF), ("Essential Engine Fixes", NAME_DEF), ("Script Fixes", NAME_DEF), ("Camera", NAME_DEF),
                    ("Models and Textures - Furniture", NAME_DEF), ("NPC - AI and Behaviour", NAME_DEF),
                    ("Improved Controls", NAME_DEF), ("Performance Optimization", NAME_DEF)}
@@ -555,7 +575,7 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     # to animations"); Security Overhaul "changes the appearance of locks"; Weightless is "a gameplay mod"
     (r"\b(skyui|racemenu|race menu|showracemenu|mcm helper|uiextensions|ui extensions|knotwork|item explorer)\b", "User Interface", NAMED_ROW),
     (r"\b(nemesis|pandora|fnis|open animation replacer|oar|dynamic animation replacer|dar|behavior data injector|bfco)\b", "Animation - Character", NAMED_ROW),
-    (r"\b(security overhaul|lock variations|regional locks|extra locks|more locks)\b", "Models and Textures - General", NAME_DEF),
+    (r"\b(security overhaul|lock variations|regional locks|extra locks|more locks)\b", "Models and Textures - Clutter", NAME_DEF),
     # 2026-09-27, the owner's second list: Skyrim Revoiced is sound; the Bethesda logo removers are engine fixes;
     # Vanilla Scripting Enhancements is scripting; No Cam Collision is camera; HF's Strongbox is furniture; NPCs Learn
     # to Aim is NPC behaviour; One Click Power Attack is controls; Texture Downscaler is performance
@@ -574,12 +594,16 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(class overhaul|classes|races? overhaul|racial overhaul|integrated standing stones|standing stones? overhaul|birthsigns?)\b", "Races, Classes, and Birthsigns", NAMED_ROW),
     (r"\b(inverse kinematics)\b", "Animation - Character", NAME_DEF),
     (r"(?<!faster )\bload(ing)? ?screens?\b", "User Interface", NAME_DEF),
+    (r"\bcollisions?\b|\bcollide\b", "Collision", NAMED_ROW),
+    (r"\b(debug(ging|ger)?|sentinel|diagnostics?|recursion monitor)\b", "Debugging", NAMED_ROW),
+    # SCAR - Skyrim Combos AI Revolution: "a dynamic ... AI attack system" for NPCs (its page)
+    (r"^scar\b|\bskyrim combos ai\b", "NPC - AI and Behaviour", NAMED_ROW),
     # dragon mods by the phrases they use - a bare "dragon" would take Dragon Bridge and Dragonbone gear
     (r"\b(diverse dragons|dragons? (replacers?|collection|overhaul|variants?|retextures?|remodels?)|got hotd|house of the dragon)\b", "Creatures - Monster Appearance", NAMED_ROW),
     # a creature's conditional sounds are behaviour, not animation (Conditional Dog Barking, Conditional Werewolf Howl)
     (r"\b(barking|howls?|howling|growls?|growling)\b", "NPC - AI and Behaviour", NAMED_ROW),
     (r"\b(weightless|carry ?weight|encumbrance|item weights?)\b", "Gameplay - General", NAME_DEF),
-    (r"\b(papyrusutil|papyrus extender|powerofthree|po3|skypatcher|base object swapper|spell perk item distributor|spid|keyword item distributor|kid|jcontainers|consoleutil|community shaders|dynamic string distributor|sound record distributor|payload interpreter|xpmsse|xp32|scaleform translation|inventory injector|framework|distributor|injector|extender|loader|kiloader|runtime|sdk|api|hooks?)\b", "Frameworks", DEFINITIVE),
+    (r"\b(papyrusutil|papyrus extender|powerofthree|po3|skypatcher|spell perk item distributor|spid|keyword item distributor|kid|jcontainers|consoleutil|community shaders|dynamic string distributor|sound record distributor|payload interpreter|xpmsse|xp32|scaleform translation|inventory injector|framework|distributor|injector|extender|loader|kiloader|runtime|sdk|api|hooks?)\b", "Frameworks", DEFINITIVE),
     (r"\b(texture set|assets? pack|tools?|utilit(y|ies)|generator|xedit|lodgen|texgen|dyndolod resources)\b", "Utilities", 1.0),
     (r"\b(resources?|modder'?s? resources?|library|tool ?kit|sdk|papyrus functions|function library)\b", "Utilities", 2.0),
     # a utility does nothing by itself; other mods use it (the owner, 2026-09-23: Animation Motion Revolution, dTry's Key Utils)
@@ -605,11 +629,11 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(alternate start|alternate perspective|realm of lorkhan|live another life|skyrim unbound|new game start|character creation start)\b", "Alternate Start", DEFINITIVE),
     (r"\b(saves?|autosaves?|save ?games?|save system)\b", "Save Games", 1.0),
     # tier 2
-    (r"\b(smp|hdt|cbpc|fsmp|physics|collision|jiggle|bounce|cloth physics)\b", "Physics", DEFINITIVE),
+    (r"\b(smp|hdt|cbpc|fsmp|physics|jiggle|bounce|cloth physics)\b", "Physics", DEFINITIVE),
     (r"\b(bod(y|ies)|skins?|cbbe|himbo|unp|3ba|bhunp|tbd|muscle|nipple|feet|hands|complexion|bodypaint|tattoos?|texture ?set)\b", "Body", 1.0),
     # which body each actor gets - morphs and presets handed out (the owner, 2026-09-23: OBody is body)
     (r"\b(obody|autobody|body ?morphs?|body ?presets?|bodyslide presets?|body types?|body distribution)\b", "Body", DEFINITIVE),
-    (r"\b(faces?|heads?|eyes?|brows?|eyebrows?|teeth|mouth|freckles?|scars?|warpaints?|makeup|blush(ing)?|tint|high poly head|expressions?|lips|complexions?|overlays?|tattoos?|bodypaints?|facegen|(?<!war )horns?)\b", "Face", DEFINITIVE),   # "HFs - War horns - remodel" is an item (2026-09-27)
+    (r"\b(faces?|heads?|eyes?|brows?|eyebrows?|teeth|mouth|freckles?|scars|(?<!^)scar|warpaints?|makeup|blush(ing)?|tint|high poly head|expressions?|lips|complexions?|overlays?|tattoos?|bodypaints?|facegen|(?<!war )horns?)\b", "Face", DEFINITIVE),   # "HFs - War horns - remodel" is an item (2026-09-27)
     (r"\b(hairs?|hairdos?|hairstyles?|beards?|khisart[ai]n|stubble|ks hairdos|apachii|salt and wind|hairline)\b", "Hair", DEFINITIVE),
     (r"\b(races?|khajiit|argonians?|orcs?|orsimer|dunmer|altmer|bosmer|nords?|imperials?|bretons?|redguards?|birthsigns?|racial)\b", "Races, Classes, and Birthsigns", 1.0),
     (r"\b(animations?|animated|idles?|mco|bfco|skysa|adxp|locomotion|movement|dodge|tk dodge|true directional|tdm|diving|dive|swim|sprint animation|attack animations?|combos?)\b", "Animation - Character", 1.0),
@@ -633,7 +657,7 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b((hagraven|witch) (houses?|huts?)|huts?|shacks?|hovels?)\b", "Environment - Architecture", 3.0),
     (r"\b(roofs?|brick|city walls|fences?|docks|bridges?|wells?|signs?|signposts?|market stalls?)\b", "Environment - Architecture", 1.5),
     (r"\b(roads?|northern roads|pathways?|cobblestone|trails?|paths?)\b", "Environment - Roads", 2.0),
-    (r"\b(re-?textures?|textures?|[1248]k|meshes?|hd|uhd|remesh|remodel|models?|retex)\b", "Models and Textures - General", 1.0),
+    (r"\b(re-?textures?|textures?|[1248]k|meshes?|hd|uhd|remesh|remodel|models?|retex)\b", "Mesh Improvements", 1.0),
     (r"\b(items?|potions? (models?|meshes|textures)|food|ingots?|gems?|soul ?gems?|scrolls? (models?|textures)|books? (models?|textures|covers?)|coins?|septims?|gold|weapon (models?|meshes)|armou?r (models?|meshes))\b", "Models and Textures - Items", 1.0),
     (r"\b(clutter|knapsacks?|sacks?|barrels?|crates?|baskets?|pottery|tankards?|junk|hay|firewood|buckets?|coins? of interesting nature)\b", "Models and Textures - Clutter", DEFINITIVE),
     (r"\b(bottles?|cups?|plates?|ropes?|jars?|bowls?|goblets?|candlesticks?|lamps?)\b", "Models and Textures - Clutter", 1.5),
@@ -657,9 +681,10 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     (r"\b(alchemy ingredients?|alchemical ingredients?|drops? (alchemy )?ingredients?)\b", "Alchemy - Ingredients", 2.0),
     (r"\b(craft(ing)?|smithing|forge|tanning|cooking|recipes?|tempering|workbench|blacksmith)\b", "Crafting - General", 1.5),
     # a crafting station is crafting, whatever its mesh paths say (the owner, 2026-09-23: Better Atronach Forge Offering Box)
-    (r"\b(atronach forge|forges?|workbench(es)?|tanning racks?|smelters?|grindstones?|crafting stations?|offering box)\b", "Crafting - General", 2.0),
+    # "Grindstones is just a model replacer that doesn't need to be in the crafting separator" (the owner, 2026-09-27)
+    (r"^(base object swapper|bos)\b", "Frameworks", DEFINITIVE),
+    (r"\b(atronach forge|forges?|workbench(es)?|tanning racks?|smelters?|crafting stations?|offering box)\b", "Crafting - General", 2.0),
     (r"\b(enchant(ing|ments?|ed)?|disenchant|enchanter)\b", "Enchanting - Enchantments", 1.5),
-    (r"\b(overhaul(s|ed)?|rework(ed)?|redone|remastered|revamp(ed)?)\b", "Overhauls - General", 0.5),
     # tier 4
     (r"\b(spells?|magic|magicka|scrolls?|wards?|destruction|conjuration|illusion|restoration|alteration|summon(s|ing)?|rituals?|tomes?|staff|staves|mysticism|apocalypse|odin|arcanum|invisibility|reanimation)\b", "Magic - Spells & Enchantments", 1.0),
     (r"\b(perks?|classes?|standing stones?|blessings?|powers?|shrine blessings?|ordinator|adamant|vokrii|apprentice|mannaz|aetherius|andromeda|paragon|custom skills?|skill trees?|skills?|level(l)?ing|experience|xp|attributes?)\b", "Class, Perks, Powers and Blessings", 1.5),
@@ -673,7 +698,9 @@ TEXT_SIGNALS = [(re.compile(p, re.I), c, w) for p, c, w in (
     # Simple Dual Sheath and Immersive Equipment Displays go to an Equipment Positioning separator)
     (r"\b(dual sheathe?|equipment displays?|immersive equipment displays|ied|all geared up|equipment positioning|shields? on (the )?back|weapons? on (the )?back|back shields?|sheathe? positions?|holsters?)\b", "Equipment Positioning", DEFINITIVE),
     (r"\b(objects?|misc|containers?|chests?|displays?|book ?shel(f|ves)|lootable|placed items?)\b", "Items and Objects - World", 0.8),
-    (r"\b(collectables?|collectibles?|treasure|treasure hunts?|puzzles?|collectables helper)\b", "Collectables, Treasure Hunts, and Puzzles", 1.5),
+    # no collectables block (the owner, 2026-09-27: "Collectibles Helper is just a quest mod"): collecting, treasure
+    # hunts and puzzles are quest content
+    (r"\b(collectables?|collectibles?|treasure|treasure hunts?|puzzles?|collectables helper)\b", "Quests and Adventures", 1.5),
     (r"\b(creatures?|animals?|beasts?|mihail|spiders?|trolls?|giants?|draugr|falmer|dwarven automatons?|monsters?|wildlife|deer|elk|rabbits?|foxes|chickens?|hawks?|birds?|fish)\b", "Creatures - New Creatures", 1.0),
     # animals named (the owner, 2026-09-23: Dire Wolves is creatures) - plural or "dire"/"sabre" forms, so a "Wolf Armor"
     # is not an animal mod
@@ -922,10 +949,22 @@ def _text_votes(m):
     # a mod that NAMES itself animations and ships animation files is an animation mod, whatever else the name says
     # (the owner, 2026-09-27: Goetia's Momentum Whirlwind Sprint, Leviathan and Vanargand Animations II - Sprint "is an
     # animation mod" - "sprint" had filed them under Improved Controls)
-    if re.search(r"\banim(ation)?s\b|\banimation\b", name, re.I) and any(f.endswith(".hkx") for f in (m.files or ())):
+    if re.search(r"\banim(ation)?s\b|\banimation\b|\banimated\b|\bswim(ming)?\b", name, re.I) and any(f.endswith(".hkx") for f in (m.files or ())):
         scores["Animation - Character"] = max(scores.get("Animation - Character", 0.0), W_NAME_DEFINED + 0.5)
         named_rows.add("Animation - Character")
         reasons.setdefault("Animation - Character", []).insert(0, "named animations, ships animation files")
+    if re.search(r"\b(debug(ging|ger)?|sentinel|diagnostics?)\b", name, re.I):
+        scores["Debugging"] = max(scores.get("Debugging", 0.0), W_NAME_DEFINED + 0.5)
+        named_rows.add("Debugging")
+        reasons.setdefault("Debugging", []).insert(0, "a debugging tool")
+    # a collision fix is a collision mod whatever object it fixes (Glowing Mushroom Collision Fixes); SCAR's AI is NPC
+    # behaviour however many combos it names (the owner, 2026-09-27)
+    for rx_, cat_, why_ in NAME_DECISIVE:
+        if re.search(rx_, name, re.I) and not (cat_ == "Collision" and ("Debugging" in named_rows
+                                                   or re.search(r"\b(no)?cam(era)? ?coll", name, re.I))):
+            scores[cat_] = max(scores.get(cat_, 0.0), W_NAME_DEFINED + 2.0)   # over an object's own words and its files
+            named_rows.add(cat_)
+            reasons.setdefault(cat_, []).insert(0, why_)
     # an SKSE-only mod's own config (read_config_text) speaks only when the NAME and its documents said nothing and one
     # theme repeats (StepUpOnto's readme says "step up"; its config's "npcs" must not outvote that)
     # (four or more hits of one row's words): Intellightent's config says "light" a dozen times
@@ -943,6 +982,7 @@ def _text_votes(m):
     for cat, w in scores.items():
         if cat in named_rows:
             w = max(w, W_NAME_DEFINED + (0.5 if (cat == "Animation - Character" and "named animations, ships animation files"
+                                                in reasons.get(cat, ())) or (cat == "Debugging" and "a debugging tool"
                                                 in reasons.get(cat, ())) else 0.0))            # a NAMED_ROW word in the name weighs like a leaf the owner defined by name
             cap = 99.0
         elif cat in definitive and norm(cat) in NAME_DEFINED:
@@ -1011,8 +1051,8 @@ def _path_votes(m):
             if best is None:
                 best = leaf_name
     if not counts and art_only:
-        votes.append(("files", "Models and Textures - General", W_FILES, "ships only meshes/textures, no plugin"))
-        best = "Models and Textures - General"
+        votes.append(("files", "Mesh Improvements", W_FILES, "ships only meshes/textures, no plugin"))
+        best = "Mesh Improvements"
     return votes, art_only, best
 
 
@@ -1040,7 +1080,7 @@ def gather_votes(m, nexus_cat, mo2_names, structural_patch, nexus_names=frozense
     pv, art_only, best_path = _path_votes(m)
     votes.extend(pv)
     if art_only:
-        votes.append(("files", "__art_only__", 0.0, best_path or "Models and Textures - General"))
+        votes.append(("files", "__art_only__", 0.0, best_path or "Mesh Improvements"))
     votes.extend(_scope_votes(m))
     votes.extend(_text_votes(m))
     if TAG_PATCH.search(m.name):
@@ -1112,9 +1152,13 @@ def decide(m, votes, nexus_cat=""):
                 notes.append("spells as a mechanism (animations, a DLL or scripts ship with them)")
     # R13 a name that says fix is a fix: its records are the fix's means, not new content (a utility does nothing on
     # its own; USSEP alters thousands of records)
-    if says_fix and (m.plugins or has_dll or has_hkx):          # a DLL that says fix is a fix too (Fix Note icon for SkyUI)
+    if says_fix and (m.plugins or has_dll or has_hkx or n_pex):          # a DLL that says fix is a fix too (Fix Note icon for SkyUI)
         for v in votes:
             if v[0] == "records":
+                v[2] *= 0.3
+            # the owner, 2026-09-27: "Zero Bounty Hostility Fix has fix in the name, so it's a fix" - a gameplay word
+            # names what is fixed; Gameplay is for new systems
+            elif v[0] == "text" and str(v[1]).startswith("Gameplay") and v[2] < W_NAME_DEFINED + 2.0:
                 v[2] *= 0.3
         votes.append(["rule", "Bug Fixes", 3.0, "named a fix"])
     # R7 alters far more than it adds: the mod is about existing things - new-content records count half, and scope
@@ -1128,7 +1172,7 @@ def decide(m, votes, nexus_cat=""):
         for v in votes:
             # (a creature's barking or howling IS behaviour - the owner, 2026-09-27: Conditional Dog Barking and
             # Conditional Werewolf Howl "are behavior related, not animation related")
-            if v[0] == "text" and v[1] == "NPC - AI and Behaviour" and not re.search(r"bark|howl|growl", str(v[3]), re.I):
+            if v[0] == "text" and v[1] == "NPC - AI and Behaviour" and not re.search(r"bark|howl|growl|cheer|attack ai|what people and creatures do|what NPCs do", str(v[3]), re.I):
                 v[2] *= 0.3
                 notes.append("behaviour files ship: 'behaviour' means the animation graph")
     # R14 mostly animation files (60%+ under animation paths, with .hkx) is an animation mod (TDM, SDS)
@@ -1202,13 +1246,30 @@ def decide(m, votes, nexus_cat=""):
                 if v[0] == "records" and v[1] in EQUIPMENT_FAMILY:
                     v[2] *= 0.5
             votes.append(["rule", "Locations - New", 4.5, f"new equipment with a new location ({new_cells} new cells{', ' + new_worlds[0] if new_worlds else ''})"])
-        elif rec.get("QUST", 0):
+        elif rec.get("QUST", 0) and (rec.get("NPC_", 0) or rec.get("QUST", 0) >= 2):
+            # an adventure with people in it (the owner, 2026-09-23: Ice Blade of the Monarch, Dwemer Exoskeleton)
             for v in votes:
                 if v[0] == "records" and v[1] in EQUIPMENT_FAMILY:
                     v[2] *= 0.5
-            votes.append(["rule", "Quests and Adventures", 4.5, "new equipment placed in an existing place with a quest to get it"])
+            votes.append(["rule", "Quests and Adventures", 4.5, "new equipment placed in an existing place with an adventure (new people, quests) to get it"])
         else:
-            notes.append("new equipment placed in an existing place: the equipment decides")
+            # the owner, 2026-09-27: "Sword of the First Ember equipment new weapon mod" - one quest and nobody new only
+            # hands the gear over: delivery, not the subject (as a spell's tomes are)
+            notes.append("new equipment placed in an existing place (a lone quest to get it is delivery): the equipment decides")
+    # R36 an item's enchantment changed: enchantment records added or altered for existing gear, no new gear (the owner,
+    # 2026-09-27: Chillrend Enchantment Tweak, Better Rueful Axe and A Better Gauldur Amulet all belong in Enchantments)
+    if (rec.get("ENCH", 0) + rec.get("ENCH*", 0)) and not (rec.get("ARMO", 0) + rec.get("WEAP", 0)) \
+            and (rec.get("ARMO*", 0) + rec.get("WEAP*", 0)) <= 10 and not rec.get("QUST", 0) and not rec.get("NPC_", 0) \
+            and sum(v for k, v in rec.items() if not k.endswith(("*", "~"))) <= 10:
+        votes.append(["rule", "Enchanting - Enchantments", 3.0, "an existing item's enchantment, changed"])
+    # R35 decoration: a few new objects (a statue, a shrine piece) placed only in interiors, nothing else added (the
+    # owner, 2026-09-27: Statue of Sithis was in the wrong separator - a statue in a faction's hall is interior art, not
+    # a faction mod or an overhaul of the town outside)
+    deco_kinds = {k for k, v in rec.items() if v and not k.endswith(("*", "~"))}
+    if deco_kinds and deco_kinds <= {"STAT", "MSTT", "LIGH", "ACTI", "FURN", "CONT", "TXST", "MISC"} \
+            and sum(rec.get(k, 0) for k in deco_kinds) <= 10 and rec.get("CELL~", 0) and not rec.get("WRLD~", 0) \
+            and not new_cells and not new_worlds:
+        votes.append(["rule", "Models and Textures - Interiors", 2.0, "decoration: a few new objects placed only in interiors"])
     # R32 a story beat for an existing character: dialogue and an altered NPC, nothing built (the owner, 2026-09-23:
     # Carcette Returns is a quest mod)
     dial_any = rec.get("DIAL", 0) + rec.get("DIAL*", 0)
@@ -1219,11 +1280,13 @@ def decide(m, votes, nexus_cat=""):
             if v[0] == "scope":
                 v[2] *= 0.5
         votes.append(["rule", "Quests and Adventures", 2.5, "a story beat for an existing character: dialogue and an altered NPC"])
-    # R34 a small adventure to find: new NPCs, written notes and a unique piece of gear, no new place (the owner,
-    # 2026-09-23: Silverguard is a quest mod)
+    # R34 a small adventure to find: new NPCs, written notes and a unique piece of gear, no new place. REVERSED by the
+    # owner 2026-09-27 ("Silver Guard is a new equipment mod"; he had called it a quest mod on 2026-09-23): the gear is
+    # the subject, the NPCs and notes are how it is found
     small = sum(v for k, v in rec.items() if not k.endswith(("*", "~"))) <= 80
     if small and rec.get("NPC_", 0) and rec.get("BOOK", 0) and (rec.get("WEAP", 0) + rec.get("ARMO", 0)) and not new_cells and not new_worlds:
-        votes.append(["rule", "Quests and Adventures", 2.5, "an adventure to find: new NPCs, notes and a unique piece of gear"])
+        gear = "Weapons" if rec.get("WEAP", 0) >= rec.get("ARMO", 0) else "Armour"
+        votes.append(["rule", gear, 2.5, "a unique piece of gear to find: the NPCs and notes are how it is found"])
     # R33 a faction overhaul does several different things around one faction (the owner, 2026-09-23: Stendarr Rising -
     # The Hall of the Vigilant Rebuild is "an overhaul of a faction")
     faction_named = bool(re.search(r"\b(college|guild|brotherhood|companions|vigilants?|hall of the vigilant|thalmor|bards|greybeards?|stormcloaks?|legion|nightingales?|blades|volkihar)\b", plain, re.I)) \
@@ -1289,9 +1352,9 @@ def decide(m, votes, nexus_cat=""):
     # EDITED equipment block)
     if art_target:
         eq_word = next((v[1] for v in votes if v[0] == "text" and v[1] in ("Weapons", "Armour", "Armour - Shields", "Clothing and Accessories")), None)
-        if art_target == "Models and Textures - General" and eq_word:
+        if art_target == "Mesh Improvements" and eq_word:
             art_target = eq_word                       # custom mesh paths say nothing; the name says what it replaces
-        elif art_target == "Models and Textures - General" and any(v[0] == "text" and v[1] == "Creatures - New Creatures" and v[2] >= 1.0 for v in votes):
+        elif art_target == "Mesh Improvements" and any(v[0] == "text" and v[1] == "Creatures - New Creatures" and v[2] >= 1.0 for v in votes):
             art_target = "Creatures - Appearance"       # a creature replacer: art for an animal the game already has
         votes.append(["rule", art_target, 2.0, f"a replacer: only meshes/textures; {'its name says' if eq_word and art_target == eq_word else 'its paths say'} {art_target}"])
     # R28 a BSA loader - a plugin that holds no records, shipped beside a BSA - is an art mod: a creature it names is that
@@ -1351,7 +1414,18 @@ def decide(m, votes, nexus_cat=""):
         if m.plugins and n_pex:
             votes.append(["files", "Gameplay - General", 0.8, "a scripted plugin, nothing more specific"])
         elif m.plugins and rec_alt and not rec_new:
-            votes.append(["files", "Overhauls - General", 0.6, "a plugin that only alters existing records"])
+            alt = {k[:-1]: v for k, v in rec.items() if k.endswith("*") and v}
+            top = max(alt, key=alt.get) if alt else ""
+            if top in ("NPC_", "RACE", "ARMA") and MONSTER_NOUNS.search(plain):
+                home = "Creatures - Monster Appearance"
+            elif top in ("NPC_", "RACE", "ARMA") and ANIMAL_NOUNS.search(plain):
+                home = "Creatures - Animals"
+            else:
+                home = {"WTHR": "Environment - Weather", "CLMT": "Environment - Weather", "REGN": "Environment - Weather",
+                        "FLOR": "Environment - Plants", "TREE": "Environment - Plants", "ENCH": "Enchanting - Enchantments",
+                        "QUST": "Quests and Adventures", "DIAL": "Quests and Adventures",
+                        "NPC_": "NPC - Other"}.get(top, "Gameplay - Optional Tweaks")
+            votes.append(["files", home, 0.6, f"a plugin that only alters existing records ({top or 'records'}): an edit, not new content"])
         elif n_pex and not m.plugins:
             votes.append(["files", "Utilities", 0.8, "scripts and nothing visual"])
     totals, best_reason = {}, {}
@@ -1370,7 +1444,8 @@ def decide(m, votes, nexus_cat=""):
     fam = EDIT_OF.get(cat.lower(), cat.lower())
     if fam in NEW_OF:
         new_eq = rec.get("ARMO", 0) + rec.get("WEAP", 0) + rec.get("AMMO", 0)
-        cat = NEW_OF[fam] if (m.plugins and new_eq >= 3) else canonical(fam)
+        unique_gear = any(v[0] == "rule" and "unique piece of gear" in v[3] for v in votes)
+        cat = NEW_OF[fam] if (m.plugins and (new_eq >= 3 or (unique_gear and new_eq))) else canonical(fam)
         notes.append(f"{'new' if cat.startswith('New') else 'edited'} equipment: {new_eq} new armour/weapon records")
     # R29 the appearance of a MONSTER has its own block (the owner, 2026-09-23: Trolls - "creatures - monster
     # appearance"); an animal's appearance stays Creatures - Appearance
@@ -1604,9 +1679,14 @@ def _scope_votes(m):
             if w in cl:
                 place_hits[place] = place_hits.get(place, 0) + 1
     fac = [c for c in cells if FACTION_WORDS.search(c)]
+    # the owner, 2026-09-27: Statue of Sithis and Ars Metallica are not faction mods - an object placed in a faction's
+    # hall (a statue, a forge) is not an addition to the faction; its quests, dialogue, members or ranks are
+    frec = getattr(m, "records", None) or {}
+    adds_to_faction = any(frec.get(k, 0) for k in ("QUST", "QUST*", "DIAL", "DIAL*", "NPC_", "NPC_*", "FACT", "FACT*", "SCEN"))
     if cells and len(fac) >= max(2, len(cells) * 0.5):
-        votes.append(("scope", "Guilds/Factions", min(3.5, 1.5 + len(fac) * 0.3) * scale, f"references faction cells {', '.join(fac[:2])}"))
-        place_hits = {}
+        if adds_to_faction:
+            votes.append(("scope", "Guilds/Factions", min(3.5, 1.5 + len(fac) * 0.3) * scale, f"references faction cells {', '.join(fac[:2])}"))
+        place_hits = {}                           # a faction's hall is not the town it stands in
     if place_hits:
         top = sorted(place_hits.items(), key=lambda kv: -kv[1])
         n_place = sum(place_hits.values())
@@ -2129,8 +2209,17 @@ def place(mods, nexus_names=frozenset(), mo2_category_names=None, under_nodelete
             m.decided = m.category              # what the evidence decided: the scorecard reads this, not a hub block
     _hubs(mods)                                 # P5 last: a big mod's block takes its satellites whatever they are
     _skeleton_behaviour_patches(mods)
+    for m in mods:
+        if not _movable(m) or not m.category:
+            continue
+        for rx_, cat_, _why in NAME_DECISIVE:
+            if re.search(rx_, m.name, re.I) and m.category != cat_ \
+                    and norm(re.sub(r"^New ", "", m.category)) == norm(re.sub(r"^New ", "", cat_)):
+                m.category = m.decided = cat_
+                break
     _combat_animations(mods)
     _art_resource_packs(mods)
+    _dissolve_general_art(mods)
     for m in mods:
         if m.category:
             m.group = tier_of(m.category)
@@ -2165,7 +2254,13 @@ def _skeleton_behaviour_patches(mods):
             m.flags.add("after_animation")
 
 
-COMBAT_ANIM = re.compile(r"\b(attacks?|movesets?|combos?|mco|bfco|adxp|power ?attacks?|combat|swords?|greatswords?|dual ?wield(ing)?|"
+ANIM_ENGINE = re.compile(r"\b(nemesis|pandora|fnis|open animation replacer|oar|dynamic animation replacer|dar|"
+                         r"behaviou?r data injector|bdi|payload interpreter|bfco)\b", re.I)
+ENGINE_WORDS = re.compile(r"\b(engine|framework|replacer|injector|interpreter|plugin|conditions?|support|api)\b", re.I)
+NPC_ANIM = re.compile(r"\b(npcs?|citizens?|townsfolk|guards?|prison(ers?)?|civilians?)\b", re.I)
+PLAYER_ANIM = re.compile(r"\b(player|first person|1st person|grain mill|crafting|smithing|tanning rack|workbench|"
+                         r"traversal|clamber|climb(ing)?|vault(ing)?|parkour|ledges?)\b", re.I)
+COMBAT_ANIM = re.compile(r"\b(precision|attacks?|movesets?|combos?|mco|bfco|adxp|power ?attacks?|combat|swords?|greatswords?|dual ?wield(ing)?|"
                          r"two[- ]handed|one[- ]handed|stances?|block(ing)?|parry|dodge|shield bash|bash|archery|bows?|"
                          r"spears?|daggers?|axes?|maces?|hammers?|unarmed|brawl(ing)?|weapon ?(styles?|arts?|switch)|"
                          r"sneak (strike|thrust)s?|killmoves?|finishers?)\b", re.I)
@@ -2179,6 +2274,16 @@ def _combat_animations(mods):
     for m in mods:
         if not _movable(m) or norm(m.category or "") != norm("Animation - Character"):
             continue
+        hkx0 = [f for f in (m.files or ()) if f.endswith(".hkx")]
+        # an animation engine or framework - Open Animation Replacer, Pandora, Behavior Data Injector - does nothing by
+        # itself: other mods' animations call it, so it is a framework; what is BUILT on it (an "... OAR" moveset that
+        # ships animations) stays animation (the owner, 2026-09-27; "Tools are utilities by definition. They're synonyms")
+        # (the name must START with the engine: "SCAR - Pandora - Fix" and "Knockback SKSE (For BFCO and MCO Users)"
+        # only name what they work with)
+        if ANIM_ENGINE.match(m.name.strip()) and (not hkx0 or ENGINE_WORDS.search(m.name)):
+            m.category, m.why = "Utilities", f"an animation engine / tool other mods' animations call: a utility; {m.why}"
+            m.decided = m.category
+            continue
         # a creature's fighting animations are the creature's (Dragon Combat Animations, wolf attacks): the Creature block
         hkx = [f for f in (m.files or ()) if f.endswith(".hkx")]
         creature = [f for f in hkx if re.search(r"(^|/)actors/(?!character/)", f)]
@@ -2186,13 +2291,208 @@ def _combat_animations(mods):
             m.category, m.why = "Animation - Creature", f"animates a creature ({len(creature)} of {len(hkx)} animation files): creature animation; {m.why}"
             m.decided = m.category
             continue
+        # NPCs' animations (the owner: "NPC Animation Remix ... should go in NPC Animations"; Sinding's prison anims)
+        if NPC_ANIM.search(m.name):
+            m.category, m.why = "Animation - NPC", f"animates NPCs (its name says so): NPC animation; {m.why}"
+            m.decided = m.category
+            continue
+        # the player's own interactions (Grain Mill Animation Fix: "allowing you to take your time crafting")
+        if PLAYER_ANIM.search(m.name):
+            m.category, m.why = "Animation - Player", f"animates the player's own interaction: player animation; {m.why}"
+            m.decided = m.category
+            continue
         if COMBAT_ANIM.search(m.name) and not NON_COMBAT.search(m.name):
             m.category, m.why = "Animation - Combat", f"animates fighting (its name says so): combat animation; {m.why}"
             m.decided = m.category
 
 
+# (pattern, block, reason) - a name that says one of these IS that kind of mod, over a plugin's cell references (a sword
+# placed in one interior is not an interior overhaul) and over the object words its files carry. Each came from the
+# owner's reviews of the order (2026-09-27); the mods are rulings in expectations.json
+NAME_DECISIVE = (
+    (r"\bcollisions?\b", "Collision", "a collision mod"),
+    (r"^scar\b|\bskyrim combos ai\b", "NPC - AI and Behaviour", "NPC attack AI"),
+    (r"\bstatic mesh improvement\b|^smim\b", "Mesh Improvements", "a baseline mesh improvement"),
+    (r"\bcabins?\b|\bswelna\b|\bswelgn\b", "Player homes", "a player home"),
+    (r"\bbook covers\b", "Models and Textures - Items", "book models and textures"),
+    (r"\b(better )?floors?\b|\bdrapery\b|\bcurtains?\b|\bhanging fabrics?\b", "Models and Textures - Interiors", "interior models and textures"),
+    (r"\bflying crows\b|\bcrows?\b|\bravens?\b(?! rock)|\bseagulls?\b", "Creatures - Animals", "an animal mod"),   # not Raven Rock
+    (r"\bthe choice is yours\b", "Quests and Adventures", "a quest mod"),
+    (r"\broggvir\b", "NPC - Followers", "a follower"),
+    (r"\bcomap\b", "User Interface", "a UI mod"),
+    (r"\bequipment manager\b", "Gameplay - General", "a feature the game did not have"),
+    (r"\brelic sword\b|^ulfsvar\b", "New Weapons", "new equipment"),
+    (r"\bsit on stuff\b|\bsit anywhere\b", "Improved Controls", "an interaction the player uses"),
+    (r"\bwinter cove\b", "Player homes", "a player home"),
+    (r"^high poly project$", "Mesh Improvements", "a baseline mesh improvement"),
+    # the owner, 2026-09-27: "smart talk and predictable persuasion and any lines expansion suffixed mod ... civil war
+    # lines bandit lines follower lines" go in Dialogue
+    (r"\blines expansion\b|\b(bandit|follower|civil war|guard|vampire|thalmor|forsworn|brawl|courier|companion|jarl|"
+     r"merchant|innkeeper|npc|falmer servant)s? lines\b", "Dialogue", "new lines for people to say"),
+    (r"\bsave system\b|\bsaves? (system )?overhaul\b", "Save Games", "a save system"),
+    # "Simpler Knock is going to be an improved control mod, even though it has a quest"; Simply Order Summons "would
+    # have to be improved controls"
+    (r"\bknock(ing)?\b|\border(ing)? (your )?summons\b", "Improved Controls", "an interaction the player uses"),
+    (r"\bgreat village\b|\bvillage of\b", "Location Overhauls - Town", "a town"),
+    (r"\b(model|mesh|texture) swapper\b", "Utilities", "a tool: it swaps models when other mods' files say so"),
+    (r"\bdynamic cubemaps\b", "Cubemaps", "cubemaps that must overwrite every equipment mod"),
+    (r"\bequipment( sse| se| ae)?$", "New Weapons and Armour", "new equipment"),
+    # the owner, 2026-09-27 (fourth list)
+    (r"\bclan names\b|\bnames and titles\b|\bnpc (names|titles)\b", "NPC - Other", "names for people"),
+    (r"\bsnow dogs?\b|\bhusk(y|ies)\b", "Creatures - Animals", "an animal mod"),
+    (r"\bscripts?\b.{0,12}optimi[sz]ations?\b", "Script Fixes", "a script mod"),
+    (r"\bgathering\b|\bharvestables?\b", "Environment - Plants", "plants and harvestables"),
+    (r"\bcinematic kills?\b|\b(disable|disabled|no|remove[sd]?|less)\b.{0,20}\bkill ?(cams?|moves?)\b",
+     "Gameplay - Optional Tweaks", "an optional gameplay tweak"),
+    (r"\breposition(er|ers|ing|s)?\b", "Equipment Positioning", "where gear sits (IED)"),
+    (r"\balways snow(ing)?\b|\bsnowing\b|\bsnowfall\b", "Environment - Weather", "weather"),
+    (r"\bsmart npcs?\b|\b(enemies|npcs?) use\b", "NPC - AI and Behaviour", "what NPCs do"),
+    (r"\bgrindstones?\b|\b(forges?|anvils?|workbench(es)?|tanning racks?|smelters?)\b.*\b(variants?|base object swapper|"
+     r"bos|remodel|replacer|redone|retexture)\b", "Models and Textures - Furniture", "a crafting station's model"),
+    # the owner, 2026-09-27 (fifth list)
+    (r"\bdetection meter\b|\bskyalert\b|\b(stealth|sneak) meter\b", "User Interface", "a HUD element"),
+    (r"\bmagic(al)? (sneak|stealth)\b", "Magic - Spells & Enchantments", "magic"),
+    (r"\bauto-?(unlock|open)\b", "Improved Controls", "an interaction done for the player"),
+    (r"^environs\b(?!.*\[patch\])", "Location Overhauls - General", "a location series"),
+    (r"\bphoto ?mode\b", "Camera", "a camera mod"),
+    (r"crime ?gold\b|\bpay (the |your )?(bounty|fines?)\b", "Dialogue", "what the player says to guards"),   # PlayerPayCrimeGold
+    # the owner, 2026-09-27 (sixth list)
+    (r"\bcleaned skyrim (se )?textures\b", "Mesh Improvements", "a baseline texture cleanup"),
+    (r"\bcheering\b|\bbarking\b|\bhowling\b", "NPC - AI and Behaviour", "what people and creatures do"),
+    (r"\b(helmet|gear|equipment) management\b", "Gameplay - General", "a new system for gear"),
+    # the owner, 2026-09-27: "Better Ogma Infinium ... should go to enchantments" - a named artifact's power, changed
+    (r"\bogh?ma infinium\b(?! tweaks)", "Enchanting - Enchantments", "an artifact's power"),
+    (r"\bprompts?\b", "User Interface", "what the screen shows"),
+)
+DEFAULT_OFF = re.compile(r"\bcollision sentinel\b", re.I)
 RESOURCE_WORDS = re.compile(r"\bresources?\b|\bresource pack\b", re.I)
 NOT_ART_RESOURCE = re.compile(r"dyndolod|\blod\b|keyword|distribution|behaviou?r|script|papyrus|animation", re.I)
+
+
+# the only mods that stay in Mesh Improvements: whole-game baseline packs everything else overrides (SMIM, HPP)
+BASELINE_ART = re.compile(r"\bstatic mesh improvement\b|^smim\b|^high poly project$|\bmesh improvements?\b|\bcleaned skyrim (se )?textures\b|"
+                          r"\btexture foundations?\b", re.I)
+# names that decide before a family does: lock art goes with the lock mods, whatever place it is made for
+ART_STRONG = ((r"\blocks?\b|\block variations\b", "Models and Textures - Clutter", "lock art"),)
+TOWNS = (r"morthal|dawnstar|winterhold|falkreath|riverwood|rorikstead|ivarstead|dragon ?bridge|karthwasten|shor'?s stone|"
+         r"kynesgrove|raven ?rock|skaal|helgen|darkwater crossing|old hroldan|soljund|heartwood mill|anga'?s mill|"
+         r"stonehills|mixwater")
+ART_NAMES = (
+    (r"\b(chests?|safes?|strongbox(es)?|(end |night)?tables?|nightstands?|chairs?|stools?|benches?|beds?|bedrolls?|"
+     r"shelf|shelves|wardrobes?|cupboards?|dressers?|thrones?)\b", "Models and Textures - Furniture", "furniture"),
+    (r"\b(quivers?|arrows?|bolts?)\b", "Weapons", "ammunition art"),
+    (r"\b(keys?|ewers?|jugs?|silverware|goblets?|tankards?|plates?|bowls?|urns?|traps?|cages?|lanterns?|candles?|"
+     r"coins?|gems?|pots?|pans?)\b", "Models and Textures - Clutter", "clutter"),
+    (r"\b(signs?|signposts?|shrines?|statues?)\b", "Environment - Architecture", "a structure in the world"),
+    (r"\b(interface|menus?|hud)\b", "User Interface", "interface art"),
+    (r"\b(sparks?|fire|embers?|smoke|effects?|fx|spell runes?|particles?)\b", "Visual Effects", "an effect"),
+    (r"\b(smiles?|teeth|mouths?|eyes|brows|character presets?|presets?)\b", "Face", "a face"),
+    (r"\b(skin|body|wet ?function|cbbe|himbo|3ba|unp)\b", "Body", "a body"),
+    (r"\b(khajiit|argonian|ohmes|raht|cathay|suthay|dagi|races?)\b", "Races, Classes, and Birthsigns", "a race"),
+    (r"\b(frescoe?s|tapestr(y|ies)|drapes?)\b", "Models and Textures - Interiors", "interior art"),
+    (r"\b(" + TOWNS + r")\b", "Location Overhauls - Town", "a town"),
+    (r"\b(whiterun|solitude|windhelm|riften|markarth)\b", "Location Overhauls - City", "a city"),
+)
+# path classes the general table does not carry, checked first; then PATH_SIGNALS
+ART_PATHS = [(re.compile(p), c) for p, c in (
+    (r"(^|/)cubemaps/", "Cubemaps"),
+    (r"(^|/)interface/", "User Interface"),
+    (r"(^|/)(mps|effects|magic)/", "Visual Effects"),
+    (r"chargen/|/[a-z]*(mouth|teeth)[a-z0-9_]*\.dds$", "Face"),
+    (r"(^|/)actors/character/", "Body"),
+    (r"(^|/)(traps?|animobjects)/|cage", "Models and Textures - Clutter"),
+)] + list(PATH_SIGNALS)
+
+
+def _head_words(name):
+    """The words of a mod name before its first ' - ', without a trailing year or version (Solitude and Temple Frescoes
+    2019 -> solitude temple frescoes)."""
+    w = _core_words(name.split(" - ")[0])
+    while w and re.fullmatch(r"\d+|v?\d+(\.\d+)*", w[-1]):
+        w.pop()
+    return w
+
+
+def _in_order(words, sub):
+    return bool(sub) and any(words[i:i + len(sub)] == sub for i in range(len(words) - len(sub) + 1))
+
+
+def _art_parent(m, cands):
+    """The block of the mod this art is for: a mod whose head words it carries (HD Textures for Solitude and Temple
+    Frescoes -> Solitude and Temple Frescoes 2019), or whose initials are its first word (NVFH -> Northern Vanilla
+    Farmhouses). Relatives that disagree decide only through their base (the one named just by the family's name, or
+    its All in One)."""
+    words = _core_words(m.name)
+    first = re.match(r"[A-Z]{3,6}\b", m.name)
+    found = []
+    for o in cands:
+        if o is m or TAG_PATCH.search(o.name):
+            continue
+        head = _head_words(o.name)
+        if len("".join(head)) >= 6 and len(words) > len(head) and _in_order(words, head):
+            found.append((o, head))
+        elif first and len(head) >= 3 and first.group(0).lower().startswith("".join(w[0] for w in head)):
+            found.append((o, head))
+    if not found:
+        return None
+    blocks = {o.category for o, _h in found}
+    if len(blocks) == 1:
+        return found[0][0]
+    for o, head in found:
+        ow = _core_words(o.name)
+        if ow == head or ow[len(head):] in (["all", "in", "one"], ["aio"], ["main"]):
+            return o
+    return None
+
+
+def _dissolve_general_art(mods):
+    """No mod stays in a general models-and-textures block (the owner, 2026-09-27: "it's going to have something
+    specific to go to whether that's clutter or weapons or armor or some other new separator"). A baseline pack stays
+    in Mesh Improvements; every other mod the evidence left there goes, in order, to: the block a decisive name says;
+    the block of the mod it is art for; the block its name's object words say; the block most of its files are for."""
+    pool = [m for m in mods if _movable(m) and m.category == "Mesh Improvements" and not BASELINE_ART.search(m.name)]
+    for _round in (0, 1):
+        cands = [o for o in mods if not is_sep(o.name) and o.category and o not in pool
+                 and (o.category != "Mesh Improvements" or BASELINE_ART.search(o.name))]
+        for m in list(pool):
+            dest = why = None
+            for rx, cat, w in ART_STRONG:
+                if re.search(rx, m.name, re.I):
+                    dest, why = cat, f"its name says {w}"
+                    break
+            if not dest:
+                p = _art_parent(m, cands)
+                if p is not None:
+                    dest, why = p.category, f"art for {p.name}: it goes with it"
+            if not dest and _round:
+                for rx, cat, w in ART_NAMES:
+                    if re.search(rx, m.name, re.I):
+                        dest, why = cat, f"its name says {w}"
+                        break
+            if not dest and _round:
+                counts = collections.Counter()
+                files = [f.lower() for f in (m.files or ()) if f.lower().endswith((".nif", ".dds"))]
+                for fl in files:
+                    for rx, cat in ART_PATHS:
+                        if rx.search(fl):
+                            counts[cat] += 1
+                            break
+                if counts:
+                    cat, n = counts.most_common(1)[0]
+                    if cat == "__equipment__":
+                        cat = "Armour" if any("/armor/" in f or "/clothes/" in f for f in files) else "Weapons"
+                    dest, why = cat, f"{n} of {len(files)} of its art files are {cat.lower()} art"
+                elif any(f.lower().endswith(".dll") for f in (m.files or ())):
+                    dest, why = "Utilities", "an SKSE plugin with no art of its own"
+            if dest and norm(dest) == norm("Mesh Improvements") and why.startswith("art for"):
+                m.why = f"{why}: Mesh Improvements; {m.why}"      # a baseline pack's own fix stays with it (HPP)
+                pool.remove(m)
+            elif dest and norm(dest) != norm("Mesh Improvements"):
+                m.category = m.decided = canonical(dest)
+                m.why = f"not a baseline pack - {why}: {m.category}; {m.why}"
+                pool.remove(m)
+    for m in pool:
+        m.why = f"LEFT IN MESH IMPROVEMENTS - no specific evidence; {m.why}"
 
 
 def _art_resource_packs(mods):
@@ -2212,7 +2512,7 @@ def _art_resource_packs(mods):
             # must load before them: it goes to the world tier's architecture block, not the later Models and Textures
             mine = {f.lower() for f, _ms, _e in m.plugins}
             pos, _h = category_order()
-            mt = pos.get(norm("Models and Textures - General"), (99, 99))
+            mt = pos.get(norm("Mesh Improvements"), (99, 99))
             earlier = [o.name for o in mods if o is not m and o.enabled and o.category and not is_sep(o.name)
                        and pos.get(norm(o.category), (99, 99)) < mt
                        and any(x.lower() in mine for _f, ms, _e in o.plugins for x in ms)]
@@ -2221,8 +2521,9 @@ def _art_resource_packs(mods):
                 m.why = (f"a resource pack of meshes and textures that {len(earlier)} earlier mod(s) build on ({earlier[0]}): "
                          f"the world tier's architecture block, before them; {m.why}")
             else:
-                m.category = "Models and Textures - General"
-                m.why = f"a resource pack of meshes and textures ({len(art)} art file(s)): models and textures; {m.why}"
+                # no general models and textures block (2026-09-27): a world resource pack is architecture art
+                m.category = "Environment - Architecture"
+                m.why = f"a resource pack of meshes and textures ({len(art)} art file(s)): world architecture art; {m.why}"
             m.decided = m.category
 
 
@@ -2396,7 +2697,9 @@ _ART_EXT = (".nif", ".dds", ".hkx", ".wav", ".xwm", ".fuz", ".tri", ".bto", ".bt
 _TWEAK_EXEMPT = {norm(x) for x in ("Patches", "Maps", "UI Overhaul", "Icon Overhauls", "Optional Addons",
                                    "Performance Optimization", "Equipment Positioning", "Gameplay - General",
                                    "Gameplay - Combat", "Gameplay - Stealth", "Gameplay - Economy", "NPC - AI and Behaviour",
-                                   "Lighting")}   # a lighting DLL is a lighting mod (the owner, 2026-09-27: Intellightent)
+                                   "Lighting",   # a lighting DLL is a lighting mod (the owner, 2026-09-27: Intellightent)
+                                   "Animation - Character", "Animation - Combat", "Animation - Player", "Animation - NPC",
+                                   "Animation - Enemy", "Animation - Creature", "Collision", "Debugging")}
 
 
 def mechanism(m):
@@ -2643,6 +2946,46 @@ def read_mo2_categories(instance_dir):
     return names
 
 
+_FAMILY_GENERIC = {
+    "the", "of", "and", "for", "a", "an", "to", "in", "on", "with", "by", "my", "no", "not", "all", "more", "less", "from",
+    "se", "sse", "ae", "le", "vr", "ng", "aio", "skse", "esl", "esp", "hd", "2k", "4k", "8k", "1k", "fomod", "version",
+    "edition", "patch", "patches", "fix", "fixes", "fixed", "mod", "mods", "skyrim", "special", "update", "addon",
+    "addons", "plugin", "collection", "pack", "redone", "remade", "remastered", "retexture", "retextures", "replacer",
+    "overhaul", "enhanced", "improved", "better", "new", "simple", "dynamic", "immersive", "vanilla", "lore", "friendly",
+    "animation", "animations", "anims", "textures", "meshes", "settings", "loader", "compatibility", "tweaks", "tweak",
+    "optional", "files", "main", "extended", "expanded", "ii", "iii", "reworked", "rework", "and", "or", "lite", "full"}
+_FAMILY_ALIASES = ((re.compile(r"\brace ?menu\b", re.I), "racemenu"), (re.compile(r"\bsky ?ui\b", re.I), "skyui"))
+
+
+def _family_words(name):
+    """The words of a mod's name that can make a family: no tags, no generic words, aliases joined ("Race Menu")."""
+    n = TAG_PATCH.sub(" ", TAG_NODELETE.sub("", name)).lower().replace("'", "")
+    for rx, to in _FAMILY_ALIASES:
+        n = rx.sub(to, n)
+    out = []
+    for w in re.findall(r"[a-z0-9]+", n):
+        if len(w) >= 3 and w not in _FAMILY_GENERIC and not w.isdigit() and w not in out:
+            out.append(w)
+    return out
+
+
+def _block_families(real):
+    """{mod name: family word} - per block (category), a word that two or more names of that block share; each mod takes
+    the one it shares with the most mods, the earlier word on a tie. A mod with no shared word has no family."""
+    by_cat = {}
+    for m in real:
+        by_cat.setdefault(norm(m.category or ""), []).append(m)
+    out = {}
+    for ms in by_cat.values():
+        words = {m.name: _family_words(m.name) for m in ms}
+        counts = collections.Counter(w for ws in words.values() for w in ws)
+        for m in ms:
+            shared = [w for w in words[m.name] if counts[w] >= 2]
+            if shared:
+                out[m.name] = max(shared, key=lambda w: (counts[w], -words[m.name].index(w)))
+    return out
+
+
 def build(mods, rules=None, min_run=2):
     """The new pane: [(name, enabled)] top-first, plus the facts.
 
@@ -2665,10 +3008,14 @@ def build(mods, rules=None, min_run=2):
         # name is their prefix. The evidence edges (masters, the resolver's name / patch / specificity verdicts) still
         # decide every pair they know about; this only orders what nothing else does - never today's position.
         plain = TAG_PATCH.sub(" ", TAG_NODELETE.sub("", m.name)).strip().lower()
-        words_ = re.findall(r"[a-z0-9]+", plain)
-        family = words_[0] if words_ else ""
+        # the owner, 2026-09-27: "in a separator the mods are sorted by name except where necessary and ... similarly
+        # named mods go next to each other" - a mod sorts under the name word it shares with the most mods of its block
+        # (RaceMenu, SkyUI, Leviathan), and a mod that shares none sorts by its own name
+        family = family_of.get(m.name) or plain
         patchy = 1 if (_PATCH_WORD.search(plain) or TAG_PATCH.search(m.name) or re.search(r"\bpatch hub\b", plain)) else 0
         return (family, patchy, plain)
+
+    family_of = _block_families(real)
 
     def rank(m):
         k = norm(m.category)
@@ -3016,6 +3363,25 @@ def build(mods, rules=None, min_run=2):
     cycle_names = {m.name for m in cycles}
     cycle_edges = [(x, y, reason.get((x, y), "")) for y in cycle_names for x in above.get(y, ()) if x in cycle_names]
     ordered += sorted(cycles, key=key)          # a cycle among edges: those mods keep today's relative order
+
+    # a fixed-block mod an edge holds INSIDE another block's run (The Great City of Solitude - USSEP Patch after TGC
+    # Solitude, mid-way through City) goes to the END of that run, when nothing later in the run needs it: otherwise it
+    # splits the run and the second half is absorbed into the next block (2026-09-27, 18 City mods under Interior once
+    # the in-block family order put TGC Solitude mid-block)
+    i = 1
+    while i < len(ordered) - 1:
+        m = ordered[i]
+        prev_c, next_c = norm(ordered[i - 1].category or ""), norm(ordered[i + 1].category or "")
+        if norm(m.category or "") in FIXED_BLOCKS and prev_c == next_c and prev_c != norm(m.category or "") \
+                and prev_c not in FIXED_BLOCKS:
+            j = i + 1
+            while j < len(ordered) and norm(ordered[j].category or "") == prev_c:
+                j += 1
+            run_after = ordered[i + 1:j]
+            if not any(m.name in above.get(x.name, ()) for x in run_after):
+                ordered[i:j] = run_after + [m]
+                continue                        # re-check the mod now at i
+        i += 1
 
     # --- displaced mods take the category they land in --------------------------------------------------------------
     absorbed = []
@@ -3944,6 +4310,13 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     community = load_community(cache_dir)
     mo2_names = read_mo2_categories(instance_dir)
     place(mods, nexus_names, mo2_names, under, ours.get("pins"), community)
+    # a debugging tool that runs only while a crash is being chased is OFF by default (the owner, 2026-09-27: "Collision
+    # Sentinel should be off by default"); switching it on by hand is for a debugging session
+    default_off = []
+    for m in mods:
+        if not is_sep(m.name) and m.enabled and norm(m.category or "") == norm("Debugging") and DEFAULT_OFF.search(m.name):
+            m.enabled = False
+            default_off.append((m.name, "a debugging tool: off by default - switch it on only while chasing a crash"))
     by_name_ = {m.name: m for m in mods}
     for gone, kept, _arc in redundant:                 # a switched-off copy sits beside the copy that is kept
         g, k = by_name_[gone], by_name_[kept]
@@ -3954,6 +4327,10 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     new_rows, facts = build(mods, ours.get("rules"), min_run)
     facts["expectations"] = check_expectations(mods)
     facts["redundant"] = redundant
+    facts["default_off"] = default_off
+    # no general models-and-textures block (2026-09-27): a mod the dissolve pass could not place is a self-check FAIL
+    facts["general_left"] = [m.name for m in mods if m.category == "Mesh Improvements"
+                             and (m.why or "").startswith("LEFT IN MESH IMPROVEMENTS")]
     facts["community"] = len(community)
     facts["verdicts"] = collect_verdicts(mods, mo2_names)
     by_name = {m.name: m for m in mods}
@@ -4357,8 +4734,10 @@ if mobase is not None:
                        + [(f, m, "move to Optional ESPs", w) for f, m, w in ps.get("to_optional", [])]
                        + [(f, m, "back from Optional ESPs, activate", w) for f, m, w in ps.get("from_optional", [])]
                        + [("(the whole mod)", g, "switch off", f"a second copy of {k}: {a}")
-                          for g, k, a in r["facts"].get("redundant", [])])
-            n_plug = sum(len(ps.get(k, [])) for k in ("activate", "to_optional", "from_optional")) + len(r["facts"].get("redundant", []))
+                          for g, k, a in r["facts"].get("redundant", [])]
+                       + [("(the whole mod)", g, "switch off", why) for g, why in r["facts"].get("default_off", [])])
+            n_plug = sum(len(ps.get(k, [])) for k in ("activate", "to_optional", "from_optional")) + len(r["facts"].get("redundant", [])) \
+                + len(r["facts"].get("default_off", []))
             self.tabs.setTabText(self.tabs.indexOf(self.t_plug), f"Plugins ({n_plug})" if n_plug else "Plugins")
             self.b_apply.setEnabled(bool(r["moves"] or r["facts"]["created"] or r["facts"]["retired"] or n_plug))
             self.status.setText("Nothing is written until Apply. Apply backs up modlist.txt, plugins.txt, loadorder.txt and the retired separators first.")
@@ -4729,6 +5108,8 @@ if __name__ == "__main__" and mobase is None:       # offline dry run: python MO
         for name, want, got, good in ex:
             if not good:
                 print(f"   MISS  {name[:48]:48s} wanted {want[:44]:44s} got {got[:60]}")
+    for gone, why in res["facts"].get("default_off", []):
+        print(f"   OFF  {gone}  - {why}")
     for gone, kept, arc in res["facts"].get("redundant", []):
         print(f"   REDUNDANT  {gone}  - beside {kept}: {arc}; switched off")
     print(res["nexus"]); print("moves", len(res["moves"]), "created", len(res["facts"]["created"]), "retired", len(res["facts"]["retired"]),

@@ -76,6 +76,8 @@ for prof in profiles:
     # a created separator that differs from a retired one only in case is the SAME folder on Windows (2026-09-26)
     retired = {s.lower() for s in d["facts"]["retired"]}
     fails += [f"FAIL  separator created and retired under one folder name (case only): {s}" for s in d["facts"]["created"] if s.lower() in retired]
+    # the owner, 2026-09-27: "there's no such thing as a general models and textures" - only baseline packs stay there
+    fails += [f"FAIL  left in Mesh Improvements with no specific block: {n}" for n in d["facts"].get("general_left", [])]
     ex = d.get("facts", {}).get("expectations", [])
     missed = [e for e in ex if not e[3]]
     status = "PASS" if not fails and not missed else "FAIL"

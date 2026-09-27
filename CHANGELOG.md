@@ -2,6 +2,70 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.0.5 - 2026-09-27 - untested
+
+- **No general models and textures block.** Only whole-game baseline packs stay in the new **Mesh Improvements**
+  block, which is the first of the world tier: SMIM and its addons, High Poly Project and its fixes, and Cleaned Skyrim
+  SE Textures. Every other mod goes somewhere specific, checked in this order:
+  1. A decisive name.
+  2. The mod it is art for, found by name or initials (HD Textures for Solitude and Temple Frescoes goes with the
+     Frescoes, NVFH LOD Files with Northern Vanilla Farmhouses).
+  3. The object its name says.
+  4. What most of its files are.
+
+  A mod left with no evidence fails the self-check. Resource packs go to Architecture. Security Overhaul's locks go to
+  Clutter.
+- **No general Overhauls block.** A plugin that only alters existing records is filed by what it alters: weather,
+  plants, enchantments, quests, NPCs or creatures. Anything else goes to the new **Gameplay - Optional Tweaks** block
+  (Disable Cinematic Kills).
+- **Cubemaps** is a new block after every equipment block. Dynamic Cubemaps overwrites all the equipment mods.
+- **No Collectables, Treasure Hunts, and Puzzles block.** Collectibles Helper goes to Quests. A scripts-only fix
+  (High Gate Ruins Puzzle Reset Fix) goes to Bug Fixes.
+- **Dialogue:**
+  - Every Lines Expansion mod (Civil War, Bandit, Forsworn and Thalmor, Vampire, Falmer Servant, Brawl).
+  - Smart Talk and Predictable Persuasion.
+  - PlayerPayCrimeGold.
+- **Enchantments:**
+  - An existing item's enchantment, changed: Chillrend, Better Rueful Axe, A Better Gauldur Amulet.
+  - Better Oghma Infinium.
+- **New equipment:**
+  - Nordic Wanderer Equipment, and any name ending in "Equipment".
+  - Sword of the First Ember: a lone quest that hands gear over is delivery. Gear that comes with new people or several
+    quests stays a quest mod (Ice Blade of the Monarch, Dwemer Exoskeleton).
+  - Silverguard: a unique piece of gear is new even as a single record.
+- **User Interface:** SkyALERT and Detection Meter are HUD elements, and "prompt" mods (Survival Mode Prompt Removed)
+  go here.
+- **Improved Controls:** Simpler Knock and Simply Order Summons, and Dragon Claws Auto-Unlock, which joins BTPS.
+- **Other placements:**
+  - Photo Mode goes to Camera.
+  - Magic Sneak Attacks goes to Magic.
+  - Skyrim Save System Overhaul goes to Save Games.
+  - Mixwater Mill goes to Town.
+  - Model Swapper goes to Utilities.
+  - Clan Names and Titles goes to NPC.
+  - Skyrim Snow Dogs goes to Animals.
+  - Vanilla Script Optimizations goes to Script Fixes.
+  - Gathering Be Gone goes to Plants.
+  - Backpack Repositioner goes to Equipment Positioning.
+  - Always Snowing goes to Weather.
+  - Smart NPC Potions and Conditional Tavern Cheering go to NPC behaviour.
+  - Read the Room goes to Gameplay.
+  - Grindstone, forge and anvil model swaps go to Furniture.
+- **Rule changes:**
+  - A mod named "... Base Object Swapper" is art, not the Base Object Swapper framework.
+  - The Environs mods leave Gameplay.
+  - A name that says fix outweighs a gameplay word (Zero Bounty Hostility Fix).
+  - Faction cells alone do not make a faction mod: Ars Metallica goes to Crafting, and Statue of Sithis to Interiors
+    as decoration.
+- **Earlier the same day:**
+  - The Animation blocks move after gameplay.
+  - Collision is its own block, and Debugging (with Collision Sentinel off by default) follows Bug Fixes.
+  - Animation splits into Character, Combat, Player, NPC, Enemy and Creature.
+  - Animation engines go to Utilities.
+  - Mods sort by name inside a block, with families together.
+  - Interiors, player homes, animals, quests, followers and new weapons take the mods the owner named.
+  - A fixed block is no longer split by one of its mods sitting mid-run.
+
 ## 1.0.4 - 2026-09-27 - untested
 
 - SkyUI, RaceMenu, MCM Helper and UIExtensions, and mods named for them, go to User Interface, not Frameworks. A "for

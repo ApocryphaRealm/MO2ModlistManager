@@ -1,6 +1,6 @@
 MO2 Modlist Manager
 ===================
-Version 1.0.0
+Version 1.0.5
 
 A Mod Organizer 2 plugin that sorts the whole left pane for you: it generates the separators, places every mod under
 the category its own evidence decides, puts masters above the mods that need them, and makes the plugin list follow
@@ -22,9 +22,14 @@ what it was placed by.
 
 THE ORDER
 ---------
-Tiers from what everything stands on to what finishes the list: base game and engine, interface, characters and
-animation, the world and gameplay systems, content, patches, test builds, generated outputs, optional addons. Inside
+Tiers from what everything stands on to what finishes the list: base game and engine, interface, characters, the
+world, gameplay systems and animation, content, patches, test builds, generated outputs, optional addons. Inside
 them:
+  - every block is specific: there is no "general" models and textures or overhauls block. Whole-game baseline
+    packs (a static mesh improvement, a vanilla texture cleanup) load first in the world tier so everything after
+    them wins; every other art mod goes with the thing it is art for - furniture, clutter, a town, an interior, a
+    weapon, a face;
+  - cubemap packs load after every equipment block, so they apply to the armour and weapons;
   - the world runs broad to specific - weather, landscape, water, architecture, towns and cities, roads, trees,
     grass, plants - and lighting loads after the meshes it re-authors;
   - fixes are filed by what they overwrite (plugin, script, SKSE or mesh fixes); an SKSE-only tweak of the world or
