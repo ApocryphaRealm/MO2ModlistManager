@@ -1,6 +1,6 @@
 MO2 Modlist Manager
 ===================
-Version 1.1.0
+Version 1.1.1
 
 A Mod Organizer 2 plugin that sorts the whole left pane for you: it generates the separators, places every mod under
 the category its own evidence decides, puts masters above the mods that need them, and makes the plugin list follow
@@ -70,6 +70,12 @@ Press the toolbar button. The manager reads the list and shows its plan; nothing
   - Review: conflicting pairs the evidence could not decide - write a rule for the ones you care about.
   - Rules: your own before / after / first / last rules and pins; they rank above the evidence, never above a
     master, a generated output or a settings loader.
+  - Settings: switches for what Apply does on its own, each saved as soon as it changes -
+      Move plugins that cannot load to Optional ESPs (off: they stay in the right pane, unticked),
+      Bring optional plugins back when their masters arrive,
+      Write Bethesda Plugin Manager groups,
+      Write the verdicts file after each Apply.
+    All on by default. The same switches are on MO2's Settings > Plugins page.
 Apply writes the plan: modlist.txt, plugins.txt and loadorder.txt, new separators (in your separators' colour),
 retired separators moved to the backup, and Bethesda Plugin Manager groups when that plugin is installed. Every
 Apply keeps a backup of the lists under plugins\data\MO2ModlistManager\backups\<date-time>\.

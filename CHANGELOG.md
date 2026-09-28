@@ -2,6 +2,21 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.1.1 - 2026-09-28 - working
+
+- **A Settings tab** with a switch for each thing Apply does on its own (the owner, 2026-09-27: *"add some tick
+  boxes or a settings page for it to enable or disable certain features that it currently does automatically, like
+  hiding unused plugins on the right pane as people are complaining about it"*). Each box saves the moment it changes
+  and the plan is computed again; the same keys are on MO2's Settings > Plugins page. All on by default:
+  - *Move plugins that cannot load to Optional ESPs* - off, such a plugin stays in its mod's root and plugins.txt
+    lists it without the `*`, MO2's form for an inactive plugin: the right pane shows it unticked and the game does
+    not load it. The Plugins tab says "leave in place, unticked".
+  - *Bring optional plugins back when their masters arrive*.
+  - *Write Bethesda Plugin Manager groups*.
+  - *Write the verdicts file after each Apply*.
+  Proven offline on a copy of Njordlinger Test with Skyrim Project Optimization switched off: parking on moved the
+  six SPO patches to Optional ESPs; off, the same six stayed in the plugin order, unticked.
+
 ## 1.1.0 - 2026-09-27 - untested
 
 - **The record of categories the button wrote is read from the instance's own plugins\data\MO2ModlistManager folder**,

@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 import collections
 import configparser
@@ -3995,14 +3995,33 @@ def wrong_variant(patch_paths, masters, master_paths_of):
     return None
 
 
-def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None):
+# The features Apply does on its own, each with a switch on the Settings tab (1.1.1). The defaults are what every
+# version before did.
+OPTION_DEFAULTS = {
+    "park_unloadable_plugins": True,   # a plugin that cannot load goes to its mod's Optional ESPs (off: stays, unticked)
+    "restore_optional_plugins": True,  # an Optional ESPs plugin whose masters arrived comes back and is activated
+    "write_plugin_groups": True,       # Bethesda Plugin Manager's plugingroups.txt, when BPM is installed
+    "write_verdicts": True,            # the verdicts file in plugins\data\MO2ModlistManager\verdicts
+}
+
+
+def options_or_defaults(options):
+    out = dict(OPTION_DEFAULTS)
+    out.update({k: bool(v) for k, v in (options or {}).items() if k in OPTION_DEFAULTS})
+    return out
+
+
+def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None, park=True, restore=True):
     """Every plugin ends up in one of two places (the owner, 2026-09-23): a plugin whose masters are all here is in the
     mod's root and ACTIVE; one that cannot load - a master it needs is in no enabled mod - waits in the mod's
     optional folder (MO2's Optional ESPs). And the way back: an optional plugin whose masters have since arrived
     (a mod you added) is moved back beside the mod's files and activated. A plugin rule of type "off" keeps a plugin
     in Optional ESPs whatever its masters. Returns {"activate": [(plugin, mod, why)], "to_optional": [...],
-    "from_optional": [...]} and rewrites each Mod's plugins/optional lists to the planned state, so the plugin
-    order and BPM groups computed afterwards describe the pane as it will be."""
+    "from_optional": [...], "keep_off": [...]} and rewrites each Mod's plugins/optional lists to the planned state, so
+    the plugin order and BPM groups computed afterwards describe the pane as it will be.
+    park=False (Settings: "Move plugins that cannot load to Optional ESPs" off): such a plugin stays in its mod's root,
+    listed in the right pane but unticked ("keep_off"), so it is seen and not loaded. restore=False: nothing comes
+    back from Optional ESPs on its own."""
     active = read_active_plugins(profile_dir)
     off = {str(r.get("plugin", "")).lower() for r in plugin_rules if r.get("type") == "off" and r.get("enabled", True)}
     root, opt = {}, {}                          # plugin name -> (mod, entry): the LOWEST enabled mod wins, as in MO2
@@ -4094,7 +4113,7 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None):
     def missing(masters):
         return [ms for ms in masters if ms.lower() not in BASE_MASTERS and not loadable.get(ms.lower(), False)]
 
-    plan = {"activate": [], "to_optional": [], "from_optional": []}
+    plan = {"activate": [], "to_optional": [], "from_optional": [], "keep_off": []}
     for k, (m, e) in root.items():
         f, masters, _esm = e
         if k in off:
@@ -4111,7 +4130,7 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None):
             plan["activate"].append((f, m.name, "every master is present"))
     for k, (m, e) in opt.items():
         f, masters, _esm = e
-        if k in root or k in off or not loadable[k]:
+        if not restore or k in root or k in off or not loadable[k]:
             continue
         # only a plugin that DEPENDS on another mod comes back - "a mod that uses the optional esp". One whose
         # masters are all base game (an author's preview or examples plugin) sits in Optional ESPs by design
@@ -4119,6 +4138,9 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None):
         if not needs:
             continue
         plan["from_optional"].append((f, m.name, "its masters are present now: " + ", ".join(needs[:4])))
+    if not park:
+        # left where they are and written unticked: the right pane shows them, the game does not load them
+        plan["keep_off"], plan["to_optional"] = plan["to_optional"], []
     # rewrite the mods to the planned state
     for f, mod_name, _why in plan["to_optional"]:
         for m in mods:
@@ -4462,7 +4484,7 @@ def load_community(cache_dir):
         return {}
 
 
-def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, min_run=2):
+def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, min_run=2, options=None):
     """Everything up to (not including) writing. Returns a dict the dialog and the offline runner both use."""
     global MO2_WRITTEN
     MO2_WRITTEN = dict(load_written_categories(os.path.join(instance_dir, "plugins", "data", "MO2ModlistManager")))
@@ -4483,7 +4505,9 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
         elif inside:
             under.add(nm)
     ours, theirs = load_rules(os.path.join(instance_dir, "profiles", profile))
-    plugin_state = plan_plugin_state(mods, os.path.join(instance_dir, "profiles", profile), theirs, mods_dir)
+    opts = options_or_defaults(options)
+    plugin_state = plan_plugin_state(mods, os.path.join(instance_dir, "profiles", profile), theirs, mods_dir,
+                                     park=opts["park_unloadable_plugins"], restore=opts["restore_optional_plugins"])
     community = load_community(cache_dir)
     mo2_names = read_mo2_categories(instance_dir)
     place(mods, nexus_names, mo2_names, under, ours.get("pins"), community)
@@ -4523,7 +4547,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
             "category_updates": plan_mo2_category_updates(mods, instance_dir, MO2_WRITTEN, placed_as),
             "plugin_groups": plugin_groups(new_rows, by_name), "bpm": bpm_installed(instance_dir),
-            "plugin_state": plugin_state, "test_pairs": test_pairs,
+            "plugin_state": plugin_state, "test_pairs": test_pairs, "options": opts,
             "plugins": plugins, "rules": ruler_rules(mods), "mod_rules": ours,
             "nexus": f"no Nexus request; {len(nexus_names)} Nexus category names read from nexuscatmap.dat",
             "modlist_path": ml, "mods_dir": mods_dir, "foreign": foreign}
@@ -4579,7 +4603,10 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
     else:
         open(os.path.join(prof, "loadorder.txt"), "wb").write(("# This file was automatically generated by Mod Organizer.\r\n" + "\r\n".join(plugins) + "\r\n").encode("utf-8"))
         primary = primary_plugins(instance_dir)
-        text = "# This file was automatically generated by Mod Organizer.\r\n" + "".join("*" + f + "\r\n" for f in plugins if f.lower() not in primary)
+        # a plugin kept off (Settings: parking off) is written without the '*': MO2's mark for an unticked plugin
+        kept_off = {f.lower() for f, _m, _w in result.get("plugin_state", {}).get("keep_off", [])}
+        text = "# This file was automatically generated by Mod Organizer.\r\n" + "".join(
+            ("" if f.lower() in kept_off else "*") + f + "\r\n" for f in plugins if f.lower() not in primary)
         try:
             data = text.encode("mbcs", errors="replace")      # Windows: the system code page, as MO2 writes it
         except LookupError:
@@ -4589,7 +4616,11 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
     ours["auto_master_rules"] = result["rules"]          # the facts the order was built on, for reading; never edited
     save_rules(prof, ours)
     # Bethesda Plugin Manager's groups: the right pane shows the same blocks as the left - only when BPM is there
-    if bpm_installed(instance_dir):
+    opts = options_or_defaults(result.get("options"))
+    if not opts["write_plugin_groups"]:
+        if log:
+            log("plugin groups: switched off in Settings - plugingroups.txt left as it was")
+    elif bpm_installed(instance_dir):
         n_groups = write_plugin_groups(os.path.join(prof, "plugingroups.txt"), result.get("plugin_groups", {}), plugins)
         if log:
             log(f"plugin groups written for {n_groups} plugins ({len(set(result.get('plugin_groups', {}).values()))} groups)")
@@ -4598,7 +4629,7 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
     # the verdicts (the owner, 2026-09-27: "remove the send verdicts button and make the verdicts folder populated
     # after an apply in the plugins data folder"): written beside the backups, for the user to send us by hand
     rows = result.get("facts", {}).get("verdicts", [])
-    if True:                                   # every Apply, none included: the folder always shows the latest state
+    if opts["write_verdicts"]:                 # every Apply, none included: the folder always shows the latest state
         try:
             vdir = os.path.join(cache_dir, VERDICTS_DIR)
             os.makedirs(vdir, exist_ok=True)
@@ -4822,6 +4853,7 @@ if mobase is not None:
             self.t_plug = self._table(["Plugin", "Mod", "Action", "Why"])
             self.tabs.addTab(self.t_plug, "Plugins")
             self.tabs.addTab(self._rules_tab(), "Rules")
+            self.tabs.addTab(self._settings_tab(), "Settings")
             opts = QHBoxLayout()
             opts.addWidget(QLabel("Order: tier by evidence, general before specific; masters, outputs, loaders, refits and your rules enforced."), 3)
             opts.addWidget(QLabel("Smallest block:"))
@@ -4863,6 +4895,54 @@ if mobase is not None:
             self.b_close.clicked.connect(self.close)
             self.b_apply.setEnabled(False)
             QApplication.processEvents()
+            self.compute()
+
+        # The features Apply does on its own, each switchable (the owner, 2026-09-27: "add some tick boxes or a settings
+        # page ... to enable or disable certain features that it currently does automatically, like hiding unused plugins
+        # on the right pane"). Every box saves the moment it changes and the plan is computed again.
+        SETTING_LABELS = (
+            ("park_unloadable_plugins", "Move plugins that cannot load to Optional ESPs",
+             "On: a plugin whose master is in no enabled mod (or kept off by a rule) is moved to its mod's Optional ESPs, "
+             "so the right pane only lists what loads. Off: it stays where it is and is written unticked - you see it in "
+             "the right pane, and the game does not load it."),
+            ("restore_optional_plugins", "Bring optional plugins back when their masters arrive",
+             "On: a plugin waiting in Optional ESPs whose masters are now installed is moved back and activated."),
+            ("write_plugin_groups", "Write Bethesda Plugin Manager groups",
+             "On: when Bethesda Plugin Manager is installed, the right pane's plugin groups follow the left pane's blocks."),
+            ("write_verdicts", "Write the verdicts file after each Apply",
+             "On: the placement verdicts are written to plugins\\data\\MO2ModlistManager\\verdicts, for you to send us if you want to."),
+        )
+
+        def _settings_tab(self):
+            w = QWidget()
+            v = QVBoxLayout(w)
+            v.addWidget(QLabel("What Apply does on its own. Each box is saved as soon as it changes, and the plan is computed again."))
+            self._boxes = {}
+            for key, label, tip in self.SETTING_LABELS:
+                box = QCheckBox(label)
+                box.setToolTip(tip)
+                box.setChecked(self._p.option(key))
+                box.toggled.connect(lambda on, k=key: self._set_option(k, on))
+                v.addWidget(box)
+                note = QLabel(tip)
+                note.setWordWrap(True)
+                note.setContentsMargins(24, 0, 0, 8)
+                v.addWidget(note)
+            v.addWidget(QLabel("Community verdicts (the owner's copy only):"))
+            role_row = QHBoxLayout()
+            role_row.addWidget(QLabel("Role"))
+            self.cb_role = QComboBox()
+            self.cb_role.addItems(["user", "owner"])
+            self.cb_role.setCurrentText("owner" if self._p.is_owner() else "user")
+            self.cb_role.currentTextChanged.connect(lambda s: self._p.set_setting("role", s))
+            role_row.addWidget(self.cb_role)
+            role_row.addStretch(1)
+            v.addLayout(role_row)
+            v.addStretch(1)
+            return w
+
+        def _set_option(self, key, on):
+            self._p.set_setting(key, bool(on))
             self.compute()
 
         def _rules_tab(self):
@@ -5029,11 +5109,12 @@ if mobase is not None:
             ps = r.get("plugin_state", {})
             self._fill(self.t_plug, [(f, m, "activate", w) for f, m, w in ps.get("activate", [])]
                        + [(f, m, "move to Optional ESPs", w) for f, m, w in ps.get("to_optional", [])]
+                       + [(f, m, "leave in place, unticked", w) for f, m, w in ps.get("keep_off", [])]
                        + [(f, m, "back from Optional ESPs, activate", w) for f, m, w in ps.get("from_optional", [])]
                        + [("(the whole mod)", g, "switch off", f"a second copy of {k}: {a}")
                           for g, k, a in r["facts"].get("redundant", [])]
                        + [("(the whole mod)", g, "switch off", why) for g, why in r["facts"].get("default_off", [])])
-            n_plug = sum(len(ps.get(k, [])) for k in ("activate", "to_optional", "from_optional")) + len(r["facts"].get("redundant", [])) \
+            n_plug = sum(len(ps.get(k, [])) for k in ("activate", "to_optional", "from_optional", "keep_off")) + len(r["facts"].get("redundant", [])) \
                 + len(r["facts"].get("default_off", []))
             self.tabs.setTabText(self.tabs.indexOf(self.t_plug), f"Plugins ({n_plug})" if n_plug else "Plugins")
             self.b_apply.setEnabled(bool(r["moves"] or r["facts"]["created"] or r["facts"]["retired"] or n_plug))
@@ -5282,6 +5363,10 @@ if mobase is not None:
             return [
                 mobase.PluginSetting("role", "user, or owner (the receiving end: fetch and pool the verdict files users send)", "user"),
                 mobase.PluginSetting("verdicts_endpoint", "owner only: an https address to fetch pooled verdict payloads from", ""),
+                mobase.PluginSetting("park_unloadable_plugins", "Move plugins that cannot load to Optional ESPs (off: leave them, unticked)", True),
+                mobase.PluginSetting("restore_optional_plugins", "Bring optional plugins back when their masters arrive", True),
+                mobase.PluginSetting("write_plugin_groups", "Write Bethesda Plugin Manager groups", True),
+                mobase.PluginSetting("write_verdicts", "Write the verdicts file after each Apply", True),
             ]
 
         def setting(self, key, default):
@@ -5296,6 +5381,15 @@ if mobase is not None:
                 self._organizer.setPluginSetting(self.name(), key, value)
             except Exception as exc:  # noqa: BLE001
                 self._log(f"setting {key}: {exc!r}")
+
+        def option(self, key):
+            v = self.setting(key, OPTION_DEFAULTS[key])
+            if isinstance(v, str):
+                return v.strip().lower() in ("1", "true", "yes", "on")
+            return bool(v)
+
+        def options(self):
+            return {k: self.option(k) for k in OPTION_DEFAULTS}
 
         def is_owner(self):
             return str(self.setting("role", "user")).strip().lower() == "owner"
@@ -5337,7 +5431,7 @@ if mobase is not None:
                 domain = org.managedGame().gameNexusName() or domain
             except Exception:  # noqa: BLE001
                 pass
-            return run(org.basePath(), org.profileName(), self._cache_dir(), domain, progress, self._log, min_run)
+            return run(org.basePath(), org.profileName(), self._cache_dir(), domain, progress, self._log, min_run, self.options())
 
         def rules(self):
             return load_rules(os.path.join(self._organizer.basePath(), "profiles", self._organizer.profileName()))[0]
