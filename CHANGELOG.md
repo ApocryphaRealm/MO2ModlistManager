@@ -2,6 +2,11 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.1.2 - 2026-09-29 - untested
+
+### Fixed
+- an instance whose profiles or mods folder is not under its base folder (ModOrganizer.ini's profiles_directory / mod_directory, e.g. Mo2/SSE/profiles) failed with 'No such file or directory: .../profiles/<profile>/modlist.txt'. The folders now come from MO2 itself (profilePath, modsPath, the instance's data folder for categories.dat), and the offline runner resolves ModOrganizer.ini the way MO2 does. Reported on Nexus by Mordre, 2026-09-29.
+
 ## 1.1.1 - 2026-09-28 - working
 
 - **A Settings tab** with a switch for each thing Apply does on its own (the owner, 2026-09-27: *"add some tick

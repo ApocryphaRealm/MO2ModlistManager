@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 import collections
 import configparser
@@ -3026,11 +3026,80 @@ def _hubs(mods):
                                           if m is h else f"with {h.name}, in its own block (P5); {m.why}")
 
 
+# --- where an MO2 instance keeps things --------------------------------------------------------------------------------
+# MO2 does NOT keep every folder under one base folder. ModOrganizer.ini's [Settings] may point base_directory,
+# mod_directory and profiles_directory anywhere, with %BASE_DIR% standing for the base (PathSettings in
+# src/settings.cpp at v2.5.2: getConfigurablePath, resolve, base), and categories.dat / nexuscatmap.dat live in the
+# instance's DATA folder - the one holding ModOrganizer.ini (CategoryFactory::categoriesFilePath: dataPath). Until
+# 1.1.2 every path here was built as basePath()/profiles/<profile> and basePath()/mods, which failed with "No such file
+# or directory: '.../profiles/<profile>/modlist.txt'" for a user whose profiles live in Mo2/SSE/profiles (Nexus bug
+# report, 2026-09-29). Inside MO2 the folders come from MO2 itself (modsPath, profilePath, the dataPath property);
+# the offline runner resolves them from ModOrganizer.ini the way PathSettings does.
+
+class Instance:
+    """The folders of one MO2 instance: data (ModOrganizer.ini, categories.dat, nexuscatmap.dat), base, mods,
+    profiles, and app (MO2's own folder - its plugins folder sits there)."""
+
+    def __init__(self, data, base=None, mods=None, profiles=None, app=None):
+        self.data = os.path.normpath(data)
+        self.base = os.path.normpath(base or data)
+        self.mods = os.path.normpath(mods or os.path.join(self.base, "mods"))
+        self.profiles = os.path.normpath(profiles or os.path.join(self.base, "profiles"))
+        self.app = os.path.normpath(app or self.data)
+
+    def profile(self, name):
+        return os.path.join(self.profiles, name)
+
+    def __repr__(self):
+        return f"Instance(data={self.data!r}, mods={self.mods!r}, profiles={self.profiles!r})"
+
+
+def _qsettings_value(v):
+    v = v.strip()
+    m = re.match(r"^@ByteArray\((.*)\)$", v)
+    if m:
+        v = m.group(1)
+    if len(v) >= 2 and v[0] == v[-1] == '"':
+        v = v[1:-1]
+    return v.replace("\\\\", "\\")                  # QSettings' escape; a path saved doubled is collapsed
+
+
+def _mo2_settings(data_dir):
+    """ModOrganizer.ini's [Settings] section as {key: value}."""
+    out, section = {}, None
+    try:
+        for line in open(os.path.join(data_dir, "ModOrganizer.ini"), encoding="utf-8", errors="ignore"):
+            t = line.strip()
+            if t.startswith("[") and t.endswith("]"):
+                section = t[1:-1]
+            elif section == "Settings" and "=" in t:
+                k, v = t.split("=", 1)
+                out[k.strip()] = _qsettings_value(v)
+    except OSError:
+        pass
+    return out
+
+
+def instance_from_dir(data_dir):
+    """An instance from its data folder, resolved as MO2's PathSettings resolves it (the offline runner)."""
+    st = _mo2_settings(data_dir)
+    base = st.get("base_directory") or data_dir
+
+    def conf(key, default):
+        return (st.get(key) or "%BASE_DIR%/" + default).replace("%BASE_DIR%", base)
+
+    return Instance(data_dir, base, conf("mod_directory", "mods"), conf("profiles_directory", "profiles"), data_dir)
+
+
+def as_instance(x):
+    return x if isinstance(x, Instance) else instance_from_dir(x)
+
+
 def read_nexus_catmap(instance_dir):
     """{nexus category name (normalised): MO2 category id} from nexuscatmap.dat (mo2 id | name | nexus id) -
     the table MO2 fills when categories are imported from Nexus. Rows with MO2 id -1 are unmapped."""
     out = {}
-    p = os.path.join(instance_dir, "nexuscatmap.dat")
+    p = os.path.join(as_instance(instance_dir).data, "nexuscatmap.dat")
     try:
         for line in open(p, encoding="utf-8", errors="ignore"):
             parts = line.rstrip("\n").split("|")
@@ -3060,7 +3129,7 @@ def read_nexus_names(instance_dir):
     of these names is Nexus's label, not the user's statement."""
     out = {norm(x) for x in NEXUS_SSE_CATEGORIES}     # the table can be empty (the reference list's is): these always count
     try:
-        for line in open(os.path.join(instance_dir, "nexuscatmap.dat"), encoding="utf-8", errors="ignore"):
+        for line in open(os.path.join(as_instance(instance_dir).data, "nexuscatmap.dat"), encoding="utf-8", errors="ignore"):
             parts = line.rstrip("\r\n").split("|")
             if len(parts) >= 3 and parts[1].strip():
                 out.add(norm(parts[1]))
@@ -3148,7 +3217,7 @@ def apply_mo2_category_updates(updates, log=None):
 
 def read_mo2_categories(instance_dir):
     names = {}
-    p = os.path.join(instance_dir, "categories.dat")
+    p = os.path.join(as_instance(instance_dir).data, "categories.dat")
     try:
         for line in open(p, encoding="utf-8", errors="ignore"):
             parts = line.rstrip("\n").split("|")
@@ -3879,7 +3948,7 @@ SKYRIM_SE_PRIMARY = ("skyrim.esm", "update.esm", "dawnguard.esm", "hearthfires.e
 def game_dir(instance_dir):
     """MO2's gamePath from the instance's ModOrganizer.ini, or None."""
     try:
-        for line in open(os.path.join(instance_dir, "ModOrganizer.ini"), encoding="utf-8", errors="ignore"):
+        for line in open(os.path.join(as_instance(instance_dir).data, "ModOrganizer.ini"), encoding="utf-8", errors="ignore"):
             if line.startswith("gamePath="):
                 v = line.split("=", 1)[1].strip()
                 m = re.match(r"^@ByteArray\((.*)\)$", v)
@@ -4255,7 +4324,7 @@ def plugin_groups(rows, mods_by_name):
 def bpm_installed(instance_dir):
     """Bethesda Plugin Manager is present when its DLL sits in the instance's plugins folder (bsplugins.dll). Only it
     reads plugingroups.txt, so without it no group file is written and the dialog says so."""
-    d = os.path.join(instance_dir, "plugins")
+    d = os.path.join(as_instance(instance_dir).app, "plugins")
     try:
         return any(n.lower().startswith("bsplugins") and n.lower().endswith(".dll") for n in os.listdir(d))
     except OSError:
@@ -4487,10 +4556,11 @@ def load_community(cache_dir):
 def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progress=None, log=None, min_run=2, options=None):
     """Everything up to (not including) writing. Returns a dict the dialog and the offline runner both use."""
     global MO2_WRITTEN
-    MO2_WRITTEN = dict(load_written_categories(os.path.join(instance_dir, "plugins", "data", "MO2ModlistManager")))
+    instance_dir = as_instance(instance_dir)
+    MO2_WRITTEN = dict(load_written_categories(os.path.join(instance_dir.base, "plugins", "data", "MO2ModlistManager")))
     MO2_WRITTEN.update(load_written_categories(cache_dir))
-    mods_dir = os.path.join(instance_dir, "mods")
-    ml = os.path.join(instance_dir, "profiles", profile, "modlist.txt")
+    mods_dir = instance_dir.mods
+    ml = os.path.join(instance_dir.profile(profile), "modlist.txt")
     rows, header = read_modlist(ml)
     foreign = read_foreign(ml)
     mods = scan(mods_dir, rows, progress)
@@ -4504,9 +4574,9 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
             inside = re.sub(r"[\s\[\]\-_.]", "", nm[:-len("_separator")]).lower() == "nodelete"
         elif inside:
             under.add(nm)
-    ours, theirs = load_rules(os.path.join(instance_dir, "profiles", profile))
+    ours, theirs = load_rules(instance_dir.profile(profile))
     opts = options_or_defaults(options)
-    plugin_state = plan_plugin_state(mods, os.path.join(instance_dir, "profiles", profile), theirs, mods_dir,
+    plugin_state = plan_plugin_state(mods, instance_dir.profile(profile), theirs, mods_dir,
                                      park=opts["park_unloadable_plugins"], restore=opts["restore_optional_plugins"])
     community = load_community(cache_dir)
     mo2_names = read_mo2_categories(instance_dir)
@@ -4557,7 +4627,8 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
     """Write it: backups, separator folders, modlist.txt, plugins.txt/loadorder.txt, the rules file."""
     stamp = time.strftime("%Y%m%d-%H%M%S")
     backup = os.path.join(cache_dir, "backups", stamp)
-    prof = os.path.join(instance_dir, "profiles", profile)
+    instance_dir = as_instance(instance_dir)
+    prof = instance_dir.profile(profile)
     os.makedirs(backup, exist_ok=True)
     for f in ("modlist.txt", "plugins.txt", "loadorder.txt", "plugingroups.txt", RULES_FILE):
         p = os.path.join(prof, f)
@@ -4680,7 +4751,7 @@ def list_backups(cache_dir, instance_dir):
         names = sorted((n for n in os.listdir(root) if _BACKUP_NAME.match(n)), reverse=True)
     except OSError:
         return []
-    profiles_dir = os.path.join(instance_dir, "profiles")
+    profiles_dir = as_instance(instance_dir).profiles
     try:
         profiles = {p: _modlist_names(os.path.join(profiles_dir, p, "modlist.txt"))
                     for p in os.listdir(profiles_dir) if os.path.isdir(os.path.join(profiles_dir, p)) and not p.startswith("_")}
@@ -4709,8 +4780,9 @@ def list_backups(cache_dir, instance_dir):
 
 def restore_backup(backup_dir, instance_dir, profile, cache_dir, log=None):
     """Put a profile back as the backup holds it. Returns the folder where the replaced state was backed up first."""
-    prof = os.path.join(instance_dir, "profiles", profile)
-    mods_dir = os.path.join(instance_dir, "mods")
+    instance_dir = as_instance(instance_dir)
+    prof = instance_dir.profile(profile)
+    mods_dir = instance_dir.mods
     try:
         info = json.load(open(os.path.join(backup_dir, BACKUP_INFO), encoding="utf-8"))
     except (OSError, ValueError):
@@ -5161,8 +5233,8 @@ if mobase is not None:
                     tagged.append((name, leaf))
                 except Exception as exc:  # noqa: BLE001
                     self._p._log(f"category {leaf} for {name}: {exc!r}")
-            ids = {norm(v): k for k, v in read_mo2_categories(org.basePath()).items()}
-            mods_dir = os.path.join(org.basePath(), "mods")
+            ids = {norm(v): k for k, v in read_mo2_categories(self._p._instance()).items()}
+            mods_dir = org.modsPath()
             lines = [(n, os.path.join(mods_dir, n, "meta.ini"), ids[norm(c)], c) for n, c in tagged if norm(c) in ids]
             done = apply_mo2_category_updates(lines, self._p._log)
             for n, c in tagged:
@@ -5176,7 +5248,7 @@ if mobase is not None:
         def restore(self):
             # MO2's shape (queryRestore): the backups newest first, one chosen, a clear "no backups" when there are none
             org = self._p._organizer
-            backups = list_backups(self._p._cache_dir(), org.basePath())
+            backups = list_backups(self._p._cache_dir(), self._p._instance())
             if not backups:
                 QMessageBox.information(self, "No Backups", "There are no backups to restore")
                 return
@@ -5415,6 +5487,14 @@ if mobase is not None:
         def _cache_dir(self):
             return os.path.join(self._organizer.basePath(), "plugins", "data", "MO2ModlistManager")
 
+        def _instance(self):
+            """The instance's folders as MO2 itself reports them - never built from basePath() (1.1.2)."""
+            org = self._organizer
+            app = QApplication.instance()
+            data = app.property("dataPath") if app is not None else None
+            return Instance(data or org.basePath(), org.basePath(), org.modsPath(), os.path.dirname(org.profilePath()),
+                            QApplication.applicationDirPath() if app is not None else None)
+
         def _log(self, msg):
             try:
                 os.makedirs(self._cache_dir(), exist_ok=True)
@@ -5431,13 +5511,13 @@ if mobase is not None:
                 domain = org.managedGame().gameNexusName() or domain
             except Exception:  # noqa: BLE001
                 pass
-            return run(org.basePath(), org.profileName(), self._cache_dir(), domain, progress, self._log, min_run, self.options())
+            return run(self._instance(), org.profileName(), self._cache_dir(), domain, progress, self._log, min_run, self.options())
 
         def rules(self):
-            return load_rules(os.path.join(self._organizer.basePath(), "profiles", self._organizer.profileName()))[0]
+            return load_rules(self._organizer.profilePath())[0]
 
         def save_rules(self, ours):
-            save_rules(os.path.join(self._organizer.basePath(), "profiles", self._organizer.profileName()), ours)
+            save_rules(self._organizer.profilePath(), ours)
 
         def selected_mod(self):
             """The first mod selected in MO2's mod list, by reading the modList view's selection."""
@@ -5456,7 +5536,7 @@ if mobase is not None:
 
         def apply(self, result):
             org = self._organizer
-            backup = apply(result, org.basePath(), org.profileName(), self._cache_dir(), self._log)
+            backup = apply(result, self._instance(), org.profileName(), self._cache_dir(), self._log)
             # refresh WITHOUT saving: refresh(True) first writes MO2's in-memory lists to disk, and Bethesda Plugin
             # Manager's copy of the groups went down with them - 350 of 1,792 plugins were back in their old
             # groups after the 2026-09-22 Apply. With False the lists are re-read from the files just written.
@@ -5470,10 +5550,10 @@ if mobase is not None:
 
         def restore(self, backup_dir):
             org = self._organizer
-            out = restore_backup(backup_dir, org.basePath(), org.profileName(), self._cache_dir(), self._log)
+            out = restore_backup(backup_dir, self._instance(), org.profileName(), self._cache_dir(), self._log)
             org.refresh(False)                 # re-read the restored files; never save the in-memory lists over them
             try:
-                lo = os.path.join(org.basePath(), "profiles", org.profileName(), "loadorder.txt")
+                lo = os.path.join(org.profilePath(), "loadorder.txt")
                 order = [ln.strip() for ln in open(lo, encoding="utf-8-sig", errors="replace") if ln.strip() and not ln.startswith("#")]
                 if order:
                     org.pluginList().setLoadOrder(order)
@@ -5485,9 +5565,9 @@ if mobase is not None:
             """A few seconds after Apply, read plugingroups.txt back: if BPM has written older groups over it, put
             ours back and say so in the log, so a stale in-memory copy is visible rather than silent."""
             want = result.get("plugin_groups") or {}
-            if not want or not bpm_installed(self._organizer.basePath()):
+            if not want or not bpm_installed(self._instance()):
                 return
-            path = os.path.join(self._organizer.basePath(), "profiles", self._organizer.profileName(), "plugingroups.txt")
+            path = os.path.join(self._organizer.profilePath(), "plugingroups.txt")
             order = list(result["plugins"])
 
             def check():
