@@ -1,6 +1,6 @@
 MO2 Modlist Manager
 ===================
-Version 1.1.1
+Version 1.1.2
 
 A Mod Organizer 2 plugin that sorts the whole left pane for you: it generates the separators, places every mod under
 the category its own evidence decides, puts masters above the mods that need them, and makes the plugin list follow
