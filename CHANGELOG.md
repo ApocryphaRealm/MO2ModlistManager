@@ -2,7 +2,7 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
-## 1.1.3 - 2026-10-05 - untested
+## 1.1.3 - 2026-10-05 - working
 
 ### Added
 - **A mod moved by hand to another separator becomes a rule.** The owner, 2026-10-05: *"apply a similar logic to the
