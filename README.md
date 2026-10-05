@@ -4,7 +4,7 @@ A Mod Organizer 2 plugin (Python, MO2 2.5.x) that generates the left pane: one s
 load-order taxonomy, every mod placed under the category the evidence decides, masters above dependents, the plugin
 list following the pane. Nothing is written until Apply, and Apply backs up the profile's lists first.
 
-Version 1.0.0 (this build's own numbering; no upstream).
+Version 1.1.3 (this build's own numbering; no upstream).
 
 ## How a mod is placed
 
@@ -40,6 +40,29 @@ today's position, so the result does not depend on the order the list starts in.
 (`python MO2ModlistManager.py <instance dir> <profile> <cache dir>`) reports how many are met; a ruling is folded
 into the weights and rules, never handled as a one-off exception (the project's rule 67).
 
+## Mods moved by hand become rules (1.1.3)
+
+The owner, 2026-10-05: *"any mods that the user shifts to a different separator becomes a new rule automatically so they
+don't have to make them one by one manually."* Every Apply records the separator it put each mod under
+(`auto_placement` in the profile's `modlist_order_rules.json`). A later run compares the pane with that record:
+
+- **Learn.** A mod now under a different category separator (one named for a taxonomy leaf) becomes a learned pin
+  (`learned_pins`). It is honoured like a typed pin and listed in the Rules tab as `pin (learned)`. The log line is
+  `learned '<mod>' -> <category> (moved there by hand; the manager had it in <category>)`.
+- **Forget.** Moved back under the separator the manager gave it, the learned pin is forgotten. **Forget learned rules**
+  (or Remove selected) forgets on demand, and records the mod's current separator so the move is not learned again.
+- **What never teaches:** a separator the user named, a tier header, an empty main separator, NoDelete. A typed pin
+  always wins.
+- **Restore backup** puts `auto_placement` and `learned_pins` back with the other automatic facts.
+- **Off switch:** `learn_from_moves` in the settings, default on.
+
+The trigger is the comparison, not MO2's `onModMoved`. MO2 2.5.2 emits that signal only from the multi-index
+`changeModPriority`, not from the single-index one or for an edit made outside MO2 (MO2-REFERENCE.md).
+
+These are the player's rules for their own list. A ruling by the owner about where a mod belongs still goes into the
+evidence model and `expectations.json` (rule 67). `tools/test_learned_pins.py` covers the cycle on a scratch instance:
+Apply, move, learn, Apply, move back, forget, the user's own separator, a typed pin, Forget, the switch, and Restore.
+
 ## Sharing verdicts
 
 The classifier learns from other lists. In the dialog, **Share verdicts...** shows every mod whose MO2 category you
@@ -67,6 +90,7 @@ user 1.0, capped at 3.0). Submitters are counted, never stored.
 | `share_after_apply` | send the verdicts after each Apply |
 | `verdicts_endpoint` | an https address to POST to / fetch from; empty means the GitHub issue route |
 | `disclosed` | the disclosure has been shown once |
+| `learn_from_moves` | a mod moved by hand to another category separator becomes a pin (default on, 1.1.3) |
 
 ## Debugging
 

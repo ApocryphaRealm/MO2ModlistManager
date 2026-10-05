@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.1.2"
+__version__ = "1.1.3"
 
 import collections
 import configparser
@@ -4071,6 +4071,7 @@ OPTION_DEFAULTS = {
     "restore_optional_plugins": True,  # an Optional ESPs plugin whose masters arrived comes back and is activated
     "write_plugin_groups": True,       # Bethesda Plugin Manager's plugingroups.txt, when BPM is installed
     "write_verdicts": True,            # the verdicts file in plugins\data\MO2ModlistManager\verdicts
+    "learn_from_moves": True,          # a mod moved by hand to another category separator becomes a pin (1.1.3)
 }
 
 
@@ -4295,6 +4296,96 @@ def load_rules(profile_dir):
 
 def save_rules(profile_dir, ours):
     json.dump(ours, open(os.path.join(profile_dir, RULES_FILE), "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+
+
+# --- LEARNED PINS (1.1.3; the owner, 2026-10-05: "any mods that the user shifts to a different separator becomes a new
+# rule automatically so they don't have to make them one by one manually") ------------------------------------------------
+# Every Apply records the separator it put each mod under (ours["auto_placement"]: {mod: separator folder}). A later run
+# reads the list as MO2 shows it, and a mod now under a different CATEGORY separator - one named for a taxonomy leaf -
+# was moved there by hand: it becomes a learned pin (ours["learned_pins"]: {mod: {"category", "was", "was_separator",
+# "when"}}), honoured like a pin typed in the Rules tab. Moved back under the separator the manager had given it, the
+# learned pin is forgotten. A separator of the user's own naming, a tier header, an empty main separator or NoDelete
+# teaches nothing, and a pin the user typed always wins over a learned one.
+# The trigger is this comparison, not MO2's onModMoved: MO2 2.5.2 emits that signal only from the multi-index
+# ModList::changeModPriority - never from the single-index one, nor for an edit made outside MO2 (MO2-REFERENCE.md) -
+# and a comparison also sees what was moved while the plugin was not loaded.
+# These are the PLAYER's rules for his own list (the "pin" kind), not category rulings for the classifier: a ruling of
+# the owner's still goes into the evidence model and expectations.json (rule 67), never in here.
+LEARNABLE = {sep_name(leaf).lower(): leaf for leaf in LEAVES}
+
+
+def separator_of(rows):
+    """{mod: the separator folder it sits under in MO2's pane, or None above the first} for rows in pane order, top
+    first (read_modlist; build's rows) - MO2's ModListByPriorityProxy::buildTree: a mod's parent is the last separator
+    above it."""
+    out, cur = {}, None
+    for nm, _en in rows:
+        if is_sep(nm):
+            cur = nm
+        else:
+            out[nm] = cur
+    return out
+
+
+def learn_from_moves(rows, ours, today=None):
+    """(learned pins, changes) from the list as it is now against the separators the last Apply wrote.
+    changes: [(mod, "learned" | "changed" | "forgotten", category now, where the manager had it)]."""
+    placed = ours.get("auto_placement") or {}
+    learned = {k: dict(v) for k, v in (ours.get("learned_pins") or {}).items() if isinstance(v, dict) and v.get("category")}
+    typed = ours.get("pins") or {}
+    changes = []
+    if not placed:                     # no Apply has recorded where it put anything yet: nothing to compare with
+        return learned, changes
+    today = today or time.strftime("%Y-%m-%d")
+    for mod, sep in separator_of(rows).items():
+        if not sep or mod in typed or mod not in placed:
+            continue                   # above every separator, pinned by hand, or installed since the last Apply
+        old = learned.get(mod)
+        if old and sep.lower() == str(old.get("was_separator", "")).lower():
+            learned.pop(mod)           # back where the manager had it: the evidence decides again
+            changes.append((mod, "forgotten", old.get("was", ""), old.get("was", "")))
+            continue
+        here = LEARNABLE.get(sep.lower())
+        if not here:
+            continue                   # a separator of the user's own naming, a tier header, a main, NoDelete
+        if sep.lower() == str(placed[mod]).lower():
+            continue                   # where the last Apply put it: not moved
+        if old and norm(old["category"]) == norm(here):
+            continue                   # learned already
+        was_sep = old["was_separator"] if old else placed[mod]
+        was = old["was"] if old else (LEARNABLE.get(str(was_sep).lower()) or str(was_sep)[:-len("_separator")])
+        learned[mod] = {"category": here, "was": was, "was_separator": was_sep, "when": today}
+        changes.append((mod, "changed" if old else "learned", here, was))
+    return learned, changes
+
+
+def learned_line(mod, kind, here, was):
+    """The log line for one change (the same wording as AMF's MCM sort)."""
+    if kind == "forgotten":
+        return f"forgot '{mod}' (moved back to {was}, where the evidence puts it)"
+    return f"learned '{mod}' -> {here} (moved there by hand; the manager had it in {was})"
+
+
+def record_placement(ours, rows, learned=None):
+    """At Apply: the separator each mod is written under - what the next run compares the list against - and the
+    learned pins the plan used."""
+    ours["auto_placement"] = {m: sep for m, sep in separator_of(rows).items() if sep}
+    if learned is not None:
+        ours["learned_pins"] = learned
+    return ours
+
+
+def forget_learned(ours, mods=None):
+    """Forget learned pins (all, or the named mods). The mod's current separator becomes its recorded place, so the
+    move is not learned again on the next run; the next Apply places it by its evidence. Returns the mods forgotten."""
+    learned = ours.get("learned_pins") or {}
+    placed = ours.setdefault("auto_placement", {})
+    gone = [m for m in list(learned) if mods is None or m in mods]
+    for m in gone:
+        placed[m] = sep_name(learned[m]["category"])
+        learned.pop(m)
+    ours["learned_pins"] = learned
+    return gone
 
 
 def plugin_groups(rows, mods_by_name):
@@ -4576,11 +4667,24 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
             under.add(nm)
     ours, theirs = load_rules(instance_dir.profile(profile))
     opts = options_or_defaults(options)
+    # learned pins (1.1.3): a mod moved by hand to another category separator is pinned there; a typed pin wins
+    if opts["learn_from_moves"]:
+        learned, learned_changes = learn_from_moves(rows, ours)
+    else:
+        learned, learned_changes = learn_from_moves([], {"learned_pins": ours.get("learned_pins")})
+    for mod, kind, here, was in learned_changes:
+        if log:
+            log(learned_line(mod, kind, here, was))
+    pins = {m: v["category"] for m, v in learned.items()}
+    pins.update(ours.get("pins") or {})
     plugin_state = plan_plugin_state(mods, instance_dir.profile(profile), theirs, mods_dir,
                                      park=opts["park_unloadable_plugins"], restore=opts["restore_optional_plugins"])
     community = load_community(cache_dir)
     mo2_names = read_mo2_categories(instance_dir)
-    place(mods, nexus_names, mo2_names, under, ours.get("pins"), community)
+    place(mods, nexus_names, mo2_names, under, pins, community)
+    for m in mods:
+        if m.name in learned and m.name not in (ours.get("pins") or {}) and (m.why or "").startswith("pinned"):
+            m.why = f"pinned: learned - you moved it here by hand (the manager had it in {learned[m.name].get('was', '?')})"
     # a debugging tool that runs only while a crash is being chased is OFF by default (the owner, 2026-09-27: "Collision
     # Sentinel should be off by default"); switching it on by hand is for a debugging session
     default_off = []
@@ -4619,6 +4723,7 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
             "plugin_groups": plugin_groups(new_rows, by_name), "bpm": bpm_installed(instance_dir),
             "plugin_state": plugin_state, "test_pairs": test_pairs, "options": opts,
             "plugins": plugins, "rules": ruler_rules(mods), "mod_rules": ours,
+            "learned": learned, "learned_changes": learned_changes,
             "nexus": f"no Nexus request; {len(nexus_names)} Nexus category names read from nexuscatmap.dat",
             "modlist_path": ml, "mods_dir": mods_dir, "foreign": foreign}
 
@@ -4685,6 +4790,7 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
         open(os.path.join(prof, "plugins.txt"), "wb").write(data)
     ours, _ = load_rules(prof)
     ours["auto_master_rules"] = result["rules"]          # the facts the order was built on, for reading; never edited
+    record_placement(ours, result["rows"], result.get("learned"))   # what the next run compares the list against
     save_rules(prof, ours)
     # Bethesda Plugin Manager's groups: the right pane shows the same blocks as the left - only when BPM is there
     opts = options_or_defaults(result.get("options"))
@@ -4855,6 +4961,12 @@ def restore_backup(backup_dir, instance_dir, profile, cache_dir, log=None):
         old = json.load(open(os.path.join(backup_dir, RULES_FILE), encoding="utf-8"))
         ours, _ = load_rules(prof)
         ours["auto_master_rules"] = old.get("auto_master_rules", [])
+        # what that Apply recorded and learned (1.1.3): restoring the list from before it undoes what it learned too
+        for key_ in ("auto_placement", "learned_pins"):
+            if key_ in old:
+                ours[key_] = old[key_]
+            else:
+                ours.pop(key_, None)
         save_rules(prof, ours)
     except (OSError, ValueError):
         pass
@@ -4983,6 +5095,10 @@ if mobase is not None:
              "On: when Bethesda Plugin Manager is installed, the right pane's plugin groups follow the left pane's blocks."),
             ("write_verdicts", "Write the verdicts file after each Apply",
              "On: the placement verdicts are written to plugins\\data\\MO2ModlistManager\\verdicts, for you to send us if you want to."),
+            ("learn_from_moves", "Learn a rule from each mod you move to another separator",
+             "On: a mod you drag from the separator Apply gave it to another category separator becomes a pin rule, so the "
+             "next Apply leaves it there. Moving it back forgets the rule. Separators you named yourself teach nothing. The "
+             "Rules tab lists what was learned, and Forget learned rules undoes it."),
         )
 
         def _settings_tab(self):
@@ -5022,7 +5138,8 @@ if mobase is not None:
             v = QVBoxLayout(w)
             v.addWidget(QLabel("A rule beats the evidence and is kept in the profile (mod_ruler_rules.json). "
                                "after / before: the mod sits beside the target and joins its separator. first / last: top or bottom of its own "
-                               "separator. pin: the mod goes under the named separator whatever Nexus says."))
+                               "separator. pin: the mod goes under the named separator whatever Nexus says. pin (learned): you moved "
+                               "the mod to that separator yourself after an Apply; move it back, or remove the row, to forget it."))
             self.t_rules = self._table(["Kind", "Mod", "Target / separator", "On"])
             v.addWidget(self.t_rules, 1)
             form = QHBoxLayout()
@@ -5035,19 +5152,40 @@ if mobase is not None:
             b_add = QPushButton("Add")
             b_del = QPushButton("Remove selected")
             b_sel = QPushButton("Use selected mod")
-            for x in (self.r_kind, self.r_mod, self.r_target, b_sel, b_add, b_del):
+            b_forget = QPushButton("Forget learned rules")
+            b_forget.setToolTip("Remove every pin learned from a mod you moved; the next Apply places those mods by their evidence again.")
+            for x in (self.r_kind, self.r_mod, self.r_target, b_sel, b_add, b_del, b_forget):
                 form.addWidget(x)
             v.addLayout(form)
             b_add.clicked.connect(self._rule_add)
             b_del.clicked.connect(self._rule_del)
             b_sel.clicked.connect(self._rule_pick)
+            b_forget.clicked.connect(self._rule_forget_learned)
             return w
+
+        def _rule_forget_learned(self):
+            r = self._p.rules()
+            n = len(r.get("learned_pins") or {})
+            if not n:
+                self.status.setText("No learned rules to forget.")
+                return
+            if QMessageBox.question(self, "Forget learned rules",
+                                    f"Forget the {n} rule(s) learned from mods you moved? The next Apply places those mods by "
+                                    "their evidence again.") != QMessageBox.StandardButton.Yes:
+                return
+            gone = forget_learned(r)
+            self._p.save_rules(r)
+            self._p._log(f"forgot {len(gone)} learned rule(s) by hand: {', '.join(gone)}")
+            self._fill(self.t_rules, self._rules_rows())
+            self.compute()
 
         def _rules_rows(self):
             r = self._p.rules()
             rows = [(x.get("type", ""), x.get("mod", ""), x.get("target", ""), "yes" if x.get("enabled", True) else "no") for x in r.get("rules", [])]
             rows += [("plugin " + x.get("type", ""), x.get("plugin", ""), x.get("target", ""), "yes" if x.get("enabled", True) else "no") for x in r.get("plugin_rules", [])]
             rows += [("pin", m, sep, "yes") for m, sep in r.get("pins", {}).items()]
+            rows += [("pin (learned)", m, f"{v.get('category', '')} (the manager had it in {v.get('was', '?')}; {v.get('when', '')})", "yes")
+                     for m, v in (r.get("learned_pins") or {}).items()]
             return rows
 
         def _rule_add(self):
@@ -5075,6 +5213,9 @@ if mobase is not None:
                 kind, mod, target, _on = table[i]
                 if kind == "pin":
                     r.get("pins", {}).pop(mod, None)
+                elif kind == "pin (learned)":
+                    forget_learned(r, {mod})
+                    self._p._log(f"forgot the learned rule for '{mod}' by hand")
                 elif kind.startswith("plugin "):
                     r["plugin_rules"] = [x for x in r.get("plugin_rules", []) if not (x.get("type") == kind[7:] and x.get("plugin") == mod and x.get("target", "") == target)]
                 else:
@@ -5439,6 +5580,7 @@ if mobase is not None:
                 mobase.PluginSetting("restore_optional_plugins", "Bring optional plugins back when their masters arrive", True),
                 mobase.PluginSetting("write_plugin_groups", "Write Bethesda Plugin Manager groups", True),
                 mobase.PluginSetting("write_verdicts", "Write the verdicts file after each Apply", True),
+                mobase.PluginSetting("learn_from_moves", "Learn a rule from each mod moved by hand to another separator", True),
             ]
 
         def setting(self, key, default):
@@ -5511,7 +5653,13 @@ if mobase is not None:
                 domain = org.managedGame().gameNexusName() or domain
             except Exception:  # noqa: BLE001
                 pass
-            return run(self._instance(), org.profileName(), self._cache_dir(), domain, progress, self._log, min_run, self.options())
+            result = run(self._instance(), org.profileName(), self._cache_dir(), domain, progress, self._log, min_run, self.options())
+            if result.get("learned_changes"):
+                # kept at once, so the Rules tab lists it; Apply records where everything then sits
+                ours = self.rules()
+                ours["learned_pins"] = result["learned"]
+                self.save_rules(ours)
+            return result
 
         def rules(self):
             return load_rules(self._organizer.profilePath())[0]

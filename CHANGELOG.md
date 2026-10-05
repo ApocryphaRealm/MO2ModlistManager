@@ -2,6 +2,35 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.1.3 - 2026-10-05 - untested
+
+### Added
+- **A mod moved by hand to another separator becomes a rule.** The owner, 2026-10-05: *"apply a similar logic to the
+  mod manager plugin ... so that any mods that the user shifts to a different separator becomes a new rule
+  automatically so they don't have to make them one by one manually."*
+  - Every Apply records the separator it put each mod under (`auto_placement` in the profile's rules file).
+  - The next run compares the pane with that record. A mod now under a different category separator - one named for
+    a taxonomy leaf - is learned as a pin (`learned_pins`) and planned there, with the reason on the Placement tab.
+    It is listed in the Rules tab as "pin (learned)", and logged as "learned '<mod>' -> <category> (moved there by
+    hand; the manager had it in <category>)".
+  - Moved back under the separator the manager gave it, the learned pin is forgotten.
+  - A separator the user named, a tier header, an empty main separator or NoDelete teaches nothing. A typed pin always
+    wins.
+  - **Forget learned rules** (Rules tab) removes them all, Remove selected removes one. Both record the mod's current
+    separator so the move is not learned again; the next Apply places it by its evidence. If the mod was the only one
+    under its old separator, that separator is retired at the Apply, so this is the way back for it.
+  - Restore backup puts the recorded places and learned pins back with the other automatic facts.
+  - Settings: "Learn a rule from each mod you move to another separator" (`learn_from_moves`, default on).
+  - Learning starts after the first Apply with 1.1.3, which records where it put every mod.
+- The trigger is the comparison, not MO2's `onModMoved`. MO2 2.5.2 emits that signal only from the multi-index
+  `ModList::changeModPriority`, never from the single-index one or for an edit made outside MO2. MO2-REFERENCE.md has
+  the sources read (`buildTree`, `changeModPriority`, `sendModsToSeparator`).
+- `tools/test_learned_pins.py`: the whole cycle on a scratch instance, through the plugin class and the real Apply and
+  Restore.
+  - Covered: learn, kept in the rules file, Apply, nothing changes, moved back and forgotten, a user-named separator, a
+    typed pin, Forget, the switch off, Restore.
+  - The self-check still meets 249 of 249 rulings on Njordlinger, with no fall in the Apostasy reference score.
+
 ## 1.1.2 - 2026-09-29 - working
 
 ### Fixed

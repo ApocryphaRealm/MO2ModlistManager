@@ -1,6 +1,6 @@
 MO2 Modlist Manager
 ===================
-Version 1.1.2
+Version 1.1.3
 
 A Mod Organizer 2 plugin that sorts the whole left pane for you: it generates the separators, places every mod under
 the category its own evidence decides, puts masters above the mods that need them, and makes the plugin list follow
@@ -69,12 +69,14 @@ Press the toolbar button. The manager reads the list and shows its plan; nothing
   - Plugins: the plugin order it would write, and plugins it would move into or out of Optional ESPs.
   - Review: conflicting pairs the evidence could not decide - write a rule for the ones you care about.
   - Rules: your own before / after / first / last rules and pins; they rank above the evidence, never above a
-    master, a generated output or a settings loader.
+    master, a generated output or a settings loader. The pins learned from mods you moved are listed here too, as
+    "pin (learned)" (see MOVING A MOD BY HAND).
   - Settings: switches for what Apply does on its own, each saved as soon as it changes -
       Move plugins that cannot load to Optional ESPs (off: they stay in the right pane, unticked),
       Bring optional plugins back when their masters arrive,
       Write Bethesda Plugin Manager groups,
-      Write the verdicts file after each Apply.
+      Write the verdicts file after each Apply,
+      Learn a rule from each mod you move to another separator.
     All on by default. The same switches are on MO2's Settings > Plugins page.
 Apply writes the plan: modlist.txt, plugins.txt and loadorder.txt, new separators (in your separators' colour),
 retired separators moved to the backup, and Bethesda Plugin Manager groups when that plugin is installed. Every
@@ -88,12 +90,31 @@ MO2 CATEGORIES
 MO2 category - created in MO2 when it is new. A category you set yourself is never touched; the ones this button wrote
 follow the manager's decision when it changes, and are never mistaken for yours.
 
+MOVING A MOD BY HAND
+--------------------
+Drag a mod to another category's separator after an Apply, and it stays there: the next time the manager reads the
+list it turns the move into a pin rule, so you do not have to write one per mod. It is listed in the Rules tab as
+"pin (learned)", with the separator the manager had given it, and the log says
+"learned '<mod>' -> <category> (moved there by hand; the manager had it in <category>)".
+  - Move the mod back under the separator the manager gave it, and the rule is forgotten.
+  - Only separators named for one of the manager's categories teach. Moving a mod under a separator you named
+    yourself, a tier header or the NoDelete separator makes no rule.
+  - A pin you typed yourself always wins over a learned one.
+  - "Forget learned rules" in the Rules tab removes them all (Remove selected removes one). The next Apply places
+    those mods by their evidence again. If a mod was the only one under its old separator, that separator is gone
+    after the Apply, so this is the way back for it.
+  - Learning starts after your first Apply with this version: that Apply records where it put every mod, and later
+    moves are compared with it.
+  - Settings > "Learn a rule from each mod you move to another separator" switches it off. Rules already learned
+    stay until you forget them.
+
 RESTORE BACKUP
 --------------
 "Restore backup..." beside Apply lists every backup newest first, with the profile it came from. The one you choose
 puts the profile back as it was before that Apply: the mod list, plugin list, load order and plugin groups, the
 separators the Apply retired (and the ones it created set aside), and the plugins it moved to or from Optional ESPs.
-Your own rules stay. The state it replaces is backed up first, so a restore can itself be restored.
+Your own rules stay; the pins learned from moves go back to what they were with that backup. The state it replaces
+is backed up first, so a restore can itself be restored.
 
 VERDICTS
 --------
