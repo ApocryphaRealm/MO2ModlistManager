@@ -13,6 +13,7 @@ it learns, as in MO2) and the real apply() / restore_backup():
   H  Forget learned rules: the pin goes and the move is not learned again
   I  the switch off: nothing learned
   J  Restore backup puts back the learned pins and recorded places the backup holds
+  K  the dialog's Rules tab: learned rows listed, Remove selected, Forget learned rules
 
     python tools\\test_learned_pins.py        exit 0 = every check passed
 """
@@ -188,6 +189,27 @@ try:
     ok(r.get("auto_placement", {}).get("SkyUI") == ui_sep, f"J  and where the Apply before it had put SkyUI: {r.get('auto_placement', {}).get('SkyUI')}")
     res = p.compute()
     ok(not res["learned_changes"] and placed(res, "SkyUI") == cam_sep, f"J  after the restore the list and the rules agree: {res['learned_changes']}")
+
+    # ---- K: the dialog's Rules tab ------------------------------------------------------------------------------------
+    move("Lux", cam_sep)                   # a second learned pin, so Remove selected and Forget each have one to take
+    dlg = mm.RulerDialog(p)
+    dlg.compute()
+    rows = dlg._rules_rows()
+    learned_rows = [r_ for r_ in rows if r_[0] == "pin (learned)"]
+    ok(sorted(r_[1] for r_ in learned_rows) == ["Lux", "SkyUI"] and all(r_[2].startswith("Camera (the manager had it in") for r_ in learned_rows),
+       f"K  the Rules tab lists both learned pins: {learned_rows}")
+    i = next(n for n, r_ in enumerate(rows) if r_[:2] == ("pin (learned)", "Lux"))
+    dlg.t_rules.selectRow(i)
+    dlg._rule_del()
+    r = p.rules()
+    ok("Lux" not in r.get("learned_pins", {}) and "SkyUI" in r.get("learned_pins", {}) and str(r["auto_placement"].get("Lux", "")).lower() == cam_sep.lower(),
+       "K  Remove selected forgets that one and records where it sits, so it is not learned again")
+    mm.QMessageBox.question = staticmethod(lambda *a, **k: mm.QMessageBox.StandardButton.Yes)
+    dlg._rule_forget_learned()
+    ok(not p.rules().get("learned_pins") and not [r_ for r_ in dlg._rules_rows() if r_[0] == "pin (learned)"],
+       "K  Forget learned rules empties them and the tab")
+    res = p.compute()
+    ok(not res["learned_changes"], f"K  nothing is learned again after forgetting: {res['learned_changes']}")
 finally:
     shutil.rmtree(root, ignore_errors=True)
 print("ALL PASS" if not bad else f"{bad} FAILED")
