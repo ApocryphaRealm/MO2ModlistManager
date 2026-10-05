@@ -29,7 +29,7 @@ Every version, beside the code it describes. Status is the version ledger's word
   Restore.
   - Covered: learn, kept in the rules file, Apply, nothing changes, moved back and forgotten, a user-named separator, a
     typed pin, Forget, the switch off, Restore.
-  - The self-check still meets 249 of 249 rulings on Njordlinger, with no fall in the Apostasy reference score.
+  - The self-check still meets 249 of 249 rulings on Njordlinger, with no fall in the reference-list score.
 
 ### Fixed
 - **The window can be made narrow again, and it no longer opens wider than MO2.** The owner, 2026-10-05: *"the mm
