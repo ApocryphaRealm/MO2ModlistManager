@@ -31,6 +31,19 @@ Every version, beside the code it describes. Status is the version ledger's word
     typed pin, Forget, the switch off, Restore.
   - The self-check still meets 249 of 249 rulings on Njordlinger, with no fall in the Apostasy reference score.
 
+### Fixed
+- **The window can be made narrow again, and it no longer opens wider than MO2.** The owner, 2026-10-05: *"the mm
+  plugins popup window is wider than mo2 and wont let me adjust its width"*.
+  - Four sentence-long labels were drawn on one line each: Review, Rules, Settings and the order line. A dialog can
+    never be narrower than its widest child, so the narrowest the window could go was 1,591 px in 1.1.2, and 2,041 px
+    with 1.1.3's longer Rules text.
+  - They wrap now, and the window can be narrowed to 682 px.
+  - It opens at 1100 x 720, or no larger than MO2's window and the screen.
+- `tools/check_dialog_width.py` measures the narrowest width with Qt's Windows platform and real fonts (the window is
+  never shown). It fails above 760 px: on 1.1.2 and 1.1.3 as first built, not on this one.
+- Gate rule `mo2-plugin-long-labels-wrap` (package gate) refuses a sentence-long label without wrapping in any of our MO2
+  plugins.
+
 ## 1.1.2 - 2026-09-29 - working
 
 ### Fixed

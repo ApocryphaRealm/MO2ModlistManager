@@ -5002,13 +5002,30 @@ if mobase is not None:
                                      QToolButton, QTreeView, QVBoxLayout, QWidget)
         from PyQt5.QtWidgets import QAction
 
+    def _note(text):
+        """A label for a sentence of text: it wraps. An unwrapped label is as wide as its whole text, and the dialog can
+        never be narrower than its widest child - the Rules tab's explanation alone held the dialog at 4,600 px (the
+        owner, 2026-10-05: "the mm plugins popup window is wider than mo2 and wont let me adjust its width")."""
+        label = QLabel(text)
+        label.setWordWrap(True)
+        return label
+
     class RulerDialog(QDialog):
         def __init__(self, plugin, parent=None):
             super().__init__(parent)
             self._p = plugin
             self._result = None
             self.setWindowTitle("MO2 Modlist Manager")
-            self.resize(1100, 720)
+            # opens at 1100 x 720, or no larger than MO2's own window (the owner, 2026-10-05: "wider than mo2") and the
+            # screen it is on; any size from there is the user's - the labels wrap, so it narrows to about 700 px
+            w, h = 1100, 720
+            screen = (parent.screen() if parent is not None else None) or QApplication.primaryScreen()
+            if screen is not None:
+                avail = screen.availableGeometry()
+                w, h = min(w, int(avail.width() * 0.9)), min(h, int(avail.height() * 0.9))
+            if parent is not None and parent.width() > 400:
+                w, h = min(w, parent.width() - 40), min(h, max(400, parent.height() - 40))
+            self.resize(w, h)
             root = QVBoxLayout(self)
             self.summary = QLabel("Reading the list...")
             self.summary.setWordWrap(True)
@@ -5027,7 +5044,7 @@ if mobase is not None:
             self.tabs.addTab(self.t_disp, "Minorities / displaced")
             conf_page = QWidget()
             cl = QVBoxLayout(conf_page)
-            cl.addWidget(QLabel("Every file conflict the resolver could not decide from evidence (top), then the ones it "
+            cl.addWidget(_note("Every file conflict the resolver could not decide from evidence (top), then the ones it "
                                 "flipped against today's order. Information only: nothing here writes a rule. A pair the "
                                 "category order gets wrong is a missing piece of evidence - add it to the model, or write "
                                 "a rule of your own on the Rules tab."))
@@ -5039,7 +5056,7 @@ if mobase is not None:
             self.tabs.addTab(self._rules_tab(), "Rules")
             self.tabs.addTab(self._settings_tab(), "Settings")
             opts = QHBoxLayout()
-            opts.addWidget(QLabel("Order: tier by evidence, general before specific; masters, outputs, loaders, refits and your rules enforced."), 3)
+            opts.addWidget(_note("Order: tier by evidence, general before specific; masters, outputs, loaders, refits and your rules enforced."), 3)
             opts.addWidget(QLabel("Smallest block:"))
             self.sp_run = QSpinBox()
             self.sp_run.setRange(1, 60)
@@ -5104,7 +5121,7 @@ if mobase is not None:
         def _settings_tab(self):
             w = QWidget()
             v = QVBoxLayout(w)
-            v.addWidget(QLabel("What Apply does on its own. Each box is saved as soon as it changes, and the plan is computed again."))
+            v.addWidget(_note("What Apply does on its own. Each box is saved as soon as it changes, and the plan is computed again."))
             self._boxes = {}
             for key, label, tip in self.SETTING_LABELS:
                 box = QCheckBox(label)
@@ -5136,7 +5153,7 @@ if mobase is not None:
         def _rules_tab(self):
             w = QWidget()
             v = QVBoxLayout(w)
-            v.addWidget(QLabel("A rule beats the evidence and is kept in the profile (mod_ruler_rules.json). "
+            v.addWidget(_note("A rule beats the evidence and is kept in the profile (mod_ruler_rules.json). "
                                "after / before: the mod sits beside the target and joins its separator. first / last: top or bottom of its own "
                                "separator. pin: the mod goes under the named separator whatever Nexus says. pin (learned): you moved "
                                "the mod to that separator yourself after an Apply; move it back, or remove the row, to forget it."))
