@@ -15,7 +15,7 @@ written. Gate rule modlist-manager-order-passes-the-launch-audit runs this befor
 import json, os, re, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AUDIT = r"D:\Claude output\.MD\scripts\nj-order-audit.py"
+AUDIT = subprocess.run([sys.executable, r"D:\Claude output\.MD\resolvers\resolve.py", "find", "nj-order-audit"], capture_output=True, text=True).stdout.strip()   # by role
 args = sys.argv[1:]
 def opt(k, d):
     return args[args.index(k) + 1] if k in args else d
