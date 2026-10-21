@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.1.4"
+__version__ = "1.1.5"
 
 import collections
 import configparser

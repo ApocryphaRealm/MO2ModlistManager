@@ -2,6 +2,15 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.1.5 - 2026-10-21 - untested
+
+### Changed
+- **The Japanese translation was reviewed and revised by a native speaker** (a community translator): 89 of the 118
+  strings were reworded for natural Japanese interface text, with the terms (MOD, separator, rule, profile, backup) made consistent.
+  The key set, every `{placeholder}` and every line break are unchanged, so nothing else in the plugin moves.
+  `tools/translations-src/japanese.txt` holds the revised text and `tools/write_translations.py` writes the shipped
+  file from it. `tools/test_languages.py` ALL PASS; the window still narrows to 487 px in Japanese (limit 760).
+
 ## 1.1.4 - 2026-10-21 - working
 
 ### Added
