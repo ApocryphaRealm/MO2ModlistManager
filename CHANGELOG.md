@@ -2,7 +2,7 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
-## 1.1.5 - 2026-10-21 - untested
+## 1.1.5 - 2026-10-21 - working
 
 ### Changed
 - **The Japanese translation was reviewed and revised by a native speaker** (a community translator): 89 of the 118
