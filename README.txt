@@ -1,6 +1,6 @@
 MO2 Modlist Manager
 ===================
-Version 1.1.3
+Version 1.1.4
 
 A Mod Organizer 2 plugin that sorts the whole left pane for you: it generates the separators, places every mod under
 the category its own evidence decides, puts masters above the mods that need them, and makes the plugin list follow
@@ -55,9 +55,19 @@ Mod Organizer 2 2.5.x (tested on 2.5.2), for Skyrim Special Edition.
 
 INSTALLATION
 ------------
-Copy plugins\MO2ModlistManager.py and plugins\MO2ModlistManager.png into your MO2 folder's "plugins" folder, next to
-the other .py plugins, and restart MO2. The button appears on the toolbar ("Generate separators and place every mod
-in order"). To remove it, delete the two files and the plugins\data\MO2ModlistManager folder.
+Copy everything inside this download's plugins folder - MO2ModlistManager.py, MO2ModlistManager.png and the folder
+MO2ModlistManager_strings - into your MO2 folder's "plugins" folder, next to the other .py plugins, and restart MO2.
+The button appears on the toolbar ("Generate separators and place every mod in order"). To remove it, delete those
+files and folders and the plugins\data\MO2ModlistManager folder.
+
+LANGUAGES
+---------
+The window, its buttons and messages come in English, Japanese, Korean, Chinese, Russian, German, French, Spanish,
+Italian, Polish and Czech. It follows MO2's own language; to pick another, open the window, go to Settings and choose
+a language (it shows the next time the window is opened). Where a language is missing it falls back to English. The
+reasons the manager gives for each placement are in English in every language.
+There is no installer to run for a language: MO2 only loads plugins from its own plugins folder, so a mod-manager
+installer cannot place this plugin, and all eleven languages are installed with it.
 
 USE
 ---

@@ -2,6 +2,30 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.1.4 - 2026-10-21 - untested
+
+### Added
+- **The window, its buttons, tooltips and messages come in eleven languages**: English, Japanese, Korean, Chinese,
+  Russian, German, French, Spanish, Italian, Polish and Czech (the project's standing set, rule 66).
+  - The language is MO2's own (`language=` in ModOrganizer.ini) unless **Settings > Language** names another; it shows
+    the next time the window is opened (the toolbar tooltip after MO2 restarts). Anything missing falls back to English.
+  - The strings are `MO2ModlistManager_strings\translations\<language>.txt` beside the plugin, in the shape of our
+    other translation files (`$KEY<TAB>text`, UTF-16LE). `tools/write_translations.py` writes them: English from the code's
+    own `TR("KEY", "English")` calls, the other ten from `tools/translations-src`, and it refuses a missing key or a
+    changed `{placeholder}`.
+  - Left in English on purpose: the reason given for each placement (it is the evidence engine's own text), the rule
+    kinds (`after`, `pin`, ... - the words of the rules file), and the owner-only verdict tools.
+- **No FOMOD.** MO2 loads plugins only from its own `plugins` folder and never scans a mod folder
+  (`PluginContainer::loadPlugins`, MO2-REFERENCE.md), so an installer run by a mod manager could not place this plugin.
+  The language is chosen in the plugin instead, and all eleven ship with it.
+- `tools/test_languages.py`: every language loads, falls back, follows MO2 and Settings > Language, and the window still
+  narrows to 760 px in each. `tools/check_dialog_width.py --lang de` measures one language.
+
+### Changed
+- The two button rows were too wide in German, French and Russian, so "Write decided categories to MO2" and the Rules
+  tab's buttons each have a row of their own. The window can be narrowed further than before in every language.
+- The MO2 Settings > Plugins text of the five switches now matches the ones in the window.
+
 ## 1.1.3 - 2026-10-05 - working
 
 ### Added

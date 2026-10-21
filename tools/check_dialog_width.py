@@ -22,6 +22,8 @@ spec = importlib.util.spec_from_file_location("mm", os.path.join(HERE, "MO2Modli
 mm = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mm)
 from PyQt6.QtWidgets import QApplication, QWidget
+if "--lang" in sys.argv:                     # measure in another language: --lang de
+    mm.load_strings(sys.argv[sys.argv.index("--lang") + 1])
 
 root = tempfile.mkdtemp(prefix="mm-width-")
 try:

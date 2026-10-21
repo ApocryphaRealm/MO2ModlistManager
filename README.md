@@ -4,7 +4,7 @@ A Mod Organizer 2 plugin (Python, MO2 2.5.x) that generates the left pane: one s
 load-order taxonomy, every mod placed under the category the evidence decides, masters above dependents, the plugin
 list following the pane. Nothing is written until Apply, and Apply backs up the profile's lists first.
 
-Version 1.1.3 (this build's own numbering; no upstream).
+Version 1.1.4 (this build's own numbering; no upstream).
 
 ## How a mod is placed
 
@@ -82,6 +82,16 @@ issue on this repository, the drop box if one is set, and any payload dropped in
 community-inbox/`, pools them by mod as `{leaf: distinct submitters}`, and the pooled leaf becomes one more vote (one
 user 1.0, capped at 3.0). Submitters are counted, never stored.
 
+## Languages (1.1.4)
+
+English, Japanese, Korean, Chinese, Russian, German, French, Spanish, Italian, Polish and Czech. The window follows MO2's
+own language (`language=` in ModOrganizer.ini); Settings > Language in the window picks another. The strings are
+`MO2ModlistManager_strings/translations/<language>.txt` beside the plugin (`$KEY<TAB>text`, UTF-16LE); English is written
+in the code as `TR("KEY", "English")` and is the fallback. `tools/write_translations.py` regenerates the files from the code
+and `tools/translations-src`; `tools/test_languages.py` checks them. There is no FOMOD: MO2 loads plugins only from its
+own `plugins` folder, never from a mod folder (MO2-REFERENCE.md), so an installer run by a mod manager cannot place it.
+The reason given for each placement stays in English.
+
 ## Settings (MO2 > Settings > Plugins > MO2 Modlist Manager)
 
 | Setting | Meaning |
@@ -91,6 +101,7 @@ user 1.0, capped at 3.0). Submitters are counted, never stored.
 | `verdicts_endpoint` | an https address to POST to / fetch from; empty means the GitHub issue route |
 | `disclosed` | the disclosure has been shown once |
 | `learn_from_moves` | a mod moved by hand to another category separator becomes a pin (default on, 1.1.3) |
+| `language` | `auto` (MO2's language) or `en`, `ja`, `ko`, `zh`, `ru`, `de`, `fr`, `es`, `it`, `pl`, `cs` (1.1.4) |
 
 ## Debugging
 

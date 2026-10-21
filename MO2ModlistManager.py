@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 
 import collections
 import configparser
@@ -34,6 +34,61 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Languages (rule 66): TR("KEY", "English") reads MO2ModlistManager_strings\translations\<language>.txt, which sits beside
+# this file in MO2's plugins folder ($KEY<TAB>text, UTF-16LE with a BOM - the shape of our SKSE translation files).
+# English is the default and the fallback: a key a file lacks draws the English written at the call. The language is MO2's
+# own (ModOrganizer.ini, Settings/language) unless Settings > Language names one. A message with placeholders passes them
+# as keywords: TR("KEY", "{n} mods", n=3).
+# ---------------------------------------------------------------------------------------------------------------------
+_LANG_FILES = {"en": "english", "ja": "japanese", "ko": "korean", "zh": "chinese", "ru": "russian", "de": "german",
+               "fr": "french", "es": "spanish", "it": "italian", "pl": "polish", "cs": "czech"}
+# the language names are written in their own language, so a user can find theirs whatever language is showing now
+LANGUAGE_CHOICES = (("en", "English"), ("ja", "日本語"), ("ko", "한국어"), ("zh", "中文"), ("ru", "Русский"), ("de", "Deutsch"),
+                    ("fr", "Français"), ("es", "Español"), ("it", "Italiano"), ("pl", "Polski"), ("cs", "Čeština"))
+STRINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MO2ModlistManager_strings", "translations")
+_STRINGS = {}
+
+
+def mo2_language(data_dir):
+    """MO2's own language code from ModOrganizer.ini ([Settings] language=de_DE), or "en"."""
+    try:
+        text = open(os.path.join(data_dir, "ModOrganizer.ini"), encoding="utf-8-sig", errors="replace").read()
+        m = re.search(r"(?mi)^language\s*=\s*([A-Za-z_\-]+)", text)
+        if m:
+            return m.group(1)
+    except (OSError, TypeError):
+        pass
+    return "en"
+
+
+def load_strings(code):
+    """Load the strings for a language code ("de", "de_DE", "zh_CN"); English or an unknown code loads nothing."""
+    _STRINGS.clear()
+    name = _LANG_FILES.get((code or "en").replace("-", "_").split("_")[0].lower(), "english")
+    if name == "english":
+        return name
+    try:
+        raw = open(os.path.join(STRINGS_DIR, name + ".txt"), "rb").read()
+    except OSError:
+        return "english"
+    text = raw[2:].decode("utf-16-le", "replace") if raw[:2] == b"\xff\xfe" else raw.decode("utf-8-sig", "replace")
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if line.startswith("$") and "\t" in line:
+            k, _, v = line.partition("\t")
+            _STRINGS[k[1:].strip()] = v.replace("\\n", "\n")
+    return name
+
+
+def TR(key, english, **kw):
+    text = _STRINGS.get(key, english)
+    if not kw:
+        return text
+    try:
+        return text.format(**kw)
+    except (KeyError, IndexError, ValueError):
+        return english.format(**kw)
 
 # --- the taxonomy: group header -> the Nexus category names under it, in load order ----------------------------------
 NODELETE_SEP = "[NoDelete]"            # kept as the last separator with its contents untouched (Wabbajack's convention)
@@ -5027,37 +5082,40 @@ if mobase is not None:
                 w, h = min(w, parent.width() - 40), min(h, max(400, parent.height() - 40))
             self.resize(w, h)
             root = QVBoxLayout(self)
-            self.summary = QLabel("Reading the list...")
+            self.summary = QLabel(TR("MM_Reading", "Reading the list..."))
             self.summary.setWordWrap(True)
             root.addWidget(self.summary)
             self.tabs = QTabWidget()
             root.addWidget(self.tabs, 1)
-            self.t_moves = self._table(["Mod", "Was under", "Goes under", "Line", "New line"])
-            self.t_seps = self._table(["Separator", "Change"])
-            self.t_disp = self._table(["Mod", "Its category", "In the block", "Because"])
-            self.t_conf = self._table(["Wins", "Over", "Shared files", "Why"])
+            self.t_moves = self._table([TR("MM_ColMod", "Mod"), TR("MM_ColWasUnder", "Was under"), TR("MM_ColGoesUnder", "Goes under"),
+                                        TR("MM_ColLine", "Line"), TR("MM_ColNewLine", "New line")])
+            self.t_seps = self._table([TR("MM_ColSeparator", "Separator"), TR("MM_ColChange", "Change")])
+            self.t_disp = self._table([TR("MM_ColMod", "Mod"), TR("MM_ColCategory", "Its category"), TR("MM_ColInBlock", "In the block"),
+                                       TR("MM_ColBecause", "Because")])
+            self.t_conf = self._table([TR("MM_ColWins", "Wins"), TR("MM_ColOver", "Over"), TR("MM_ColShared", "Shared files"),
+                                       TR("MM_ColWhy", "Why")])
             self.t_conf.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
             self.t_conf.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-            self.t_place = self._table(["Mod", "Tier", "Separator", "Why"])
-            self.tabs.addTab(self.t_moves, "Moves")
-            self.tabs.addTab(self.t_seps, "Separators")
-            self.tabs.addTab(self.t_disp, "Minorities / displaced")
+            self.t_place = self._table([TR("MM_ColMod", "Mod"), TR("MM_ColTier", "Tier"), TR("MM_ColSeparator", "Separator"), TR("MM_ColWhy", "Why")])
+            self.tabs.addTab(self.t_moves, TR("MM_TabMoves", "Moves"))
+            self.tabs.addTab(self.t_seps, TR("MM_TabSeparators", "Separators"))
+            self.tabs.addTab(self.t_disp, TR("MM_TabDisplaced", "Minorities / displaced"))
             conf_page = QWidget()
             cl = QVBoxLayout(conf_page)
-            cl.addWidget(_note("Every file conflict the resolver could not decide from evidence (top), then the ones it "
+            cl.addWidget(_note(TR("MM_ReviewNote", "Every file conflict the resolver could not decide from evidence (top), then the ones it "
                                 "flipped against today's order. Information only: nothing here writes a rule. A pair the "
                                 "category order gets wrong is a missing piece of evidence - add it to the model, or write "
-                                "a rule of your own on the Rules tab."))
+                                "a rule of your own on the Rules tab.")))
             cl.addWidget(self.t_conf, 1)
-            self.tabs.addTab(conf_page, "Review")
-            self.tabs.addTab(self.t_place, "Every placement")
-            self.t_plug = self._table(["Plugin", "Mod", "Action", "Why"])
-            self.tabs.addTab(self.t_plug, "Plugins")
-            self.tabs.addTab(self._rules_tab(), "Rules")
-            self.tabs.addTab(self._settings_tab(), "Settings")
+            self.tabs.addTab(conf_page, TR("MM_TabReview", "Review"))
+            self.tabs.addTab(self.t_place, TR("MM_TabPlacement", "Every placement"))
+            self.t_plug = self._table([TR("MM_ColPlugin", "Plugin"), TR("MM_ColMod", "Mod"), TR("MM_ColAction", "Action"), TR("MM_ColWhy", "Why")])
+            self.tabs.addTab(self.t_plug, TR("MM_TabPlugins", "Plugins"))
+            self.tabs.addTab(self._rules_tab(), TR("MM_TabRules", "Rules"))
+            self.tabs.addTab(self._settings_tab(), TR("MM_TabSettings", "Settings"))
             opts = QHBoxLayout()
-            opts.addWidget(_note("Order: tier by evidence, general before specific; masters, outputs, loaders, refits and your rules enforced."), 3)
-            opts.addWidget(QLabel("Smallest block:"))
+            opts.addWidget(_note(TR("MM_OrderNote", "Order: tier by evidence, general before specific; masters, outputs, loaders, refits and your rules enforced.")), 3)
+            opts.addWidget(QLabel(TR("MM_SmallestBlock", "Smallest block:")))
             self.sp_run = QSpinBox()
             self.sp_run.setRange(1, 60)
             self.sp_run.setValue(2)
@@ -5067,28 +5125,32 @@ if mobase is not None:
             self.status = QLabel()
             self.status.setWordWrap(True)
             root.addWidget(self.status)
+            # two rows, so a language with long button names can still be narrowed (tools/test_languages.py)
+            extra = QHBoxLayout()
+            extra.addStretch(1)
             buttons = QHBoxLayout()
             buttons.addStretch(1)
-            self.b_cats = QPushButton("Write decided categories to MO2")
-            self.b_cats.setToolTip("Give every mod that has no MO2 category the block the manager decided for it, as its MO2 category "
+            self.b_cats = QPushButton(TR("MM_BtnCats", "Write decided categories to MO2"))
+            self.b_cats.setToolTip(TR("MM_CatsTip", "Give every mod that has no MO2 category the block the manager decided for it, as its MO2 category "
                                    "(created in MO2 when it is new). A category you set yourself is left alone, and the ones "
-                                   "this button wrote follow the decision when it changes.")
+                                   "this button wrote follow the decision when it changes."))
             self.b_cats.clicked.connect(self.update_categories)
-            buttons.addWidget(self.b_cats)
+            extra.addWidget(self.b_cats)
             if self._p.is_owner():               # the receiving end only: users no longer send from the plugin
                 self.b_verdicts = QPushButton("Fetch community verdicts")
                 self.b_verdicts.setToolTip("Read the verdict files users have sent (the inbox folder and the verdicts issues) "
                                            "and add them to the evidence as a vote")
                 self.b_verdicts.clicked.connect(self.verdicts)
-                buttons.addWidget(self.b_verdicts)
-            self.b_refresh = QPushButton("Compute again")
-            self.b_restore = QPushButton("Restore backup...")
-            self.b_restore.setToolTip("Put this profile back as it was before an Apply: its mod list, plugin list and load order, "
-                                      "the separators Apply retired and the plugins it moved. What is replaced is backed up first.")
-            self.b_apply = QPushButton("Apply")
-            self.b_close = QPushButton("Close")
+                extra.addWidget(self.b_verdicts)
+            self.b_refresh = QPushButton(TR("MM_BtnCompute", "Compute again"))
+            self.b_restore = QPushButton(TR("MM_BtnRestore", "Restore backup..."))
+            self.b_restore.setToolTip(TR("MM_RestoreTip", "Put this profile back as it was before an Apply: its mod list, plugin list and load order, "
+                                      "the separators Apply retired and the plugins it moved. What is replaced is backed up first."))
+            self.b_apply = QPushButton(TR("MM_BtnApply", "Apply"))
+            self.b_close = QPushButton(TR("MM_BtnClose", "Close"))
             for b in (self.b_refresh, self.b_restore, self.b_apply, self.b_close):
                 buttons.addWidget(b)
+            root.addLayout(extra)
             root.addLayout(buttons)
             self.b_refresh.clicked.connect(self.compute)
             self.b_restore.clicked.connect(self.restore)
@@ -5101,29 +5163,32 @@ if mobase is not None:
         # The features Apply does on its own, each switchable (the owner, 2026-09-27: "add some tick boxes or a settings
         # page ... to enable or disable certain features that it currently does automatically, like hiding unused plugins
         # on the right pane"). Every box saves the moment it changes and the plan is computed again.
-        SETTING_LABELS = (
-            ("park_unloadable_plugins", "Move plugins that cannot load to Optional ESPs",
-             "On: a plugin whose master is in no enabled mod (or kept off by a rule) is moved to its mod's Optional ESPs, "
-             "so the right pane only lists what loads. Off: it stays where it is and is written unticked - you see it in "
-             "the right pane, and the game does not load it."),
-            ("restore_optional_plugins", "Bring optional plugins back when their masters arrive",
-             "On: a plugin waiting in Optional ESPs whose masters are now installed is moved back and activated."),
-            ("write_plugin_groups", "Write Bethesda Plugin Manager groups",
-             "On: when Bethesda Plugin Manager is installed, the right pane's plugin groups follow the left pane's blocks."),
-            ("write_verdicts", "Write the verdicts file after each Apply",
-             "On: the placement verdicts are written to plugins\\data\\MO2ModlistManager\\verdicts, for you to send us if you want to."),
-            ("learn_from_moves", "Learn a rule from each mod you move to another separator",
-             "On: a mod you drag from the separator Apply gave it to another category separator becomes a pin rule, so the "
-             "next Apply leaves it there. Moving it back forgets the rule. Separators you named yourself teach nothing. The "
-             "Rules tab lists what was learned, and Forget learned rules undoes it."),
-        )
+        @staticmethod
+        def setting_labels():
+            """(option key, label, explanation) for each switch - read at call time so they follow the language."""
+            return (
+                ("park_unloadable_plugins", TR("MM_ParkLabel", "Move plugins that cannot load to Optional ESPs"),
+                 TR("MM_ParkTip", "On: a plugin whose master is in no enabled mod (or kept off by a rule) is moved to its mod's Optional ESPs, "
+                    "so the right pane only lists what loads. Off: it stays where it is and is written unticked - you see it in "
+                    "the right pane, and the game does not load it.")),
+                ("restore_optional_plugins", TR("MM_RestoreLabel", "Bring optional plugins back when their masters arrive"),
+                 TR("MM_RestoreOptTip", "On: a plugin waiting in Optional ESPs whose masters are now installed is moved back and activated.")),
+                ("write_plugin_groups", TR("MM_GroupsLabel", "Write Bethesda Plugin Manager groups"),
+                 TR("MM_GroupsTip", "On: when Bethesda Plugin Manager is installed, the right pane's plugin groups follow the left pane's blocks.")),
+                ("write_verdicts", TR("MM_VerdictsLabel", "Write the verdicts file after each Apply"),
+                 TR("MM_VerdictsFileTip", "On: the placement verdicts are written to plugins\\data\\MO2ModlistManager\\verdicts, for you to send us if you want to.")),
+                ("learn_from_moves", TR("MM_LearnLabel", "Learn a rule from each mod you move to another separator"),
+                 TR("MM_LearnTip", "On: a mod you drag from the separator Apply gave it to another category separator becomes a pin rule, so the "
+                    "next Apply leaves it there. Moving it back forgets the rule. Separators you named yourself teach nothing. The "
+                    "Rules tab lists what was learned, and Forget learned rules undoes it.")),
+            )
 
         def _settings_tab(self):
             w = QWidget()
             v = QVBoxLayout(w)
-            v.addWidget(_note("What Apply does on its own. Each box is saved as soon as it changes, and the plan is computed again."))
+            v.addWidget(_note(TR("MM_SettingsNote", "What Apply does on its own. Each box is saved as soon as it changes, and the plan is computed again.")))
             self._boxes = {}
-            for key, label, tip in self.SETTING_LABELS:
+            for key, label, tip in self.setting_labels():
                 box = QCheckBox(label)
                 box.setToolTip(tip)
                 box.setChecked(self._p.option(key))
@@ -5133,9 +5198,23 @@ if mobase is not None:
                 note.setWordWrap(True)
                 note.setContentsMargins(24, 0, 0, 8)
                 v.addWidget(note)
-            v.addWidget(QLabel("Community verdicts (the owner's copy only):"))
+            v.addWidget(QLabel(TR("MM_Language", "Language")))
+            v.addWidget(_note(TR("MM_LanguageNote", "Automatic follows MO2's own language; English is used where a language is not available. "
+                                  "A change shows the next time this window is opened, and on MO2's toolbar after MO2 restarts.")))
+            lang_row = QHBoxLayout()
+            self.cb_lang = QComboBox()
+            self.cb_lang.addItem(TR("MM_LangAuto", "Automatic (MO2's language)"), "auto")
+            for code, label in LANGUAGE_CHOICES:
+                self.cb_lang.addItem(label, code)
+            saved = str(self._p.setting("language", "auto")).strip().lower()
+            self.cb_lang.setCurrentIndex(max(0, self.cb_lang.findData(saved)))
+            self.cb_lang.currentIndexChanged.connect(lambda _i: self._p.set_setting("language", self.cb_lang.currentData()))
+            lang_row.addWidget(self.cb_lang)
+            lang_row.addStretch(1)
+            v.addLayout(lang_row)
+            v.addWidget(QLabel(TR("MM_Community", "Community verdicts (the owner's copy only):")))
             role_row = QHBoxLayout()
-            role_row.addWidget(QLabel("Role"))
+            role_row.addWidget(QLabel(TR("MM_Role", "Role")))
             self.cb_role = QComboBox()
             self.cb_role.addItems(["user", "owner"])
             self.cb_role.setCurrentText("owner" if self._p.is_owner() else "user")
@@ -5153,27 +5232,32 @@ if mobase is not None:
         def _rules_tab(self):
             w = QWidget()
             v = QVBoxLayout(w)
-            v.addWidget(_note("A rule beats the evidence and is kept in the profile (mod_ruler_rules.json). "
+            v.addWidget(_note(TR("MM_RulesNote", "A rule beats the evidence and is kept in the profile (mod_ruler_rules.json). "
                                "after / before: the mod sits beside the target and joins its separator. first / last: top or bottom of its own "
                                "separator. pin: the mod goes under the named separator whatever Nexus says. pin (learned): you moved "
-                               "the mod to that separator yourself after an Apply; move it back, or remove the row, to forget it."))
-            self.t_rules = self._table(["Kind", "Mod", "Target / separator", "On"])
+                               "the mod to that separator yourself after an Apply; move it back, or remove the row, to forget it.")))
+            self.t_rules = self._table([TR("MM_ColKind", "Kind"), TR("MM_ColMod", "Mod"), TR("MM_ColTarget", "Target / separator"), TR("MM_ColOn", "On")])
             v.addWidget(self.t_rules, 1)
             form = QHBoxLayout()
             self.r_kind = QComboBox()
             self.r_kind.addItems(["after", "before", "first", "last", "pin", "plugin after", "plugin before", "plugin first", "plugin last", "plugin off"])
             self.r_mod = QLineEdit()
-            self.r_mod.setPlaceholderText("mod name - or plugin file name for a plugin rule")
+            self.r_mod.setPlaceholderText(TR("MM_PhMod", "mod name - or plugin file name for a plugin rule"))
             self.r_target = QLineEdit()
-            self.r_target.setPlaceholderText("target mod / plugin, or separator name for pin")
-            b_add = QPushButton("Add")
-            b_del = QPushButton("Remove selected")
-            b_sel = QPushButton("Use selected mod")
-            b_forget = QPushButton("Forget learned rules")
-            b_forget.setToolTip("Remove every pin learned from a mod you moved; the next Apply places those mods by their evidence again.")
-            for x in (self.r_kind, self.r_mod, self.r_target, b_sel, b_add, b_del, b_forget):
+            self.r_target.setPlaceholderText(TR("MM_PhTarget", "target mod / plugin, or separator name for pin"))
+            b_add = QPushButton(TR("MM_BtnAdd", "Add"))
+            b_del = QPushButton(TR("MM_BtnRemove", "Remove selected"))
+            b_sel = QPushButton(TR("MM_BtnUseSelected", "Use selected mod"))
+            b_forget = QPushButton(TR("MM_BtnForget", "Forget learned rules"))
+            b_forget.setToolTip(TR("MM_ForgetTip", "Remove every pin learned from a mod you moved; the next Apply places those mods by their evidence again."))
+            form2 = QHBoxLayout()               # the buttons on a row of their own: translated names are longer
+            for x in (self.r_kind, self.r_mod, self.r_target):
                 form.addWidget(x)
+            form2.addStretch(1)
+            for x in (b_sel, b_add, b_del, b_forget):
+                form2.addWidget(x)
             v.addLayout(form)
+            v.addLayout(form2)
             b_add.clicked.connect(self._rule_add)
             b_del.clicked.connect(self._rule_del)
             b_sel.clicked.connect(self._rule_pick)
@@ -5184,11 +5268,11 @@ if mobase is not None:
             r = self._p.rules()
             n = len(r.get("learned_pins") or {})
             if not n:
-                self.status.setText("No learned rules to forget.")
+                self.status.setText(TR("MM_NoLearned", "No learned rules to forget."))
                 return
-            if QMessageBox.question(self, "Forget learned rules",
-                                    f"Forget the {n} rule(s) learned from mods you moved? The next Apply places those mods by "
-                                    "their evidence again.") != QMessageBox.StandardButton.Yes:
+            if QMessageBox.question(self, TR("MM_ForgetTitle", "Forget learned rules"),
+                                    TR("MM_ForgetAsk", "Forget the {n} rule(s) learned from mods you moved? The next Apply places those mods by "
+                                       "their evidence again.", n=n)) != QMessageBox.StandardButton.Yes:
                 return
             gone = forget_learned(r)
             self._p.save_rules(r)
@@ -5198,10 +5282,12 @@ if mobase is not None:
 
         def _rules_rows(self):
             r = self._p.rules()
-            rows = [(x.get("type", ""), x.get("mod", ""), x.get("target", ""), "yes" if x.get("enabled", True) else "no") for x in r.get("rules", [])]
-            rows += [("plugin " + x.get("type", ""), x.get("plugin", ""), x.get("target", ""), "yes" if x.get("enabled", True) else "no") for x in r.get("plugin_rules", [])]
-            rows += [("pin", m, sep, "yes") for m, sep in r.get("pins", {}).items()]
-            rows += [("pin (learned)", m, f"{v.get('category', '')} (the manager had it in {v.get('was', '?')}; {v.get('when', '')})", "yes")
+            yes, no = TR("MM_Yes", "yes"), TR("MM_No", "no")      # the kind column stays the rule's own vocabulary (the JSON's words)
+            rows = [(x.get("type", ""), x.get("mod", ""), x.get("target", ""), yes if x.get("enabled", True) else no) for x in r.get("rules", [])]
+            rows += [("plugin " + x.get("type", ""), x.get("plugin", ""), x.get("target", ""), yes if x.get("enabled", True) else no) for x in r.get("plugin_rules", [])]
+            rows += [("pin", m, sep, yes) for m, sep in r.get("pins", {}).items()]
+            rows += [("pin (learned)", m, TR("MM_LearnedTarget", "{cat} (the manager had it in {was}; {when})",
+                                              cat=v.get('category', ''), was=v.get('was', '?'), when=v.get('when', '')), yes)
                      for m, v in (r.get("learned_pins") or {}).items()]
             return rows
 
@@ -5283,14 +5369,15 @@ if mobase is not None:
                 if len(rows) > 1 or what == "all":
                     lines.insert(0, "\t".join(header))
             QApplication.clipboard().setText("\n".join(lines))
-            self.status.setText(f"Copied {len(rows)} row(s)" + (" (mod names only)" if what == "names" else "") + " to the clipboard.")
+            self.status.setText(TR("MM_CopiedNames", "Copied {n} row(s) (mod names only) to the clipboard.", n=len(rows)) if what == "names"
+                                else TR("MM_Copied", "Copied {n} row(s) to the clipboard.", n=len(rows)))
 
         def _table_menu(self, t, pos):
             menu = QMenu(t)
             n = len({i.row() for i in t.selectedIndexes()})
-            menu.addAction(f"Copy selected row{'s' if n != 1 else ''} ({n})\tCtrl+C").triggered.connect(lambda _=False: self._copy_table(t, "rows"))
-            menu.addAction(f"Copy mod name{'s' if n != 1 else ''} only").triggered.connect(lambda _=False: self._copy_table(t, "names"))
-            menu.addAction(f"Copy all {t.rowCount()} rows with header").triggered.connect(lambda _=False: self._copy_table(t, "all"))
+            menu.addAction(TR("MM_CopyRows", "Copy selected row(s) ({n})", n=n) + "\tCtrl+C").triggered.connect(lambda _=False: self._copy_table(t, "rows"))
+            menu.addAction(TR("MM_CopyNames", "Copy mod name(s) only")).triggered.connect(lambda _=False: self._copy_table(t, "names"))
+            menu.addAction(TR("MM_CopyAll", "Copy all {n} rows with header", n=t.rowCount())).triggered.connect(lambda _=False: self._copy_table(t, "all"))
             menu.exec(t.viewport().mapToGlobal(pos))
 
         def _fill(self, t, rows):
@@ -5301,54 +5388,61 @@ if mobase is not None:
 
         def compute(self):
             self.b_apply.setEnabled(False)
-            self.summary.setText("Reading the list...")
+            self.summary.setText(TR("MM_Reading", "Reading the list..."))
             QApplication.processEvents()
             try:
                 def progress(done, total, what):
                     if total and done % 200 == 0:
-                        self.summary.setText(f"Reading the list: {done} of {total}...")
+                        self.summary.setText(TR("MM_ReadingProgress", "Reading the list: {done} of {total}...", done=done, total=total))
                     QApplication.processEvents()
                     return True
                 self._result = self._p.compute(progress, self.sp_run.value())
             except Exception as exc:  # noqa: BLE001
                 self._p._log(f"compute failed: {exc!r}")
-                self.summary.setText(f"Failed: {exc}")
+                self.summary.setText(TR("MM_Failed", "Failed: {err}", err=exc))
                 return
             r = self._result
             mods = [m for m in r["mods"] if not is_sep(m.name)]
-            self.b_cats.setText(f"Write decided categories to MO2 ({len(r.get('category_updates', []))} to write)")
+            self.b_cats.setText(TR("MM_BtnCatsN", "Write decided categories to MO2 ({n} to write)", n=len(r.get('category_updates', []))))
+            ps0 = r.get("plugin_state", {})
             self.summary.setText(
-                f"{len(mods)} mods - {r['nexus']} - {len(r['moves'])} mod(s) change separator or line - "
-                f"{len(r['facts']['created'])} separator(s) created, {len(r['facts']['retired'])} retired - "
-                f"{len(r['facts']['absorbed'])} in a block of another category, {len(r['facts']['displaced'])} displaced by a master, loader, refit or rule - "
-                f"{len(r['facts'].get('resolved', []))} file conflicts decided by evidence, {len(r['facts'].get('undecided', []))} left to category order, "
-                f"{len(r['facts'].get('rules_ignored', []))} rule(s) ignored as contradictory - {len(r['plugins'])} plugins ordered"
-                f" ({len(r.get('plugin_state', {}).get('activate', []))} to activate, {len(r.get('plugin_state', {}).get('to_optional', []))} to Optional ESPs, "
-                f"{len(r.get('plugin_state', {}).get('from_optional', []))} back from Optional ESPs)"
-                + (f" into {len(set(r.get('plugin_groups', {}).values()))} BPM groups" if r.get("bpm") else " (no Bethesda Plugin Manager: no groups)")
-                + (f" - {r['facts'].get('community', 0)} mod(s) carry community verdicts" if r['facts'].get('community') else "")
-                + (f" - {len(r['facts'].get('verdicts', []))} verdict(s) of yours the evidence disagrees with" if r['facts'].get('verdicts') else "")
-                + (f" - {len(r['facts'].get('redundant', []))} second cop(ies) of a download switched off" if r['facts'].get('redundant') else ""))
+                TR("MM_Summary", "{mods} mods - {nexus} - {moves} mod(s) change separator or line - "
+                   "{created} separator(s) created, {retired} retired - "
+                   "{absorbed} in a block of another category, {displaced} displaced by a master, loader, refit or rule - "
+                   "{resolved} file conflicts decided by evidence, {undecided} left to category order, "
+                   "{ignored} rule(s) ignored as contradictory - {plugins} plugins ordered "
+                   "({activate} to activate, {to_opt} to Optional ESPs, {from_opt} back from Optional ESPs)",
+                   mods=len(mods), nexus=r['nexus'], moves=len(r['moves']), created=len(r['facts']['created']),
+                   retired=len(r['facts']['retired']), absorbed=len(r['facts']['absorbed']), displaced=len(r['facts']['displaced']),
+                   resolved=len(r['facts'].get('resolved', [])), undecided=len(r['facts'].get('undecided', [])),
+                   ignored=len(r['facts'].get('rules_ignored', [])), plugins=len(r['plugins']),
+                   activate=len(ps0.get('activate', [])), to_opt=len(ps0.get('to_optional', [])), from_opt=len(ps0.get('from_optional', [])))
+                + (TR("MM_SummaryBpm", " into {n} BPM groups", n=len(set(r.get('plugin_groups', {}).values()))) if r.get("bpm")
+                   else TR("MM_SummaryNoBpm", " (no Bethesda Plugin Manager: no groups)"))
+                + (TR("MM_SummaryCommunity", " - {n} mod(s) carry community verdicts", n=r['facts'].get('community', 0)) if r['facts'].get('community') else "")
+                + (TR("MM_SummaryVerdicts", " - {n} verdict(s) of yours the evidence disagrees with", n=len(r['facts'].get('verdicts', []))) if r['facts'].get('verdicts') else "")
+                + (TR("MM_SummaryRedundant", " - {n} second cop(ies) of a download switched off", n=len(r['facts'].get('redundant', []))) if r['facts'].get('redundant') else ""))
             self._fill(self.t_moves, [(n, (o or "")[:-len("_separator")] if o else "", (w or "")[:-len("_separator")] if w else "", a, b) for n, o, w, a, b in r["moves"]])
-            self._fill(self.t_seps, [(s[:-len("_separator")], "created") for s in r["facts"]["created"]] + [(s[:-len("_separator")], "retired (folder moved to the backup)") for s in r["facts"]["retired"]])
+            self._fill(self.t_seps, [(s[:-len("_separator")], TR("MM_Created", "created")) for s in r["facts"]["created"]] + [(s[:-len("_separator")], TR("MM_Retired", "retired (folder moved to the backup)")) for s in r["facts"]["retired"]])
             self._fill(self.t_disp, [(a, b, c, "") for a, b, c in r["facts"]["absorbed"]] + r["facts"]["displaced"])
             f = r["facts"]
-            self._fill(self.t_conf, f.get("undecided", []) + [(w, l, n, "resolver flipped today's order: " + why) for w, l, n, why, tag in f.get("resolved", []) if tag != "as today"])
+            self._fill(self.t_conf, f.get("undecided", []) + [(w, l, n, TR("MM_Flipped", "resolver flipped today's order: {why}", why=why)) for w, l, n, why, tag in f.get("resolved", []) if tag != "as today"])
             self._fill(self.t_place, [(m.name, f"{index_tier(m.category)} " + TIER_HEADERS.get(index_tier(m.category), "NoDelete").strip("- ").title(), m.category, m.why) for m in mods])
             self._fill(self.t_rules, self._rules_rows())
             ps = r.get("plugin_state", {})
-            self._fill(self.t_plug, [(f, m, "activate", w) for f, m, w in ps.get("activate", [])]
-                       + [(f, m, "move to Optional ESPs", w) for f, m, w in ps.get("to_optional", [])]
-                       + [(f, m, "leave in place, unticked", w) for f, m, w in ps.get("keep_off", [])]
-                       + [(f, m, "back from Optional ESPs, activate", w) for f, m, w in ps.get("from_optional", [])]
-                       + [("(the whole mod)", g, "switch off", f"a second copy of {k}: {a}")
+            whole, switch_off = TR("MM_WholeMod", "(the whole mod)"), TR("MM_SwitchOff", "switch off")
+            self._fill(self.t_plug, [(f, m, TR("MM_ActActivate", "activate"), w) for f, m, w in ps.get("activate", [])]
+                       + [(f, m, TR("MM_ActToOptional", "move to Optional ESPs"), w) for f, m, w in ps.get("to_optional", [])]
+                       + [(f, m, TR("MM_ActKeepOff", "leave in place, unticked"), w) for f, m, w in ps.get("keep_off", [])]
+                       + [(f, m, TR("MM_ActFromOptional", "back from Optional ESPs, activate"), w) for f, m, w in ps.get("from_optional", [])]
+                       + [(whole, g, switch_off, TR("MM_SecondCopy", "a second copy of {k}: {a}", k=k, a=a))
                           for g, k, a in r["facts"].get("redundant", [])]
-                       + [("(the whole mod)", g, "switch off", why) for g, why in r["facts"].get("default_off", [])])
+                       + [(whole, g, switch_off, why) for g, why in r["facts"].get("default_off", [])])
             n_plug = sum(len(ps.get(k, [])) for k in ("activate", "to_optional", "from_optional", "keep_off")) + len(r["facts"].get("redundant", [])) \
                 + len(r["facts"].get("default_off", []))
-            self.tabs.setTabText(self.tabs.indexOf(self.t_plug), f"Plugins ({n_plug})" if n_plug else "Plugins")
+            self.tabs.setTabText(self.tabs.indexOf(self.t_plug), TR("MM_TabPluginsN", "Plugins ({n})", n=n_plug) if n_plug else TR("MM_TabPlugins", "Plugins"))
             self.b_apply.setEnabled(bool(r["moves"] or r["facts"]["created"] or r["facts"]["retired"] or n_plug))
-            self.status.setText("Nothing is written until Apply. Apply backs up modlist.txt, plugins.txt, loadorder.txt and the retired separators first.")
+            self.status.setText(TR("MM_Idle", "Nothing is written until Apply. Apply backs up modlist.txt, plugins.txt, loadorder.txt and the retired separators first."))
 
         def verdicts(self):
             if not self._result:
@@ -5371,9 +5465,9 @@ if mobase is not None:
                 return
             ups = self._result.get("category_updates", [])
             if not ups:
-                self.status.setText("Every mod already has an MO2 category.")
+                self.status.setText(TR("MM_AllHaveCat", "Every mod already has an MO2 category."))
                 return
-            self.status.setText(f"Assigning MO2 categories to {len(ups)} mod(s)...")
+            self.status.setText(TR("MM_Assigning", "Assigning MO2 categories to {n} mod(s)...", n=len(ups)))
             QApplication.processEvents()
             org = self._p._organizer
             cache = self._p._cache_dir()
@@ -5399,8 +5493,8 @@ if mobase is not None:
                 written[n] = c
             save_written_categories(cache, written)
             self._p._log(f"MO2 categories assigned to {len(tagged)} mod(s), {done} meta.ini line(s) written")
-            self.status.setText(f"MO2 categories assigned to {len(tagged)} of {len(ups)} mod(s), each the block it is placed by. "
-                                "A category you set yourself is left alone.")
+            self.status.setText(TR("MM_Assigned", "MO2 categories assigned to {done} of {total} mod(s), each the block it is placed by. "
+                                   "A category you set yourself is left alone.", done=len(tagged), total=len(ups)))
             self.compute()
 
         def restore(self):
@@ -5408,58 +5502,60 @@ if mobase is not None:
             org = self._p._organizer
             backups = list_backups(self._p._cache_dir(), self._p._instance())
             if not backups:
-                QMessageBox.information(self, "No Backups", "There are no backups to restore")
+                QMessageBox.information(self, TR("MM_NoBackupsTitle", "No Backups"), TR("MM_NoBackups", "There are no backups to restore"))
                 return
             cur = org.profileName()
             labels = []
             for n, when, prof, known, kind in backups:
-                who = prof if known else (f"{prof}?" if prof else "profile not recorded")
+                who = prof if known else (f"{prof}?" if prof else TR("MM_NotRecorded", "profile not recorded"))
                 labels.append(f"{when}  -  {who}  -  {kind}")
             first = next((i for i, b in enumerate(backups) if b[2] == cur), 0)
-            choice, ok = QInputDialog.getItem(self, "Choose backup to restore",
-                                              f"Restore into the profile '{cur}':", labels, first, False)
+            choice, ok = QInputDialog.getItem(self, TR("MM_ChooseBackup", "Choose backup to restore"),
+                                              TR("MM_RestoreInto", "Restore into the profile '{cur}':", cur=cur), labels, first, False)
             if not ok:
                 return
             n, when, prof, known, kind = backups[labels.index(choice)]
             warn = ""
             if prof != cur:
-                warn = (f"\n\nThis backup was taken from the profile '{prof}'" + ("" if known else " (a guess: older backups did not record it)")
-                        + f", not '{cur}'.")
-            if QMessageBox.question(self, "Restore backup",
-                                    f"Restore the backup of {when} ({kind}) into '{cur}'?\n\n"
-                                    "The mod list, plugin list and load order go back to what the backup holds; separators the Apply "
-                                    "created are set aside, the ones it retired come back, and plugins it moved to or from Optional ESPs "
-                                    f"are moved back. The current state is backed up first, so this can be undone.{warn}") != QMessageBox.StandardButton.Yes:
+                warn = TR("MM_OtherProfile", "\n\nThis backup was taken from the profile '{prof}'{guess}, not '{cur}'.", prof=prof, cur=cur,
+                          guess="" if known else TR("MM_Guess", " (a guess: older backups did not record it)"))
+            if QMessageBox.question(self, TR("MM_RestoreTitle", "Restore backup"),
+                                    TR("MM_RestoreAsk", "Restore the backup of {when} ({kind}) into '{cur}'?\n\n"
+                                       "The mod list, plugin list and load order go back to what the backup holds; separators the Apply "
+                                       "created are set aside, the ones it retired come back, and plugins it moved to or from Optional ESPs "
+                                       "are moved back. The current state is backed up first, so this can be undone.{warn}",
+                                       when=when, kind=kind, cur=cur, warn=warn)) != QMessageBox.StandardButton.Yes:
                 return
-            self.status.setText("Restoring...")
+            self.status.setText(TR("MM_Restoring", "Restoring..."))
             QApplication.processEvents()
             try:
                 safety, aside, brought, undone = self._p.restore(os.path.join(self._p._cache_dir(), "backups", n))
             except Exception as exc:  # noqa: BLE001
                 self._p._log(f"restore failed: {exc!r}")
-                QMessageBox.critical(self, "Restore failed", f"Failed to restore the backup: {exc}")
-                self.status.setText(f"Restore failed: {exc}")
+                QMessageBox.critical(self, TR("MM_RestoreFailedTitle", "Restore failed"), TR("MM_RestoreFailedMsg", "Failed to restore the backup: {err}", err=exc))
+                self.status.setText(TR("MM_RestoreFailed", "Restore failed: {err}", err=exc))
                 return
-            self.status.setText(f"Restored the backup of {when}: {len(aside)} separator(s) set aside, {len(brought)} brought back, "
-                                f"{len(undone)} plugin(s) moved back. MO2 has been refreshed. The state it replaced is in {safety}.")
+            self.status.setText(TR("MM_Restored", "Restored the backup of {when}: {aside} separator(s) set aside, {brought} brought back, "
+                                   "{undone} plugin(s) moved back. MO2 has been refreshed. The state it replaced is in {safety}.",
+                                   when=when, aside=len(aside), brought=len(brought), undone=len(undone), safety=safety))
             self.compute()
 
         def apply(self):
             if not self._result:
                 return
             self.b_apply.setEnabled(False)
-            self.status.setText("Applying...")
+            self.status.setText(TR("MM_Applying", "Applying..."))
             QApplication.processEvents()
             try:
                 backup = self._p.apply(self._result)
-                self.status.setText(f"Applied. Backups in {backup}. MO2 has been refreshed.")
+                self.status.setText(TR("MM_Applied", "Applied. Backups in {backup}. MO2 has been refreshed.", backup=backup))
             except Exception as exc:  # noqa: BLE001
                 self._p._log(f"apply failed: {exc!r}")
-                self.status.setText(f"Failed: {exc}")
+                self.status.setText(TR("MM_Failed", "Failed: {err}", err=exc))
                 return
             n_v = len(self._result["facts"].get("verdicts", []))
             if n_v:
-                self.status.setText(self.status.text() + f" {n_v} verdict(s) written to plugins\\data\\MO2ModlistManager\\{VERDICTS_DIR}.")
+                self.status.setText(self.status.text() + TR("MM_VerdictsWritten", " {n} verdict(s) written to plugins\\data\\MO2ModlistManager\\{dir}.", n=n_v, dir=VERDICTS_DIR))
 
     class MO2ModlistManager(mobase.IPluginTool):
         def __init__(self):
@@ -5469,6 +5565,7 @@ if mobase is not None:
 
         def init(self, organizer):
             self._organizer = organizer
+            self.apply_language()
             # ITS OWN BUTTON ON THE TOOLBAR (the owner, 2026-09-22: "its own button at the top with a unique icon,
             # using the same automatic refresh logic"). The same mechanism as the NoDelete button: poll until MO2's
             # toolbar exists, insert the action before Settings, then keep checking lightly - MO2 rebuilds parts of
@@ -5480,6 +5577,19 @@ if mobase is not None:
             self._toolbar_timer.timeout.connect(self._keep_toolbar_button)
             self._toolbar_timer.start()
             return True
+
+        def apply_language(self):
+            """Settings > Language, else MO2's own language (ModOrganizer.ini). Read again each time the window opens."""
+            try:
+                choice = str(self.setting("language", "auto")).strip().lower()
+                if choice in ("", "auto"):
+                    app = QApplication.instance()
+                    data = app.property("dataPath") if app is not None else None
+                    choice = mo2_language(data or self._organizer.basePath())
+                name = load_strings(choice)
+                self._log(f"language: {choice or 'en'} -> {name}")
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"language: {exc!r}")
 
         def _keep_toolbar_button(self):
             try:
@@ -5579,8 +5689,8 @@ if mobase is not None:
             return "ApocryphaRealm"
 
         def description(self):
-            return ("Generates the left pane: separators for each mod's category in load order, mods placed under them from "
-                    "their own evidence, masters above dependents, the plugin list following the pane. Preview first, one Apply.")
+            return TR("MM_Description", "Generates the left pane: separators for each mod's category in load order, mods placed under them from "
+                      "their own evidence, masters above dependents, the plugin list following the pane. Preview first, one Apply.")
 
         def version(self):
             major, minor, patch = (int(x) for x in __version__.split("."))
@@ -5593,11 +5703,12 @@ if mobase is not None:
             return [
                 mobase.PluginSetting("role", "user, or owner (the receiving end: fetch and pool the verdict files users send)", "user"),
                 mobase.PluginSetting("verdicts_endpoint", "owner only: an https address to fetch pooled verdict payloads from", ""),
-                mobase.PluginSetting("park_unloadable_plugins", "Move plugins that cannot load to Optional ESPs (off: leave them, unticked)", True),
-                mobase.PluginSetting("restore_optional_plugins", "Bring optional plugins back when their masters arrive", True),
-                mobase.PluginSetting("write_plugin_groups", "Write Bethesda Plugin Manager groups", True),
-                mobase.PluginSetting("write_verdicts", "Write the verdicts file after each Apply", True),
-                mobase.PluginSetting("learn_from_moves", "Learn a rule from each mod moved by hand to another separator", True),
+                mobase.PluginSetting("park_unloadable_plugins", TR("MM_ParkLabel", "Move plugins that cannot load to Optional ESPs"), True),
+                mobase.PluginSetting("restore_optional_plugins", TR("MM_RestoreLabel", "Bring optional plugins back when their masters arrive"), True),
+                mobase.PluginSetting("write_plugin_groups", TR("MM_GroupsLabel", "Write Bethesda Plugin Manager groups"), True),
+                mobase.PluginSetting("write_verdicts", TR("MM_VerdictsLabel", "Write the verdicts file after each Apply"), True),
+                mobase.PluginSetting("learn_from_moves", TR("MM_LearnLabel", "Learn a rule from each mod you move to another separator"), True),
+                mobase.PluginSetting("language", TR("MM_LanguageSetting", "Language: auto follows MO2's language; or en, ja, ko, zh, ru, de, fr, es, it, pl, cs"), "auto"),
             ]
 
         def setting(self, key, default):
@@ -5629,7 +5740,7 @@ if mobase is not None:
             return "MO2 Modlist Manager"
 
         def tooltip(self):
-            return "Generate separators and place every mod in order"
+            return TR("MM_Tooltip", "Generate separators and place every mod in order")
 
         def icon(self):
             # the Tools-menu entry: the application's text colour at the moment MO2 asks (the toolbar button is kept in
@@ -5759,6 +5870,7 @@ if mobase is not None:
 
         def display(self):
             try:
+                self.apply_language()
                 RulerDialog(self, self._parent).exec()
             except Exception as exc:  # noqa: BLE001
                 self._log(f"display failed: {exc!r}")
