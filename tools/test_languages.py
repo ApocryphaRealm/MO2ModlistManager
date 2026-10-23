@@ -18,6 +18,9 @@ spec.loader.exec_module(mm)
 from PyQt6.QtWidgets import QApplication, QWidget
 
 LIMIT = 760
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import write_translations
+N_KEYS = len(write_translations.english())   # every key the code asks for (118 in 1.1.4, 121 in 1.1.6)
 fails = []
 
 
@@ -35,7 +38,7 @@ codes = {"en": "english", "ja": "japanese", "ko": "korean", "zh": "chinese", "ru
 for code, name in codes.items():
     got = mm.load_strings(code)
     n = len(mm._STRINGS)
-    check(got == name and (n == 0 if name == "english" else n == 118), f"{code}: loads '{got}' ({n} strings)")
+    check(got == name and (n == 0 if name == "english" else n == N_KEYS), f"{code}: loads '{got}' ({n} strings)")
     if name != "english":
         check(mm.TR("MM_BtnApply", ENGLISH_APPLY) != ENGLISH_APPLY, f"{code}: Apply is translated -> {mm.TR('MM_BtnApply', ENGLISH_APPLY)}")
 for code, name in (("de_DE", "german"), ("zh_CN", "chinese"), ("pt_BR", "english"), ("", "english"), (None, "english"), ("xx", "english")):

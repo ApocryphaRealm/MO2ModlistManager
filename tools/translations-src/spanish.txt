@@ -116,3 +116,6 @@ MM_ActFromOptional = de vuelta desde Optional ESPs, activar
 MM_ActKeepOff = dejar donde está, sin marcar
 MM_ActActivate = activar
 MM_ActToOptional = mover a Optional ESPs
+MM_AsItIs = tal como está: no se hizo ningún plan
+MM_FailedShown = No se pudo hacer el plan: {err}\nLa lista de abajo es tu lista de mods tal como está ahora. No se escribe nada. Los detalles están en el log.txt del plugin.
+MM_ReadErrors = {n} carpeta(s) de mods no se pudieron leer por completo, así que se colocaron según lo que se pudo leer: {mods}. Los detalles están en el log.txt del plugin.

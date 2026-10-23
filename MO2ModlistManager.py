@@ -20,7 +20,7 @@ What it does, and only from evidence a mod carries:
 
 Copyright (C) 2026 ApocryphaRealm. GPL-3.0-or-later - see LICENSE and NOTICE.md.
 """
-__version__ = "1.1.5"
+__version__ = "1.1.6"
 
 import collections
 import configparser
@@ -31,6 +31,7 @@ import shutil
 import struct
 import zlib
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -47,6 +48,21 @@ _LANG_FILES = {"en": "english", "ja": "japanese", "ko": "korean", "zh": "chinese
 # the language names are written in their own language, so a user can find theirs whatever language is showing now
 LANGUAGE_CHOICES = (("en", "English"), ("ja", "日本語"), ("ko", "한국어"), ("zh", "中文"), ("ru", "Русский"), ("de", "Deutsch"),
                     ("fr", "Français"), ("es", "Español"), ("it", "Italiano"), ("pl", "Polski"), ("cs", "Čeština"))
+def _lp(path):
+    r"""The extended-length form of a path on Windows (\\?\D:\..., \\?\UNC\server\...), for every read and write inside
+    a mod folder. ModOrganizer.exe 2.5.2 is not long-path aware (its manifest has no longPathAware), so the Python it
+    hosts cannot open a path of 260 characters or more whatever Windows' LongPathsEnabled says: os.path.getsize gave
+    "[WinError 3] The system cannot find the path specified" on a Dragons Use Thu'um animation file, and os.walk skipped
+    deeper folders in silence (Nexus report, 2026-10-21). MO2 itself walks mod folders through the NT form of the same
+    prefix (envfs.cpp makeNtPath, MO2-REFERENCE.md). The prefix takes no '/', '.' or '..', so the path is normalised."""
+    if os.name != "nt" or not path or path.startswith("\\\\?\\"):
+        return path
+    p = os.path.normpath(path if os.path.isabs(path) else os.path.abspath(path))
+    if p.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + p[2:]
+    return "\\\\?\\" + p
+
+
 STRINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MO2ModlistManager_strings", "translations")
 _STRINGS = {}
 
@@ -1780,6 +1796,7 @@ _README_RE = re.compile(r"(?i)^(read ?me|description|info|about|instructions?)\b
 def read_self_text(mod_dir):
     """What the folder says about itself: a readme at the top level and the FOMOD info.xml (name + description)."""
     out = []
+    mod_dir = _lp(mod_dir)
     try:
         for f in os.listdir(mod_dir):
             if _README_RE.match(f):
@@ -1805,6 +1822,7 @@ def read_config_text(mod_dir):
     read only when the mod ships a DLL and no art. _text_votes uses it only when the NAME says nothing and one theme
     repeats - a config full of "activate" is not a controls mod."""
     cfg, has_art, has_dll = [], False, False
+    mod_dir = _lp(mod_dir)
     try:
         for dp, _dn, fns in os.walk(mod_dir):
             for f in fns:
@@ -1838,7 +1856,7 @@ IGNORED_FILES = {"meta.ini", "readme.txt", "read me.txt", "changelog.txt", "chan
 
 class Mod:
     __slots__ = ("dir", "name", "enabled", "index", "nexus_id", "mo2_cats", "plugins", "optional", "category", "why", "group", "flags", "files", "twin", "records",
-                 "votes", "text", "decided", "refs", "raw_votes", "version", "config")
+                 "votes", "text", "decided", "refs", "raw_votes", "version", "config", "read_error")
 
     def __init__(self, name, enabled, index):
         self.name, self.enabled, self.index = name, enabled, index
@@ -1854,6 +1872,7 @@ class Mod:
         self.refs = None                                            # what the plugins reference: cells, worldspaces (plugin_refs)
         self.version = ()                                           # meta.ini version as numbers, () when unknown
         self.config = ""                                            # an SKSE-only mod's own config text (read_config_text)
+        self.read_error = ""                                        # why part of the folder could not be read ("" = all of it was)
         self.text = ""                                              # what the mod says about itself (plugin descriptions, readme, FOMOD, Nexus description)
 
     @property
@@ -1888,11 +1907,17 @@ def pair_test_builds(mods):
     return pairs
 
 
+def _raise(err):
+    """os.walk's onerror: a folder that cannot be listed is an error to report, not a folder to skip in silence."""
+    raise err
+
+
 def scan_files(mod_dir):
     """Relative asset paths, lower-cased, forward slashes - what can collide in the virtual file system."""
     out = []
+    mod_dir = _lp(mod_dir)
     root_len = len(mod_dir.rstrip("\\/")) + 1
-    for dirpath, dirnames, filenames in os.walk(mod_dir):
+    for dirpath, dirnames, filenames in os.walk(mod_dir, onerror=_raise):
         dirnames[:] = [d for d in dirnames if not d.startswith(".")]
         for f in filenames:
             low = f.lower()
@@ -1938,15 +1963,27 @@ def _install_file(mod_dir):
 def _content_key(mod_dir):
     """What a folder holds, wherever MO2's Optional ESPs put a plugin: {(path without a leading optional/, size)}."""
     out = set()
-    for dirpath, dirnames, filenames in os.walk(mod_dir):
+    mod_dir = _lp(mod_dir)
+    root_len = len(mod_dir.rstrip("\\/")) + 1
+    for dirpath, dirnames, filenames in os.walk(mod_dir, onerror=_raise):
         for f in filenames:
             if f.lower() == "meta.ini":
                 continue
-            rel = os.path.relpath(os.path.join(dirpath, f), mod_dir).replace(os.sep, "/").lower()
+            rel = os.path.join(dirpath, f)[root_len:].replace(os.sep, "/").lower()
             if rel.startswith("optional/"):
                 rel = rel[len("optional/"):]
             out.add((rel, os.path.getsize(os.path.join(dirpath, f))))
     return frozenset(out)
+
+
+def _content_key_of(m, d):
+    """_content_key, or None when the folder cannot be read: the error is kept on the mod for the window, and the mod is
+    left out of the copy comparisons instead of stopping the whole run (an unreadable folder is never 'the same files')."""
+    try:
+        return _content_key(d)
+    except OSError as e:
+        m.read_error = m.read_error or str(e)
+        return None
 
 
 def redundant_copies(mods, mods_dir):
@@ -1960,7 +1997,7 @@ def redundant_copies(mods, mods_dir):
     for m in mods:
         if is_sep(m.name) or not m.enabled or "missing" in m.flags:
             continue
-        d = os.path.join(mods_dir, m.name)
+        d = _lp(os.path.join(mods_dir, m.name))
         arc = os.path.basename(_install_file(d).replace(os.sep, "/"))
         if arc:
             groups.setdefault(arc.lower(), []).append((m, d, arc))
@@ -1971,7 +2008,7 @@ def redundant_copies(mods, mods_dir):
         arc = ms[0][2]
         by_content = {}
         for m, d, _a in ms:
-            by_content.setdefault(_content_key(d), []).append(m)
+            by_content.setdefault(_content_key_of(m, d), []).append(m)
         stem = _core_name(re.sub(r"[-_ ]\d{3,}.*$", "", os.path.splitext(arc)[0]))
         for key, same in by_content.items():
             if len(same) < 2 or not key:
@@ -1989,7 +2026,7 @@ def redundant_copies(mods, mods_dir):
     live = [m for m in mods if not is_sep(m.name) and m.enabled and "missing" not in m.flags and m.nexus_id and m.version]
     paths = {}
     for m in live:
-        paths[m.name] = set(_content_key(os.path.join(mods_dir, m.name)))
+        paths[m.name] = set(_content_key_of(m, os.path.join(mods_dir, m.name)) or ())
     for old in live:
         if not paths[old.name] or not old.enabled:
             continue
@@ -2011,7 +2048,7 @@ def scan(mods_dir, rows, progress=None):
         mods.append(m)
         if is_sep(name):
             continue
-        d = os.path.join(mods_dir, name)
+        d = _lp(os.path.join(mods_dir, name))     # every read below goes through the long-path form
         if not os.path.isdir(d):
             m.flags.add("missing")
             continue
@@ -2048,8 +2085,8 @@ def scan(mods_dir, rows, progress=None):
                         masters, _desc, esm = read_header(os.path.join(opt, f))
                         m.optional.append((f, masters, esm or f.lower().endswith((".esm", ".esl"))))
             m.files = scan_files(d)              # every mod, enabled or not: the files are classification evidence too
-        except OSError:
-            pass
+        except OSError as e:
+            m.read_error = str(e)                # shown in the window; the mod is still placed on what was read
         m.text = " ".join(t for t in texts if t)[:12000]
         if progress and not progress(i, len(rows), name):
             break
@@ -3241,7 +3278,7 @@ def apply_mo2_category_updates(updates, log=None):
     done = 0
     for name, path, mo2_id, cat in updates:
         try:
-            text = open(path, "rb").read().decode("utf-8-sig")
+            text = open(_lp(path), "rb").read().decode("utf-8-sig")
             nl = "\r\n" if "\r\n" in text else "\n"
             lines = text.split(nl)
             new = 'category="{0},"'.format(mo2_id)
@@ -3260,7 +3297,7 @@ def apply_mo2_category_updates(updates, log=None):
             if not replaced:
                 lines.insert(0, "[General]")
                 lines.insert(1, new)
-            open(path, "wb").write(nl.join(lines).encode("utf-8"))
+            open(_lp(path), "wb").write(nl.join(lines).encode("utf-8"))
             done += 1
         except OSError as exc:
             if log:
@@ -4287,7 +4324,7 @@ def apply_plugin_state(plan, mods_dir, backup_dir, log=None):
     be undone by hand."""
     moves = []
     for f, mod_name, why in plan.get("to_optional", []):
-        src, dst_dir = os.path.join(mods_dir, mod_name, f), os.path.join(mods_dir, mod_name, "optional")
+        src, dst_dir = _lp(os.path.join(mods_dir, mod_name, f)), _lp(os.path.join(mods_dir, mod_name, "optional"))
         if os.path.isfile(src):
             os.makedirs(dst_dir, exist_ok=True)
             dst = os.path.join(dst_dir, f)
@@ -4296,7 +4333,7 @@ def apply_plugin_state(plan, mods_dir, backup_dir, log=None):
             shutil.move(src, dst)
             moves.append({"plugin": f, "mod": mod_name, "from": "root", "to": "optional", "why": why})
     for f, mod_name, why in plan.get("from_optional", []):
-        src, dst = os.path.join(mods_dir, mod_name, "optional", f), os.path.join(mods_dir, mod_name, f)
+        src, dst = _lp(os.path.join(mods_dir, mod_name, "optional", f)), _lp(os.path.join(mods_dir, mod_name, f))
         if os.path.isfile(src) and not os.path.exists(dst):
             shutil.move(src, dst)
             moves.append({"plugin": f, "mod": mod_name, "from": "optional", "to": "root", "why": why})
@@ -4780,7 +4817,8 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
             "plugins": plugins, "rules": ruler_rules(mods), "mod_rules": ours,
             "learned": learned, "learned_changes": learned_changes,
             "nexus": f"no Nexus request; {len(nexus_names)} Nexus category names read from nexuscatmap.dat",
-            "modlist_path": ml, "mods_dir": mods_dir, "foreign": foreign}
+            "modlist_path": ml, "mods_dir": mods_dir, "foreign": foreign,
+            "read_errors": [(m.name, m.read_error) for m in mods if m.read_error]}
 
 
 def apply(result, instance_dir, profile, cache_dir, log=None):
@@ -4998,7 +5036,7 @@ def restore_backup(backup_dir, instance_dir, profile, cache_dir, log=None):
         f, mod = mv.get("plugin"), mv.get("mod")
         if not f or not mod:
             continue
-        root_p, opt_p = os.path.join(mods_dir, mod, f), os.path.join(mods_dir, mod, "optional", f)
+        root_p, opt_p = _lp(os.path.join(mods_dir, mod, f)), _lp(os.path.join(mods_dir, mod, "optional", f))
         src, dst = (opt_p, root_p) if mv.get("to") == "optional" else (root_p, opt_p)
         if os.path.isfile(src) and not os.path.exists(dst):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -5398,8 +5436,20 @@ if mobase is not None:
                     return True
                 self._result = self._p.compute(progress, self.sp_run.value())
             except Exception as exc:  # noqa: BLE001
-                self._p._log(f"compute failed: {exc!r}")
-                self.summary.setText(TR("MM_Failed", "Failed: {err}", err=exc))
+                # never an empty window (Nexus report, 2026-10-21): the list as it is now, and what went wrong
+                self._p._log(f"compute failed: {exc!r}\n{traceback.format_exc()}")
+                self._result = None
+                for t in (self.t_moves, self.t_seps, self.t_disp, self.t_conf, self.t_plug):
+                    self._fill(t, [])
+                try:
+                    rows = read_modlist(os.path.join(self._p._organizer.profilePath(), "modlist.txt"))[0]
+                except Exception:  # noqa: BLE001
+                    rows = []
+                as_now = TR("MM_AsItIs", "as it is now: no plan was made")
+                self._fill(self.t_place, [(n, "", "", as_now) for n, _en in rows if not is_sep(n)])
+                self.tabs.setCurrentWidget(self.t_place)
+                self.summary.setText(TR("MM_FailedShown", "The plan could not be made: {err}\nThe list below is your mod "
+                                        "list as it is now. Nothing is written. The details are in the plugin's log.txt.", err=exc))
                 return
             r = self._result
             mods = [m for m in r["mods"] if not is_sep(m.name)]
@@ -5443,6 +5493,14 @@ if mobase is not None:
             self.tabs.setTabText(self.tabs.indexOf(self.t_plug), TR("MM_TabPluginsN", "Plugins ({n})", n=n_plug) if n_plug else TR("MM_TabPlugins", "Plugins"))
             self.b_apply.setEnabled(bool(r["moves"] or r["facts"]["created"] or r["facts"]["retired"] or n_plug))
             self.status.setText(TR("MM_Idle", "Nothing is written until Apply. Apply backs up modlist.txt, plugins.txt, loadorder.txt and the retired separators first."))
+            errs = r.get("read_errors", [])
+            if errs:
+                for name, err in errs:
+                    self._p._log(f"could not read all of '{name}': {err}")
+                self.status.setText(TR("MM_ReadErrors", "{n} mod folder(s) could not be read in full, so they were placed on what "
+                                       "could be read: {mods}. The details are in the plugin's log.txt.", n=len(errs),
+                                       mods=", ".join(n for n, _e in errs[:5]) + (", ..." if len(errs) > 5 else ""))
+                                    + "\n" + self.status.text())
 
         def verdicts(self):
             if not self._result:

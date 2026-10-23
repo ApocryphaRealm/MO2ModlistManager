@@ -4,7 +4,7 @@ A Mod Organizer 2 plugin (Python, MO2 2.5.x) that generates the left pane: one s
 load-order taxonomy, every mod placed under the category the evidence decides, masters above dependents, the plugin
 list following the pane. Nothing is written until Apply, and Apply backs up the profile's lists first.
 
-Version 1.1.5 (this build's own numbering; no upstream).
+Version 1.1.6 (this build's own numbering; no upstream).
 
 ## How a mod is placed
 

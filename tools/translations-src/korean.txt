@@ -116,3 +116,6 @@ MM_ActFromOptional = Optional ESPs에서 복귀, 활성화
 MM_ActKeepOff = 제자리에 두기, 체크 안 함
 MM_ActActivate = 활성화
 MM_ActToOptional = Optional ESPs로 이동
+MM_AsItIs = 현재 상태: 계획이 만들어지지 않았습니다
+MM_FailedShown = 계획을 만들 수 없습니다: {err}\n아래 목록은 현재 모드 목록입니다. 아무것도 기록되지 않습니다. 자세한 내용은 플러그인의 log.txt에 있습니다.
+MM_ReadErrors = 모드 폴더 {n}개를 완전히 읽지 못해 읽은 내용으로 배치했습니다: {mods}. 자세한 내용은 플러그인의 log.txt에 있습니다.

@@ -116,3 +116,6 @@ MM_ActFromOptional = zpět z Optional ESPs, aktivovat
 MM_ActKeepOff = nechat na místě, nezaškrtnuto
 MM_ActActivate = aktivovat
 MM_ActToOptional = přesunout do Optional ESPs
+MM_AsItIs = tak, jak je teď: plán nebyl vytvořen
+MM_FailedShown = Plán se nepodařilo vytvořit: {err}\nSeznam níže je váš seznam modů v současném stavu. Nic se nezapisuje. Podrobnosti jsou v souboru log.txt pluginu.
+MM_ReadErrors = Složky modů ({n}) se nepodařilo přečíst celé, proto byly zařazeny podle toho, co se přečíst podařilo: {mods}. Podrobnosti jsou v souboru log.txt pluginu.

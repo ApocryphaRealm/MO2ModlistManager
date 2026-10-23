@@ -116,3 +116,6 @@ MM_ActFromOptional = 从 Optional ESPs 移回并激活
 MM_ActKeepOff = 保持原位,不勾选
 MM_ActActivate = 激活
 MM_ActToOptional = 移到 Optional ESPs
+MM_AsItIs = 当前状态：未生成计划
+MM_FailedShown = 无法生成计划：{err}\n下面的列表是你当前的模组列表。不会写入任何内容。详细信息见插件的 log.txt。
+MM_ReadErrors = 有 {n} 个模组文件夹未能完整读取，已按读取到的内容放置：{mods}。详细信息见插件的 log.txt。

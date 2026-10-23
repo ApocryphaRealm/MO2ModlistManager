@@ -2,6 +2,31 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
+## 1.1.6 - 2026-10-23 - untested
+
+### Fixed
+- **A mod file whose full path is 260 characters or longer no longer leaves the window empty** (Nexus report,
+  2026-10-21: "[WinError 3] The system cannot find the path specified" on a Dragons Use Thu'um animation file).
+  - Cause: ModOrganizer.exe 2.5.2 is not long-path aware (its manifest has no `longPathAware`), so the Python it hosts
+    cannot open a path of 260 characters or more, whatever Windows' LongPathsEnabled setting says. The check for a
+    second copy of a download (`_content_key`, run for every enabled mod with a Nexus id and a version) read each
+    file's size, raised on the first long path, and the whole read stopped before any tab was filled.
+  - Every read and write inside a mod folder now goes through the extended-length form of the path (`\\?\D:\...`,
+    `\\?\UNC\...` for a network share), the way MO2 walks mod folders itself (`envfs.cpp` `makeNtPath`,
+    MO2-REFERENCE.md): the file scan, the readme / FOMOD / config reads, meta.ini, the plugin headers, the BSAs,
+    the second-copy check, moving plugins to and from Optional ESPs, and writing categories to meta.ini.
+  - Before this, a folder 260 or more characters deep was also skipped without a word, so its files were missing from
+    the evidence the mod was placed on, and a mod whose own folder path was that long was treated as missing.
+    Those folders are now read in full.
+- **A read that still fails never leaves the window empty.** A mod folder that cannot be read in full is placed on what
+  could be read and named in the window ("N mod folder(s) could not be read in full ..."), and the error goes to the
+  plugin's log.txt. If the plan cannot be made at all, the window lists the mod list as it is now, says why, and
+  writes nothing; the full traceback goes to log.txt. Three new strings, in all eleven languages.
+- `tools/test_long_paths.py`: a scratch instance with 276- and 422-character paths, run with the process's
+  long-path flag cleared the way ModOrganizer.exe runs (it proves first that a long path fails in that state).
+  Before the fix it gives the reporter's exact error; after it, ALL PASS. `tools/test_languages.py` counts the keys
+  from the code instead of a fixed 118.
+
 ## 1.1.5 - 2026-10-21 - working
 
 ### Changed

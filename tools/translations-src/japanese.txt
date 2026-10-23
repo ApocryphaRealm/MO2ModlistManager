@@ -116,3 +116,6 @@ MM_ActFromOptional = Optional ESPsから復帰して有効化
 MM_ActKeepOff = 元の位置に残し、チェックを外す
 MM_ActActivate = 有効化
 MM_ActToOptional = Optional ESPsへ移動
+MM_AsItIs = 現状のまま：プランは作成されていません
+MM_FailedShown = プランを作成できませんでした：{err}\n下の一覧は現在の MOD リストです。何も書き込まれていません。詳細はプラグインの log.txt にあります。
+MM_ReadErrors = {n} 個の MOD フォルダーを完全には読み込めなかったため、読み込めた内容で配置しました：{mods}。詳細はプラグインの log.txt にあります。
