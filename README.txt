@@ -91,6 +91,12 @@ Press the toolbar button. The manager reads the list and shows its plan; nothing
 Apply writes the plan: modlist.txt, plugins.txt and loadorder.txt, new separators (in your separators' colour),
 retired separators moved to the backup, and Bethesda Plugin Manager groups when that plugin is installed. Every
 Apply keeps a backup of the lists under plugins\data\MO2ModlistManager\backups\<date-time>\.
+Before it writes anything, Apply lists every plugin or mod it would move to Optional ESPs or switch off, each with
+its reason - a master that is not installed, or "a chain from" the plugin whose master is missing - and asks:
+"Apply and switch them off", "Apply, leave plugins as they are" (the order is written, no plugin is moved, ticked or
+unticked) or Cancel. A master counts as installed when MO2 loads it from anywhere: a mod, the game's Data folder
+(Creation Club, DLC, anything installed straight into Data) or Overwrite.
+After an Apply, "Undo this Apply" puts the lists back exactly as they were, in one click.
 "Write decided categories to MO2" stores each mod's decided category in its meta.ini as its MO2 category; a category
 you set yourself is left alone.
 
@@ -124,7 +130,8 @@ RESTORE BACKUP
 puts the profile back as it was before that Apply: the mod list, plugin list, load order and plugin groups, the
 separators the Apply retired (and the ones it created set aside), and the plugins it moved to or from Optional ESPs.
 Your own rules stay; the pins learned from moves go back to what they were with that backup. The state it replaces
-is backed up first, so a restore can itself be restored.
+is backed up first, so a restore can itself be restored. "Undo this Apply" (shown after an Apply) restores that
+Apply's backup in one click.
 
 VERDICTS
 --------

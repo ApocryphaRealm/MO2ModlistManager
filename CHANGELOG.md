@@ -5,6 +5,37 @@ Every version, beside the code it describes. Status is the version ledger's word
 ## 1.1.6 - 2026-10-23 - untested
 
 ### Fixed
+- **Apply no longer switches off plugins whose masters are in the game's Data folder or in Overwrite, nor everything
+  built on them** (Nexus report, 2026-10-24: "It disabled half of the plugins out of 1080 ... a chain reaction").
+  - Cause: the plugin plan (`plan_plugin_state`) counted a master as present only when it was one of six base masters
+    or a plugin of an ENABLED MOD folder. A master MO2 loads from the game's Data folder - the Creation Club plugins of
+    an Anniversary Edition game (USSEP 4.3 needs ccBGSSSE001-Fish.esm, ccQDRSSE001-SurvivalMode.esl,
+    ccBGSSSE037-Curios.esl and ccBGSSSE025-AdvDSGS.esm), DLC, anything installed straight into Data - or from Overwrite
+    was judged "not in any enabled mod". The plugin went to Optional ESPs, and the plan's fixed point then sent every
+    plugin built on it there too, link by link. MO2 itself never switches a plugin off for a missing master
+    (pluginlist.cpp `testMasters` only marks it; MO2-REFERENCE.md), and the new left-pane order cannot do it either:
+    the plugin order is a topological sort, masters first.
+  - Now a master is present when MO2 loads it from anywhere: an enabled mod, the game's primary plugins (Skyrim.ccc),
+    any plugin in the game's Data folder or in Overwrite, and any plugin MO2's own loadorder.txt lists that no mod
+    folder ships (a plugin only a disabled mod ships still does not count).
+  - **Apply also dropped every plugin that no mod folder ships from plugins.txt and loadorder.txt**, so MO2 showed a
+    plugin in the game's Data folder or in Overwrite (a Synthesis or Bashed Patch output, an unmanaged plugin)
+    unticked after the Apply. They are now written in their place - the game's Data folder first, Overwrite last -
+    each with the tick it had.
+- **Apply never switches plugins off without asking first.** When the plan would move a plugin to Optional ESPs, leave
+  it unticked or switch a mod off, Apply first lists every one with its reason ("needs X - not in any enabled mod, the
+  game's Data folder or Overwrite", or "a chain from X" for a plugin that cannot load only because a master of it is
+  switched off too) and how many are chain links, and offers "Apply and switch them off", "Apply, leave plugins as
+  they are" (the order is written; no plugin is moved, ticked or unticked and no mod switched off) or Cancel (the
+  default). The list is also written to the plugin's log.txt.
+- **"Undo this Apply"**: after an Apply, one click restores the backup that Apply wrote before it changed anything -
+  modlist.txt, plugins.txt and loadorder.txt byte for byte, and the plugins it moved back in their mods. It uses
+  Restore backup, so what the undo replaces is itself backed up. Eight new strings, in all eleven languages.
+- `tools/test_master_cascade.py`: a synthetic instance with Creation Club masters only in the game's Data folder,
+  a Data-installed and an Overwrite master, a chain on USSEP, a truly missing master with its chain, and a disabled
+  duplicate copy of a master; then Apply (both ways), Restore and the window's preview, Cancel and Undo under PyQt
+  offscreen. Against the posted 1.1.5 (`--plugin`): 12 FAIL (all eight plugins parked, the Data and Overwrite
+  plugins dropped). After the fix: ALL PASS. The owner's Njordlinger profiles park the same plugins as before.
 - **A mod file whose full path is 260 characters or longer no longer leaves the window empty** (Nexus report,
   2026-10-21: "[WinError 3] The system cannot find the path specified" on a Dragons Use Thu'um animation file).
   - Cause: ModOrganizer.exe 2.5.2 is not long-path aware (its manifest has no `longPathAware`), so the Python it hosts

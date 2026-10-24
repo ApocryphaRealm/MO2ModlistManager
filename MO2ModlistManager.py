@@ -3132,12 +3132,13 @@ class Instance:
     """The folders of one MO2 instance: data (ModOrganizer.ini, categories.dat, nexuscatmap.dat), base, mods,
     profiles, and app (MO2's own folder - its plugins folder sits there)."""
 
-    def __init__(self, data, base=None, mods=None, profiles=None, app=None):
+    def __init__(self, data, base=None, mods=None, profiles=None, app=None, overwrite=None):
         self.data = os.path.normpath(data)
         self.base = os.path.normpath(base or data)
         self.mods = os.path.normpath(mods or os.path.join(self.base, "mods"))
         self.profiles = os.path.normpath(profiles or os.path.join(self.base, "profiles"))
         self.app = os.path.normpath(app or self.data)
+        self.overwrite = os.path.normpath(overwrite or os.path.join(self.base, "overwrite"))
 
     def profile(self, name):
         return os.path.join(self.profiles, name)
@@ -3180,7 +3181,8 @@ def instance_from_dir(data_dir):
     def conf(key, default):
         return (st.get(key) or "%BASE_DIR%/" + default).replace("%BASE_DIR%", base)
 
-    return Instance(data_dir, base, conf("mod_directory", "mods"), conf("profiles_directory", "profiles"), data_dir)
+    return Instance(data_dir, base, conf("mod_directory", "mods"), conf("profiles_directory", "profiles"), data_dir,
+                    conf("overwrite_directory", "overwrite"))
 
 
 def as_instance(x):
@@ -3965,9 +3967,12 @@ def build(mods, rules=None, min_run=2):
                   "created": sorted(new_seps - old_seps), "retired": sorted(old_seps - new_seps)}
 
 
-def plugin_order(rows, mods_by_name, ruler_user_rules=()):
+def plugin_order(rows, mods_by_name, ruler_user_rules=(), outside=None):
     """Plugins in pane order (ESMs first among themselves), then a stable topological pass so every master loads
-    before its dependents and the generator's own before/after/first/last plugin rules hold."""
+    before its dependents and the generator's own before/after/first/last plugin rules hold.
+    outside (1.1.6, outside_plugins): {"first": [(plugin, masters, is_esm)], "last": [...]} - the plugins MO2 loads from
+    the game's Data folder (first) and from Overwrite (last) that no enabled mod ships. Before 1.1.6 they were left out
+    of both lists, and MO2 shows a plugin plugins.txt does not list as unticked."""
     import heapq
     # a plugin shipped by two enabled mods is placed where its WINNING copy sits (the lower mod, the one MO2 loads),
     # and that copy's header decides whether it is a master-block plugin (SGEyebrows.esp: flagged in one mod only)
@@ -3979,6 +3984,12 @@ def plugin_order(rows, mods_by_name, ruler_user_rules=()):
         for f, masters, is_esm in m.plugins:
             winning[f.lower()] = (pos, f, is_esm)
             masters_of[f.lower()] = [x.lower() for x in masters]
+    outside = outside or {}
+    for where, pos0 in (("first", -1000000), ("last", 1000000)):
+        for i, (f, masters, is_esm) in enumerate(outside.get(where, ())):
+            if f.lower() not in winning:
+                winning[f.lower()] = (pos0 + i, f, is_esm)
+                masters_of[f.lower()] = [x.lower() for x in masters]
     ordered = sorted(winning.values())
     base = [f for _pos, f, is_esm in ordered if is_esm] + [f for _pos, f, is_esm in ordered if not is_esm]
     present = {f.lower(): f for f in base}
@@ -3990,6 +4001,7 @@ def plugin_order(rows, mods_by_name, ruler_user_rules=()):
     # DynDOLOD.esp, then Occlusion.esp, end the plugin order whatever sits below the outputs in the pane (an Optional
     # Addon, P10): DynDOLOD generates against everything before it, and the launch audit fails a plugin after them
     first, last = set(), {f for f in present if f in ("dyndolod.esp", "occlusion.esp")}
+    last |= {f.lower() for f, _ms, esm in outside.get("last", ()) if not esm and f.lower() in present}
     for r in ruler_user_rules:
         if not r.get("enabled", True):
             continue
@@ -4173,7 +4185,80 @@ def options_or_defaults(options):
     return out
 
 
-def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None, park=True, restore=True):
+def external_plugins(instance_dir, profile_dir, mods):
+    """Plugins MO2 loads that no mod folder of the list holds, lower-cased: the game's primary plugins (Skyrim.ccc),
+    every plugin in the game's Data folder (Creation Club content, DLC, anything installed straight into Data - MO2's
+    foreign '*' entries), every plugin in Overwrite, and every plugin MO2's own loadorder.txt lists that no scanned
+    mod folder ships (a folder that could not be read in full, a source this reader does not know). MO2 2.5.2 builds
+    the right pane from the whole virtual Data folder (pluginlist.cpp, PluginList::refresh), so each of these is a
+    master that is THERE. Before 1.1.6 the plan counted only six base masters and enabled mods, so a plugin built on
+    a Creation Club master (USSEP 4.3 on an Anniversary Edition game needs four) went to Optional ESPs and every
+    plugin built on it followed (Nexus report, 2026-10-24). A plugin only a DISABLED mod ships is not one of them."""
+    inst = as_instance(instance_dir)
+    out = set(primary_plugins(inst))
+    folders = []
+    g = game_dir(inst)
+    if g:
+        folders.append(os.path.join(g, "Data"))
+    folders.append(inst.overwrite)
+    for d in folders:
+        try:
+            for f in os.listdir(_lp(d)):
+                if f.lower().endswith(PLUGIN_EXT):
+                    out.add(f.lower())
+        except OSError:
+            pass
+    shipped, only_disabled = set(), set()
+    for m in mods:
+        if is_sep(m.name):
+            continue
+        names = {e[0].lower() for e in m.plugins} | {e[0].lower() for e in m.optional}
+        (shipped if m.enabled else only_disabled).update(names)
+    only_disabled -= shipped
+    lo = os.path.join(profile_dir, "loadorder.txt")
+    if os.path.isfile(lo):
+        for line in _read_text(lo).splitlines():
+            k = line.strip().lower()
+            if k and not k.startswith("#") and k.endswith(PLUGIN_EXT) and k not in shipped and k not in only_disabled:
+                out.add(k)
+    return out
+
+
+def outside_plugins(instance_dir, profile_dir, mods):
+    """{"first": [...], "last": [...]} for plugin_order: every plugin file in the game's Data folder (the primary ones
+    first, in the game's order, then the rest in loadorder.txt's order) and in Overwrite, that no enabled mod ships,
+    each as (name, masters, is_esm) read from its header."""
+    inst = as_instance(instance_dir)
+    shipped = {e[0].lower() for m in mods if m.enabled and not is_sep(m.name) for e in m.plugins}
+    rank = {}
+    lo = os.path.join(profile_dir, "loadorder.txt")
+    if os.path.isfile(lo):
+        for i, line in enumerate(_read_text(lo).splitlines()):
+            if line.strip() and not line.startswith("#"):
+                rank.setdefault(line.strip().lower(), i)
+    prim = list(SKYRIM_SE_PRIMARY)
+    g = game_dir(inst)
+    if g and os.path.isfile(os.path.join(g, "Skyrim.ccc")):
+        prim += [ln.strip().lower() for ln in _read_text(os.path.join(g, "Skyrim.ccc")).splitlines() if ln.strip()]
+    out = {"first": [], "last": []}
+    for where, d in (("first", os.path.join(g, "Data") if g else None), ("last", inst.overwrite)):
+        if not d:
+            continue
+        try:
+            names = [f for f in os.listdir(_lp(d)) if f.lower().endswith(PLUGIN_EXT) and f.lower() not in shipped]
+        except OSError:
+            continue
+
+        def key(f):
+            k = f.lower()
+            return (prim.index(k) if k in prim else len(prim), rank.get(k, 10 ** 9), k)
+        for f in sorted(names, key=key):
+            masters, _desc, esm = read_header(os.path.join(_lp(d), f))
+            out[where].append((f, masters, esm or f.lower().endswith((".esm", ".esl"))))
+    return out
+
+
+def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None, park=True, restore=True, external=frozenset()):
     """Every plugin ends up in one of two places (the owner, 2026-09-23): a plugin whose masters are all here is in the
     mod's root and ACTIVE; one that cannot load - a master it needs is in no enabled mod - waits in the mod's
     optional folder (MO2's Optional ESPs). And the way back: an optional plugin whose masters have since arrived
@@ -4183,7 +4268,9 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None, park=Tr
     the plugin order and BPM groups computed afterwards describe the pane as it will be.
     park=False (Settings: "Move plugins that cannot load to Optional ESPs" off): such a plugin stays in its mod's root,
     listed in the right pane but unticked ("keep_off"), so it is seen and not loaded. restore=False: nothing comes
-    back from Optional ESPs on its own."""
+    back from Optional ESPs on its own. external: plugins MO2 loads from outside the mod folders (external_plugins) -
+    a master among them is present. plan["chain"] = {plugin: the first plugin of its chain} for a plugin that
+    cannot load only because a master of it cannot load either: the dialog shows each one before Apply (1.1.6)."""
     active = read_active_plugins(profile_dir)
     off = {str(r.get("plugin", "")).lower() for r in plugin_rules if r.get("type") == "off" and r.get("enabled", True)}
     root, opt = {}, {}                          # plugin name -> (mod, entry): the LOWEST enabled mod wins, as in MO2
@@ -4257,6 +4344,8 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None, park=Tr
                         contained[small] = big
                         loadable[small] = False
                         break
+    present = BASE_MASTERS | {x.lower() for x in external}
+    chain = {}                                  # plugin -> the first plugin of its chain (whose own master is missing)
     changed = True
     while changed:
         changed = False
@@ -4265,17 +4354,29 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None, park=Tr
                 continue
             for ms in masters:
                 mk = ms.lower()
-                if mk in BASE_MASTERS:
+                if mk in off or mk in wrong or mk in contained:
+                    pass                        # parked on purpose: what is built on it cannot load either
+                elif mk in present and mk not in cands:
+                    continue                    # in the game's Data folder, Overwrite or the base game
+                elif mk in cands and loadable[mk]:
                     continue
-                if mk in off or mk not in cands or not loadable[mk]:
-                    loadable[k] = False
-                    changed = True
-                    break
+                loadable[k] = False
+                if mk in cands:                 # its master is in a mod but cannot load: a link of a chain
+                    chain[k] = chain.get(mk, mk)
+                changed = True
+                break
 
     def missing(masters):
-        return [ms for ms in masters if ms.lower() not in BASE_MASTERS and not loadable.get(ms.lower(), False)]
+        """The masters that are not there: in no mod that can load it, and not in Data, Overwrite or the base game."""
+        out = []
+        for ms in masters:
+            mk = ms.lower()
+            there = loadable.get(mk, False) if mk in cands else mk in present
+            if not there:
+                out.append(ms)
+        return out
 
-    plan = {"activate": [], "to_optional": [], "from_optional": [], "keep_off": []}
+    plan = {"activate": [], "to_optional": [], "from_optional": [], "keep_off": [], "chain": {}}
     for k, (m, e) in root.items():
         f, masters, _esm = e
         if k in off:
@@ -4286,8 +4387,12 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None, park=Tr
         elif k in contained:
             plan["to_optional"].append((f, m.name, f"every record it changes is in {contained[k]}, its fuller version "
                                                     f"from the same page"))
+        elif not loadable[k] and k in chain:
+            plan["to_optional"].append((f, m.name, "needs " + ", ".join(missing(masters)) + ", which cannot load either "
+                                                    f"(a chain from {_chain_root(chain, k, cands)})"))
         elif not loadable[k]:
-            plan["to_optional"].append((f, m.name, "needs " + ", ".join(missing(masters)) + " - not in any enabled mod"))
+            plan["to_optional"].append((f, m.name, "needs " + ", ".join(missing(masters))
+                                        + " - not in any enabled mod, the game's Data folder or Overwrite"))
         elif k not in active:
             plan["activate"].append((f, m.name, "every master is present"))
     for k, (m, e) in opt.items():
@@ -4300,6 +4405,8 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None, park=Tr
         if not needs:
             continue
         plan["from_optional"].append((f, m.name, "its masters are present now: " + ", ".join(needs[:4])))
+    names = {k: e[0] for k, (m_, e) in root.items()}
+    plan["chain"] = {names[k]: _chain_root(chain, k, cands) for k in chain if k in names and not loadable[k]}
     if not park:
         # left where they are and written unticked: the right pane shows them, the game does not load them
         plan["keep_off"], plan["to_optional"] = plan["to_optional"], []
@@ -4317,6 +4424,19 @@ def plan_plugin_state(mods, profile_dir, plugin_rules=(), mods_dir=None, park=Tr
                 m.optional = [e for e in m.optional if e[0] != f]
                 m.plugins.extend(moved)
     return plan
+
+
+def _chain_root(chain, k, cands):
+    """The first link of k's chain: follow chain[] while the master is itself a link; the name as the header has it."""
+    seen = set()
+    while k in chain and k not in seen:
+        seen.add(k)
+        k = chain[k]
+    for ks in cands.values():
+        for ms in ks:
+            if ms.lower() == k:
+                return ms
+    return k
 
 
 def apply_plugin_state(plan, mods_dir, backup_dir, log=None):
@@ -4769,8 +4889,11 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
             log(learned_line(mod, kind, here, was))
     pins = {m: v["category"] for m, v in learned.items()}
     pins.update(ours.get("pins") or {})
+    # the plugins as they are now, kept for "Apply, leave plugins as they are" (1.1.6): the plan below rewrites them
+    as_is = {id(m): (list(m.plugins), list(m.optional)) for m in mods}
     plugin_state = plan_plugin_state(mods, instance_dir.profile(profile), theirs, mods_dir,
-                                     park=opts["park_unloadable_plugins"], restore=opts["restore_optional_plugins"])
+                                     park=opts["park_unloadable_plugins"], restore=opts["restore_optional_plugins"],
+                                     external=external_plugins(instance_dir, instance_dir.profile(profile), mods))
     community = load_community(cache_dir)
     mo2_names = read_mo2_categories(instance_dir)
     place(mods, nexus_names, mo2_names, under, pins, community)
@@ -4809,20 +4932,35 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
     facts["community"] = len(community)
     facts["verdicts"] = collect_verdicts(mods, mo2_names)
     by_name = {m.name: m for m in mods}
-    plugins = plugin_order(new_rows, by_name, theirs)
+    outside = outside_plugins(instance_dir, instance_dir.profile(profile), mods)
+    plugins = plugin_order(new_rows, by_name, theirs, outside)
+    # the same order with every plugin where it is now and no mod switched off - what Apply writes when the user
+    # chooses to leave plugins as they are (the mods the plan would switch off stay as they were)
+    switched_off = {g for g, _k, _a in redundant} | {g for g, _w in default_off}
+    rows_as_is = [(nm, True if nm in switched_off else en) for nm, en in new_rows]
+    planned = {id(m): (m.plugins, m.optional) for m in mods}
+    for m in mods:
+        m.plugins, m.optional = as_is[id(m)]
+    plugins_as_is = plugin_order(rows_as_is, by_name, theirs, outside)
+    for m in mods:
+        m.plugins, m.optional = planned[id(m)]
     return {"mods": mods, "rows": new_rows, "header": header, "facts": facts, "moves": diff(mods, new_rows),
             "category_updates": plan_mo2_category_updates(mods, instance_dir, MO2_WRITTEN, placed_as),
             "plugin_groups": plugin_groups(new_rows, by_name), "bpm": bpm_installed(instance_dir),
             "plugin_state": plugin_state, "test_pairs": test_pairs, "options": opts,
             "plugins": plugins, "rules": ruler_rules(mods), "mod_rules": ours,
+            "plugins_as_is": plugins_as_is, "rows_as_is": rows_as_is,
+            "outside": sorted({f.lower() for f, _m, _e in outside["first"] + outside["last"]}),
             "learned": learned, "learned_changes": learned_changes,
             "nexus": f"no Nexus request; {len(nexus_names)} Nexus category names read from nexuscatmap.dat",
             "modlist_path": ml, "mods_dir": mods_dir, "foreign": foreign,
             "read_errors": [(m.name, m.read_error) for m in mods if m.read_error]}
 
 
-def apply(result, instance_dir, profile, cache_dir, log=None):
-    """Write it: backups, separator folders, modlist.txt, plugins.txt/loadorder.txt, the rules file."""
+def apply(result, instance_dir, profile, cache_dir, log=None, plugin_moves=True):
+    """Write it: backups, separator folders, modlist.txt, plugins.txt/loadorder.txt, the rules file.
+    plugin_moves=False ("Apply, leave plugins as they are", 1.1.6): the mod order and separators are written, but no
+    plugin is moved, ticked or unticked and no mod is switched off - every plugin keeps the tick plugins.txt gave it."""
     stamp = time.strftime("%Y%m%d-%H%M%S")
     backup = os.path.join(cache_dir, "backups", stamp)
     instance_dir = as_instance(instance_dir)
@@ -4859,9 +4997,16 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
         if os.path.isdir(d):
             os.makedirs(retired_dir, exist_ok=True)
             shutil.move(d, os.path.join(retired_dir, name))
-    write_modlist(result["modlist_path"], result["rows"], result["header"], result.get("foreign", ()))
-    apply_plugin_state(result.get("plugin_state", {}), mods_dir, backup, log)
-    plugins = result["plugins"]
+    ticked_now = read_active_plugins(prof)               # before anything is written
+    rows = result["rows"] if plugin_moves else result.get("rows_as_is", result["rows"])
+    write_modlist(result["modlist_path"], rows, result["header"], result.get("foreign", ()))
+    if plugin_moves:
+        apply_plugin_state(result.get("plugin_state", {}), mods_dir, backup, log)
+        plugins = result["plugins"]
+    else:
+        plugins = result.get("plugins_as_is", result["plugins"])
+        if log:
+            log("plugins left as they are: none moved, ticked or unticked, no mod switched off")
     # As MO2 2.5.2 writes them (MO2-REFERENCE.md: the game's CreationGamePlugins::writePluginList and
     # GamebryoGamePlugins::writeList). loadorder.txt: every plugin, UTF-8. plugins.txt: every plugin except the game's
     # PRIMARY ones (primary_plugins), '*' before each - every plugin left in a mod's root is meant to load, what must
@@ -4874,8 +5019,15 @@ def apply(result, instance_dir, profile, cache_dir, log=None):
         primary = primary_plugins(instance_dir)
         # a plugin kept off (Settings: parking off) is written without the '*': MO2's mark for an unticked plugin
         kept_off = {f.lower() for f, _m, _w in result.get("plugin_state", {}).get("keep_off", [])}
+        outside = set(result.get("outside", ()))     # not the manager's to tick: they keep the tick they have
+        if plugin_moves:
+            def star(f):
+                return f.lower() in ticked_now if f.lower() in outside else f.lower() not in kept_off
+        else:
+            def star(f):
+                return f.lower() in ticked_now
         text = "# This file was automatically generated by Mod Organizer.\r\n" + "".join(
-            ("" if f.lower() in kept_off else "*") + f + "\r\n" for f in plugins if f.lower() not in primary)
+            ("*" if star(f) else "") + f + "\r\n" for f in plugins if f.lower() not in primary)
         try:
             data = text.encode("mbcs", errors="replace")      # Windows: the system code page, as MO2 writes it
         except LookupError:
@@ -5184,14 +5336,21 @@ if mobase is not None:
             self.b_restore = QPushButton(TR("MM_BtnRestore", "Restore backup..."))
             self.b_restore.setToolTip(TR("MM_RestoreTip", "Put this profile back as it was before an Apply: its mod list, plugin list and load order, "
                                       "the separators Apply retired and the plugins it moved. What is replaced is backed up first."))
+            # one click back to the moment before the last Apply (1.1.6): shown only once an Apply has been made
+            self.b_undo = QPushButton(TR("MM_BtnUndo", "Undo this Apply"))
+            self.b_undo.setToolTip(TR("MM_UndoTip", "Put back the mod list, plugin list and load order exactly as they were before "
+                                      "the Apply just made, from the backup it wrote first."))
+            self.b_undo.setVisible(False)
+            self._last_backup = None
             self.b_apply = QPushButton(TR("MM_BtnApply", "Apply"))
             self.b_close = QPushButton(TR("MM_BtnClose", "Close"))
-            for b in (self.b_refresh, self.b_restore, self.b_apply, self.b_close):
+            for b in (self.b_refresh, self.b_restore, self.b_undo, self.b_apply, self.b_close):
                 buttons.addWidget(b)
             root.addLayout(extra)
             root.addLayout(buttons)
             self.b_refresh.clicked.connect(self.compute)
             self.b_restore.clicked.connect(self.restore)
+            self.b_undo.clicked.connect(self.undo)
             self.b_apply.clicked.connect(self.apply)
             self.b_close.clicked.connect(self.close)
             self.b_apply.setEnabled(False)
@@ -5598,15 +5757,76 @@ if mobase is not None:
                                    when=when, aside=len(aside), brought=len(brought), undone=len(undone), safety=safety))
             self.compute()
 
+        def undo(self):
+            """Restore the backup the last Apply wrote, in one click (the restore itself is backed up first)."""
+            if not self._last_backup:
+                return
+            try:
+                safety, aside, brought, undone = self._p.restore(self._last_backup)
+            except Exception as exc:  # noqa: BLE001
+                self._p._log(f"undo failed: {exc!r}")
+                QMessageBox.critical(self, TR("MM_RestoreFailedTitle", "Restore failed"), TR("MM_RestoreFailedMsg", "Failed to restore the backup: {err}", err=exc))
+                return
+            self._last_backup = None
+            self.b_undo.setVisible(False)
+            self.compute()
+            self.status.setText(TR("MM_Undone", "The Apply was undone: the mod list, plugin list and load order are back as they "
+                                   "were, and {n} plugin(s) it moved are back in place. What the undo replaced is in {safety}.",
+                                   n=len(undone), safety=safety))
+
+        def switch_off_list(self):
+            """Every plugin and mod the plan would move, untick or switch off, with its reason, and how many of them
+            are only links of a chain - shown before Apply writes anything (1.1.6)."""
+            r = self._result
+            ps, f = r.get("plugin_state", {}), r["facts"]
+            chain = ps.get("chain", {})
+            lines = [f"{p}  ({m}): {w}" for p, m, w in ps.get("to_optional", []) + ps.get("keep_off", [])]
+            lines += [f"{g}: " + TR("MM_SecondCopy", "a second copy of {k}: {a}", k=k, a=a) for g, k, a in f.get("redundant", [])]
+            lines += [f"{g}: {w}" for g, w in f.get("default_off", [])]
+            return lines, sum(1 for p, _m, _w in ps.get("to_optional", []) + ps.get("keep_off", []) if p in chain)
+
+        def confirm_switch_off(self):
+            """None = cancel; True = apply with the plan's plugin changes; False = apply, leave plugins as they are."""
+            lines, n_chain = self.switch_off_list()
+            if not lines:
+                return True
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle(TR("MM_SwitchOffTitle", "Plugins would be switched off"))
+            box.setText(TR("MM_SwitchOffAsk", "Apply would move or switch off {n} plugin(s) or mod(s), so the game would not "
+                           "load them. {chain} of them only because a master of theirs is switched off too (a chain).\n\n"
+                           "Nothing has been written yet. Check the list (Show Details) before you choose.",
+                           n=len(lines), chain=n_chain))
+            box.setInformativeText("\n".join(lines[:12]) + ("\n..." if len(lines) > 12 else ""))
+            box.setDetailedText("\n".join(lines))
+            b_all = box.addButton(TR("MM_SwitchOffYes", "Apply and switch them off"), QMessageBox.ButtonRole.AcceptRole)
+            b_keep = box.addButton(TR("MM_SwitchOffKeep", "Apply, leave plugins as they are"), QMessageBox.ButtonRole.AcceptRole)
+            b_cancel = box.addButton(QMessageBox.StandardButton.Cancel)
+            box.setDefaultButton(b_cancel)
+            self._p._log(f"before Apply: {len(lines)} to switch off ({n_chain} chain links): " + "; ".join(lines[:40]))
+            box.exec()
+            if box.clickedButton() is b_all:
+                return True
+            if box.clickedButton() is b_keep:
+                return False
+            return None
+
         def apply(self):
             if not self._result:
+                return
+            moves = self.confirm_switch_off()
+            if moves is None:
+                self.status.setText(TR("MM_ApplyCancelled", "Apply cancelled. Nothing was written."))
                 return
             self.b_apply.setEnabled(False)
             self.status.setText(TR("MM_Applying", "Applying..."))
             QApplication.processEvents()
             try:
-                backup = self._p.apply(self._result)
+                backup = self._p.apply(self._result, plugin_moves=moves)
                 self.status.setText(TR("MM_Applied", "Applied. Backups in {backup}. MO2 has been refreshed.", backup=backup))
+                self._last_backup = backup
+                self.b_undo.setVisible(True)
+                self.b_undo.setEnabled(True)
             except Exception as exc:  # noqa: BLE001
                 self._p._log(f"apply failed: {exc!r}")
                 self.status.setText(TR("MM_Failed", "Failed: {err}", err=exc))
@@ -5820,8 +6040,12 @@ if mobase is not None:
             org = self._organizer
             app = QApplication.instance()
             data = app.property("dataPath") if app is not None else None
+            try:
+                over = org.overwritePath()
+            except Exception:  # noqa: BLE001
+                over = None
             return Instance(data or org.basePath(), org.basePath(), org.modsPath(), os.path.dirname(org.profilePath()),
-                            QApplication.applicationDirPath() if app is not None else None)
+                            QApplication.applicationDirPath() if app is not None else None, over or None)
 
         def _log(self, msg):
             try:
@@ -5868,9 +6092,9 @@ if mobase is not None:
                 pass
             return ""
 
-        def apply(self, result):
+        def apply(self, result, plugin_moves=True):
             org = self._organizer
-            backup = apply(result, self._instance(), org.profileName(), self._cache_dir(), self._log)
+            backup = apply(result, self._instance(), org.profileName(), self._cache_dir(), self._log, plugin_moves=plugin_moves)
             # refresh WITHOUT saving: refresh(True) first writes MO2's in-memory lists to disk, and Bethesda Plugin
             # Manager's copy of the groups went down with them - 350 of 1,792 plugins were back in their old
             # groups after the 2026-09-22 Apply. With False the lists are re-read from the files just written.
