@@ -146,6 +146,17 @@ try:
     star = lambda b: {ln[1:] for ln in b.decode("cp1252").splitlines() if ln.startswith("*")}
     ok(star(files()["plugins.txt"]) == star(before["plugins.txt"]), "4 every plugin keeps the tick it had: "
        + str(sorted(star(files()["plugins.txt"]) ^ star(before["plugins.txt"]))))
+    # Main Agent, 2026-10-24: plugin_moves=false still reordered plugins.txt. The right pane is left alone entirely;
+    # the left pane (separators, mod order) is still written - that part of Apply is the manager's purpose
+    after4 = files()
+    ok(after4["plugins.txt"] == before["plugins.txt"] and after4["loadorder.txt"] == before["loadorder.txt"],
+       "4 'leave plugins as they are': plugins.txt and loadorder.txt byte for byte as before (order and ticks)")
+    ok(not os.path.exists(os.path.join(PROF, "plugingroups.txt")), "4 and no plugingroups.txt written")
+    made = [n for n in res["facts"]["created"] if os.path.isdir(os.path.join(MODS, n))]
+    ok(made and after4["modlist.txt"] != before["modlist.txt"],
+       f"4 the left pane is still sorted: {len(made)} separator(s) created, modlist.txt rewritten")
+    line = mm.left_pane_line(res)
+    ok(str(len(res["facts"]["created"])) in line and "plugins.txt" in line, "4 the preview says it plainly: " + line[:140])
 except TypeError as exc:
     ok(False, f"4 Apply cannot leave plugins as they are ({exc})")
 
@@ -181,8 +192,10 @@ if "--no-ui" not in args and hasattr(mm, "RulerDialog"):
     app = QApplication.instance() or QApplication([])
     app.setProperty("dataPath", INST.replace("\\", "/"))
 
+    load_orders = []
+
     class PluginList:
-        def setLoadOrder(self, order): pass
+        def setLoadOrder(self, order): load_orders.append(list(order))
 
     class Org:
         def basePath(self): return INST.replace("\\", "/")
@@ -203,8 +216,11 @@ if "--no-ui" not in args and hasattr(mm, "RulerDialog"):
     choice = {"button": None}
     real_exec = QMessageBox.exec
 
+    box_info = {}
+
     def fake_exec(box):
         shown["text"], shown["details"] = box.text(), box.detailedText()
+        box_info["info"] = box.informativeText()
         want = choice["button"]
         for b in box.buttons():
             if (want == "cancel" and box.buttonRole(b) == QMessageBox.ButtonRole.RejectRole) or b.text() == want:
@@ -223,7 +239,11 @@ if "--no-ui" not in args and hasattr(mm, "RulerDialog"):
            and "chain" in shown.get("details", ""), "6 the preview lists every plugin it would switch off, with the reason")
         ok("1 of them" in shown.get("text", ""), "6 the preview counts the chain links: " + shown.get("text", "")[:120])
         choice["button"] = mm.TR("MM_SwitchOffKeep", "Apply, leave plugins as they are")
+        load_orders.clear()
         dlg.apply()
+        ok(not load_orders and files()["plugins.txt"] == before["plugins.txt"] and files()["loadorder.txt"] == before["loadorder.txt"],
+           f"6 'Apply, leave plugins as they are' sets no load order in MO2 ({len(load_orders)} call(s)) and leaves both files as they were")
+        ok("re-sorts the left" in shown.get("text", "") + box_info.get("info", ""), "6 the box says Apply adds separators and re-sorts the left pane")
         ok(os.path.isfile(os.path.join(MODS, "Needs A Missing Mod", "Needs A Missing Mod.esp")),
            "6 'Apply, leave plugins as they are' moved nothing")
         ok(dlg.b_undo.isVisibleTo(dlg), "6 Undo this Apply is offered after an Apply")

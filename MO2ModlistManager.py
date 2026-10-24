@@ -4446,19 +4446,21 @@ def apply_plugin_state(plan, mods_dir, backup_dir, log=None):
     for f, mod_name, why in plan.get("to_optional", []):
         src, dst_dir = _lp(os.path.join(mods_dir, mod_name, f)), _lp(os.path.join(mods_dir, mod_name, "optional"))
         if os.path.isfile(src):
+            made = not os.path.isdir(dst_dir)            # an Undo removes an Optional ESPs folder this Apply made
             os.makedirs(dst_dir, exist_ok=True)
             dst = os.path.join(dst_dir, f)
             if os.path.exists(dst):
                 os.remove(dst)
             shutil.move(src, dst)
-            moves.append({"plugin": f, "mod": mod_name, "from": "root", "to": "optional", "why": why})
+            moves.append({"plugin": f, "mod": mod_name, "from": "root", "to": "optional", "why": why,
+                          **({"made_optional": True} if made else {})})
     for f, mod_name, why in plan.get("from_optional", []):
         src, dst = _lp(os.path.join(mods_dir, mod_name, "optional", f)), _lp(os.path.join(mods_dir, mod_name, f))
         if os.path.isfile(src) and not os.path.exists(dst):
             shutil.move(src, dst)
             moves.append({"plugin": f, "mod": mod_name, "from": "optional", "to": "root", "why": why})
     if moves:
-        json.dump(moves, open(os.path.join(backup_dir, "plugin-moves.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+        _write_json(os.path.join(backup_dir, "plugin-moves.json"), moves)
     if log:
         log(f"plugins: {len(plan.get('activate', []))} activated, {len(plan.get('to_optional', []))} to Optional ESPs, "
             f"{len(plan.get('from_optional', []))} back from Optional ESPs")
@@ -4959,17 +4961,20 @@ def run(instance_dir, profile, cache_dir, domain="skyrimspecialedition", progres
 
 def apply(result, instance_dir, profile, cache_dir, log=None, plugin_moves=True):
     """Write it: backups, separator folders, modlist.txt, plugins.txt/loadorder.txt, the rules file.
-    plugin_moves=False ("Apply, leave plugins as they are", 1.1.6): the mod order and separators are written, but no
-    plugin is moved, ticked or unticked and no mod is switched off - every plugin keeps the tick plugins.txt gave it."""
-    stamp = time.strftime("%Y%m%d-%H%M%S")
+    plugin_moves=False ("Apply, leave plugins as they are", 1.1.6): the LEFT PANE is still written - the separators
+    created and retired and the mod order, which is what the manager is for - but the right pane is not touched: no
+    plugin is moved, ticked or unticked, no mod is switched off, and plugins.txt, loadorder.txt and plugingroups.txt
+    are not written at all, so the plugin order and every tick stay byte for byte as they were (Main Agent on the
+    scratch instance, 2026-10-24: plugin_moves=false still reordered plugins.txt)."""
+    stamp = _backup_stamp(cache_dir)
     backup = os.path.join(cache_dir, "backups", stamp)
     instance_dir = as_instance(instance_dir)
     prof = instance_dir.profile(profile)
-    os.makedirs(backup, exist_ok=True)
+    os.makedirs(_lp(backup), exist_ok=True)
     for f in ("modlist.txt", "plugins.txt", "loadorder.txt", "plugingroups.txt", RULES_FILE):
-        p = os.path.join(prof, f)
+        p = _lp(os.path.join(prof, f))
         if os.path.isfile(p):
-            shutil.copy2(p, os.path.join(backup, f))
+            shutil.copy2(p, _lp(os.path.join(backup, f)))
     mods_dir = result["mods_dir"]
     # a new separator takes the colour the existing ones use (the most common color= line among them); without it
     # MO2 draws its default grey - the owner, 2026-09-22: "It changed all the separators' colors to gray instead of
@@ -4978,25 +4983,31 @@ def apply(result, instance_dir, profile, cache_dir, log=None, plugin_moves=True)
     for name in os.listdir(mods_dir):
         if name.endswith("_separator"):
             try:
-                for line in open(os.path.join(mods_dir, name, "meta.ini"), encoding="utf-8", errors="ignore"):
+                for line in open(_lp(os.path.join(mods_dir, name, "meta.ini")), encoding="utf-8", errors="ignore"):
                     if line.startswith("color="):
                         colours[line.strip()] = colours.get(line.strip(), 0) + 1
             except OSError:
                 pass
     colour = max(colours, key=colours.get) if colours else None
     for name in result["facts"]["created"]:
-        d = os.path.join(mods_dir, name)
+        d = _lp(os.path.join(mods_dir, name))
         if not os.path.isdir(d):
             os.makedirs(d)
             head = "[General]\n" + (colour + "\n" if colour else "")
             open(os.path.join(d, "meta.ini"), "w", encoding="utf-8").write(
                 head + "modid=0\nversion=\nnewestVersion=\ncategory=0\ninstallationFile=\n\n[installedFiles]\nsize=0\n")
-    retired_dir = os.path.join(backup, "retired-separators")
+    # retired separators go into the backup by number (seps\0, seps\1 ... with seps.json naming them), every path in
+    # the long form: under backups\<stamp>\retired-separators\<full name> they reached 269 characters, and the Python
+    # inside ModOrganizer.exe (not long-path aware) could not move them (test afe4, 2026-10-24)
+    seps = {}
     for name in result["facts"]["retired"]:
-        d = os.path.join(mods_dir, name)
+        d = _lp(os.path.join(mods_dir, name))
         if os.path.isdir(d):
-            os.makedirs(retired_dir, exist_ok=True)
-            shutil.move(d, os.path.join(retired_dir, name))
+            i = str(len(seps))
+            os.makedirs(_lp(os.path.join(backup, SEPS_DIR)), exist_ok=True)
+            shutil.move(d, _lp(os.path.join(backup, SEPS_DIR, i)))
+            seps[i] = name
+            _write_json(os.path.join(backup, SEPS_DIR, SEPS_MAP), seps)      # after each move: the map never lags
     ticked_now = read_active_plugins(prof)               # before anything is written
     rows = result["rows"] if plugin_moves else result.get("rows_as_is", result["rows"])
     write_modlist(result["modlist_path"], rows, result["header"], result.get("foreign", ()))
@@ -5004,14 +5015,17 @@ def apply(result, instance_dir, profile, cache_dir, log=None, plugin_moves=True)
         apply_plugin_state(result.get("plugin_state", {}), mods_dir, backup, log)
         plugins = result["plugins"]
     else:
-        plugins = result.get("plugins_as_is", result["plugins"])
+        plugins = []
         if log:
-            log("plugins left as they are: none moved, ticked or unticked, no mod switched off")
+            log("plugins left as they are: none moved, ticked or unticked, no mod switched off; plugins.txt, "
+                "loadorder.txt and plugingroups.txt not written")
     # As MO2 2.5.2 writes them (MO2-REFERENCE.md: the game's CreationGamePlugins::writePluginList and
     # GamebryoGamePlugins::writeList). loadorder.txt: every plugin, UTF-8. plugins.txt: every plugin except the game's
     # PRIMARY ones (primary_plugins), '*' before each - every plugin left in a mod's root is meant to load, what must
     # not load now sits in Optional ESPs - in the SYSTEM code page. Neither is written empty, as MO2 never saves one.
-    if not plugins:
+    if not plugin_moves:
+        pass
+    elif not plugins:
         if log:
             log("the plan has no plugins: plugins.txt and loadorder.txt left as they were (MO2 never saves an empty list)")
     else:
@@ -5039,7 +5053,9 @@ def apply(result, instance_dir, profile, cache_dir, log=None, plugin_moves=True)
     save_rules(prof, ours)
     # Bethesda Plugin Manager's groups: the right pane shows the same blocks as the left - only when BPM is there
     opts = options_or_defaults(result.get("options"))
-    if not opts["write_plugin_groups"]:
+    if not plugin_moves:
+        pass                                   # plugins left as they are: their groups too
+    elif not opts["write_plugin_groups"]:
         if log:
             log("plugin groups: switched off in Settings - plugingroups.txt left as it was")
     elif bpm_installed(instance_dir):
@@ -5064,9 +5080,9 @@ def apply(result, instance_dir, profile, cache_dir, log=None, plugin_moves=True)
                 log(f"verdicts not written: {exc!r}")
     # what this Apply did, for Restore backup: the profile, and the separators it created and retired
     try:
-        json.dump({"kind": "apply", "profile": profile, "stamp": stamp, "manager": __version__,
-                   "created": list(result["facts"]["created"]), "retired": list(result["facts"]["retired"])},
-                  open(os.path.join(backup, BACKUP_INFO), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+        _write_json(os.path.join(backup, BACKUP_INFO),
+                    {"kind": "apply", "profile": profile, "stamp": stamp, "manager": __version__,
+                     "created": list(result["facts"]["created"]), "retired": list(result["facts"]["retired"])})
     except OSError:
         pass
     if log:
@@ -5083,7 +5099,71 @@ def apply(result, instance_dir, profile, cache_dir, log=None, plugin_moves=True)
 # and it first backs up the state it replaces, so a restore can itself be restored (see MO2-REFERENCE.md).
 BACKUP_INFO = "applied.json"
 BACKUP_LISTS = ("modlist.txt", "plugins.txt", "loadorder.txt", "plugingroups.txt")
-_BACKUP_NAME = re.compile(r"^(\d{8})-(\d{6})(-before-restore)?$")
+# Short names (1.1.6), so a backup path stays far under 260 characters in a deep instance: yymmdd-HHMMSS for an Apply,
+# yymmdd-HHMMSSr for the state a restore replaced, and the separators by number in seps\ with seps.json naming them.
+# The long names of 1.1.5 and earlier (yyyymmdd-HHMMSS[-before-restore], retired-separators\<full name>) are still read.
+# Every backup and restore path also goes through _lp(): ModOrganizer.exe is not long-path aware (test afe4: Undo
+# stopped half-way on a 269-character backups\...-before-restore\retired-separators\<separator> path).
+_BACKUP_NAME = re.compile(r"^(\d{6}|\d{8})-(\d{6})(-before-restore|r)?$")
+SEPS_DIR, SEPS_MAP, OLD_SEPS_DIR = "seps", "seps.json", "retired-separators"
+
+
+def _backup_stamp(cache_dir, suffix=""):
+    """A backup folder name not used yet: yymmdd-HHMMSS (the next second when this one is taken)."""
+    while True:
+        stamp = time.strftime("%y%m%d-%H%M%S")
+        if not os.path.exists(_lp(os.path.join(cache_dir, "backups", stamp + suffix))):
+            return stamp
+        time.sleep(1)
+
+
+def _write_json(path, data):
+    with open(_lp(path), "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=1, ensure_ascii=False)
+
+
+def _read_json(path, default):
+    try:
+        with open(_lp(path), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return default
+
+
+def backup_separators(backup_dir):
+    """[(folder in the backup, separator name)]: the separators a backup holds, in seps\\ (1.1.6) or in 1.1.5's
+    retired-separators\\<name>."""
+    out = []
+    m = _read_json(os.path.join(backup_dir, SEPS_DIR, SEPS_MAP), {})
+    if isinstance(m, dict):
+        for i in sorted(m, key=lambda k: (len(k), k)):
+            if os.path.isdir(_lp(os.path.join(backup_dir, SEPS_DIR, i))):
+                out.append((os.path.join(backup_dir, SEPS_DIR, i), m[i]))
+    old = os.path.join(backup_dir, OLD_SEPS_DIR)
+    try:
+        out += [(os.path.join(old, n), n) for n in sorted(os.listdir(_lp(old))) if os.path.isdir(_lp(os.path.join(old, n)))]
+    except OSError:
+        pass
+    return out
+
+
+class RestoreFailed(Exception):
+    """A restore that did not happen. rolled_back=True: nothing was changed (the check found a step that cannot be
+    done, or a step failed and every step before it was put back). rolled_back=False: the roll-back itself could not
+    put everything back, and what the restore replaced is kept in safety. str() is the message for the user."""
+
+    def __init__(self, msg, rolled_back=True, safety=None):
+        super().__init__(msg)
+        self.rolled_back, self.safety = rolled_back, safety
+
+
+def left_pane_line(result):
+    """What every Apply does to the left pane, with or without the plugin changes - said before Apply (1.1.6)."""
+    f = result["facts"]
+    return TR("MM_LeftPaneLine", "Either way, Apply adds {created} separator(s), retires {retired} and re-sorts the left "
+              "pane ({moves} mod(s) move). \"Apply, leave plugins as they are\" leaves plugins.txt and loadorder.txt "
+              "exactly as they are: no plugin is moved, ticked, unticked or reordered.",
+              created=len(f.get("created", ())), retired=len(f.get("retired", ())), moves=len(result.get("moves", ())))
 
 
 def switch_off_lines(result):
@@ -5104,15 +5184,21 @@ def _modlist_names(path):
         return set()
 
 
+def _backup_time(mt):
+    day = mt.group(1) if len(mt.group(1)) == 8 else "20" + mt.group(1)
+    return time.strptime(day + mt.group(2), "%Y%m%d%H%M%S")
+
+
 def list_backups(cache_dir, instance_dir):
     """[(folder, when, profile, profile_known, note)] newest first: every Apply backup and every before-restore backup.
     A backup older than 1.0.8 did not record its profile: the profile whose modlist.txt shares the most names with it
     is shown, marked as a guess."""
     root = os.path.join(cache_dir, "backups")
     try:
-        names = sorted((n for n in os.listdir(root) if _BACKUP_NAME.match(n)), reverse=True)
+        found = [(n, _BACKUP_NAME.match(n)) for n in os.listdir(_lp(root))]
     except OSError:
         return []
+    found = sorted(((n, mt) for n, mt in found if mt), key=lambda nm: (_backup_time(nm[1]), nm[0]), reverse=True)
     profiles_dir = as_instance(instance_dir).profiles
     try:
         profiles = {p: _modlist_names(os.path.join(profiles_dir, p, "modlist.txt"))
@@ -5120,120 +5206,279 @@ def list_backups(cache_dir, instance_dir):
     except OSError:
         profiles = {}
     out = []
-    for n in names:
+    for n, mt in found:
         d = os.path.join(root, n)
-        if not os.path.isfile(os.path.join(d, "modlist.txt")):
+        if not os.path.isfile(_lp(os.path.join(d, "modlist.txt"))):
             continue
-        mt = _BACKUP_NAME.match(n)
-        when = time.strftime("%d %b %Y %H:%M:%S", time.strptime(mt.group(1) + mt.group(2), "%Y%m%d%H%M%S"))
-        info = {}
-        try:
-            info = json.load(open(os.path.join(d, BACKUP_INFO), encoding="utf-8"))
-        except (OSError, ValueError):
-            pass
+        when = time.strftime("%d %b %Y %H:%M:%S", _backup_time(mt))
+        info = _read_json(os.path.join(d, BACKUP_INFO), {})
         prof, known = info.get("profile"), bool(info.get("profile"))
         if not known and profiles:
-            mine = _modlist_names(os.path.join(d, "modlist.txt"))
+            mine = _modlist_names(_lp(os.path.join(d, "modlist.txt")))
             prof = max(profiles, key=lambda p: len(mine & profiles[p]) / max(1, len(mine | profiles[p])))
         kind = "before a restore" if mt.group(3) or info.get("kind") == "before-restore" else "before an Apply"
         out.append((n, when, prof or "", known, kind))
     return out
 
 
-def restore_backup(backup_dir, instance_dir, profile, cache_dir, log=None):
-    """Put a profile back as the backup holds it. Returns the folder where the replaced state was backed up first."""
+def _tree_size(path):
+    total = 0
+    for top, _dirs, files in os.walk(_lp(path)):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(top, f))
+            except OSError:
+                pass
+    return total
+
+
+def restore_backup(backup_dir, instance_dir, profile, cache_dir, log=None, fail_at_step=None):
+    """Put a profile back as the backup holds it, ALL OR NOTHING (1.1.6). Returns (safety, set_aside, brought, undone):
+    safety is the folder where the replaced state was backed up first, so the restore can itself be restored.
+
+    1 plan every step and check each one can be done (sources readable, destinations free or writable, room on the
+      drive) - a step that cannot be done stops the restore before anything is written;
+    2 make the steps in order, keeping how to put each one back;
+    3 a step that fails puts back every step made before it, in reverse, so the profile, the mods folder and the
+      backups are exactly as before, and RestoreFailed says so.
+    fail_at_step=n (testing only: the scripted entry point's fail_at_step) fails step n as a real error would."""
+    L = _lp
     instance_dir = as_instance(instance_dir)
     prof = instance_dir.profile(profile)
     mods_dir = instance_dir.mods
-    try:
-        info = json.load(open(os.path.join(backup_dir, BACKUP_INFO), encoding="utf-8"))
-    except (OSError, ValueError):
-        info = {}
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    safety = os.path.join(cache_dir, "backups", stamp + "-before-restore")
-    # never the folder being restored, nor one already there (two restores in one second: the second backup had
-    # overwritten the first before copying it back)
-    while os.path.exists(safety) or os.path.abspath(safety) == os.path.abspath(backup_dir):
-        time.sleep(1)
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        safety = os.path.join(cache_dir, "backups", stamp + "-before-restore")
-    os.makedirs(safety)
-    for f in BACKUP_LISTS + (RULES_FILE,):
-        p = os.path.join(prof, f)
-        if os.path.isfile(p):
-            shutil.copy2(p, os.path.join(safety, f))
-    # the separators the Apply created: not in the backup's list, holding nothing but their meta.ini - set aside
-    wanted = _modlist_names(os.path.join(backup_dir, "modlist.txt"))
+    info = _read_json(os.path.join(backup_dir, BACKUP_INFO), {})
+    stamp = _backup_stamp(cache_dir, "r")
+    safety = os.path.join(cache_dir, "backups", stamp + "r")
+    problems, steps = [], []          # steps: (label, do, undo)
+    need_bytes = {}                   # drive -> bytes the steps copy onto it
+
+    def problem(path, exc):
+        problems.append(f"{path}: {getattr(exc, 'strerror', None) or exc}")
+
+    def readable(path):
+        try:
+            with open(L(path), "rb"):
+                return True
+        except OSError as exc:
+            problem(path, exc)
+            return False
+
+    def overwritable(path):           # an existing file that will be written over: not read-only, not open elsewhere
+        if os.path.exists(L(path)):
+            try:
+                with open(L(path), "r+b"):
+                    pass
+            except OSError as exc:
+                problem(path, exc)
+
+    def room(path, n):
+        drive = os.path.splitdrive(os.path.abspath(path))[0].upper() or os.path.abspath(path)[:2]
+        need_bytes.setdefault(drive, [path, 0])[1] += n
+
+    # 1 the safety copies of the profile's lists and rules file
+    present = [f for f in BACKUP_LISTS + (RULES_FILE,) if os.path.isfile(L(os.path.join(prof, f)))]
+    for f in present:
+        if readable(os.path.join(prof, f)):
+            room(safety, os.path.getsize(L(os.path.join(prof, f))))
+    # 2 the separators the Apply created: not in the backup's list, holding nothing but their meta.ini - set aside
+    wanted = _modlist_names(L(os.path.join(backup_dir, "modlist.txt")))
     created = info.get("created")
     if created is None:
-        created = [n for n in os.listdir(mods_dir) if n.endswith("_separator") and n not in wanted]
-    set_aside = []
+        try:
+            created = [n for n in os.listdir(L(mods_dir)) if n.endswith("_separator") and n not in wanted]
+        except OSError as exc:
+            problem(mods_dir, exc)
+            created = []
+    set_aside, aside_map = [], {}
     for n in created:
         d = os.path.join(mods_dir, n)
-        if n in wanted or not os.path.isdir(d):
+        if n in wanted or not os.path.isdir(L(d)):
             continue
         try:
-            if any(e.lower() != "meta.ini" for e in os.listdir(d)):
+            if any(e.lower() != "meta.ini" for e in os.listdir(L(d))):
                 continue                                   # not an empty separator folder: never moved
         except OSError:
             continue
-        os.makedirs(os.path.join(safety, "retired-separators"), exist_ok=True)
-        shutil.move(d, os.path.join(safety, "retired-separators", n))
+        overwritable(os.path.join(d, "meta.ini"))
         set_aside.append(n)
-    # the separators the Apply retired: copied back (the backup keeps its copy)
+    # 3 the separators the Apply retired: copied back (the backup keeps its copy)
     brought = []
-    rdir = os.path.join(backup_dir, "retired-separators")
-    if os.path.isdir(rdir):
-        for n in os.listdir(rdir):
-            dst = os.path.join(mods_dir, n)
-            if not os.path.exists(dst):
-                shutil.copytree(os.path.join(rdir, n), dst)
-                brought.append(n)
-    # the plugins the Apply moved to or from Optional ESPs: moved back
-    undone = []
-    try:
-        moves = json.load(open(os.path.join(backup_dir, "plugin-moves.json"), encoding="utf-8"))
-    except (OSError, ValueError):
-        moves = []
-    for mv in moves:
+    for src, n in backup_separators(backup_dir):
+        dst = os.path.join(mods_dir, n)
+        if os.path.exists(L(dst)) and n not in set_aside:
+            continue
+        for top, _dirs, files in os.walk(L(src)):
+            for f in files:
+                readable(os.path.join(top, f))
+        room(mods_dir, _tree_size(src))
+        brought.append((src, n))
+    # 4 the plugins the Apply moved to or from Optional ESPs: moved back
+    moves = _read_json(os.path.join(backup_dir, "plugin-moves.json"), [])
+    plugin_steps = []
+    made_opt = {mv.get("mod") for mv in moves if isinstance(mv, dict) and mv.get("made_optional")} if isinstance(moves, list) else set()
+    for mv in moves if isinstance(moves, list) else []:
         f, mod = mv.get("plugin"), mv.get("mod")
         if not f or not mod:
             continue
-        root_p, opt_p = _lp(os.path.join(mods_dir, mod, f)), _lp(os.path.join(mods_dir, mod, "optional", f))
+        root_p, opt_p = os.path.join(mods_dir, mod, f), os.path.join(mods_dir, mod, "optional", f)
         src, dst = (opt_p, root_p) if mv.get("to") == "optional" else (root_p, opt_p)
-        if os.path.isfile(src) and not os.path.exists(dst):
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.move(src, dst)
-            undone.append({"plugin": f, "mod": mod, "from": mv.get("to"), "to": mv.get("from"), "why": "restore backup"})
-    if undone:
-        json.dump(undone, open(os.path.join(safety, "plugin-moves.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
-    # the lists, as they were
-    for f in BACKUP_LISTS:
-        p = os.path.join(backup_dir, f)
-        if os.path.isfile(p):
-            shutil.copy2(p, os.path.join(prof, f))
-    # the rules file: only the automatic facts go back; the rules the user wrote since stay
-    try:
-        old = json.load(open(os.path.join(backup_dir, RULES_FILE), encoding="utf-8"))
-        ours, _ = load_rules(prof)
-        ours["auto_master_rules"] = old.get("auto_master_rules", [])
-        # what that Apply recorded and learned (1.1.3): restoring the list from before it undoes what it learned too
-        for key_ in ("auto_placement", "learned_pins"):
-            if key_ in old:
-                ours[key_] = old[key_]
-            else:
-                ours.pop(key_, None)
-        save_rules(prof, ours)
-    except (OSError, ValueError):
-        pass
-    # the state it replaced is an Apply-shaped backup of its own: restoring it undoes this restore
-    json.dump({"kind": "before-restore", "profile": profile, "stamp": stamp, "manager": __version__,
-               "restored": os.path.basename(backup_dir), "created": brought, "retired": set_aside},
-              open(os.path.join(safety, BACKUP_INFO), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+        if os.path.isfile(L(src)) and not os.path.exists(L(dst)):
+            if readable(src):
+                plugin_steps.append((src, dst, {"plugin": f, "mod": mod, "from": mv.get("to"), "to": mv.get("from"),
+                                                "why": "restore backup"},
+                                     mv.get("to") == "optional" and mod in made_opt))
+    # 5 the lists, as they were
+    lists = [f for f in BACKUP_LISTS if os.path.isfile(L(os.path.join(backup_dir, f)))]
+    for f in lists:
+        if readable(os.path.join(backup_dir, f)):
+            overwritable(os.path.join(prof, f))
+            room(prof, os.path.getsize(L(os.path.join(backup_dir, f))))
+    # 6 the rules file: only the automatic facts go back; the rules the user wrote since stay
+    old_rules = _read_json(os.path.join(backup_dir, RULES_FILE), None)
+    if isinstance(old_rules, dict):
+        overwritable(os.path.join(prof, RULES_FILE))
+    for drive, (path, n) in need_bytes.items():
+        try:
+            probe = path
+            while not os.path.isdir(L(probe)) and os.path.dirname(probe) != probe:
+                probe = os.path.dirname(probe)
+            free = shutil.disk_usage(L(probe)).free
+            if free < n + (8 << 20):
+                problems.append(TR("MM_RestoreNoRoom", "{drive} has {free} MB free, the restore needs {need} MB",
+                                   drive=drive, free=free >> 20, need=(n >> 20) + 8))
+        except OSError as exc:
+            problem(path, exc)
+    if problems:
+        msg = TR("MM_RestoreCheckFailed", "Nothing was changed. The restore checked every step before writing anything, "
+                 "and {n} of them cannot be done: {problems}", n=len(problems), problems="; ".join(problems[:5]))
+        if log:
+            log("restore refused before writing anything: " + "; ".join(problems))
+        raise RestoreFailed(msg)
+
+    # the steps, each with how to put it back
+    def mk_safety():
+        os.makedirs(L(safety))
+    steps.append((TR("MM_StepSafety", "back up the profile's lists"), mk_safety, None))
+    for f in present:
+        steps.append((TR("MM_StepSafety", "back up the profile's lists") + f" ({f})",
+                      lambda f=f: shutil.copy2(L(os.path.join(prof, f)), L(os.path.join(safety, f))), None))
+    for n in set_aside:
+        def do(n=n):
+            i = str(len(aside_map))
+            os.makedirs(L(os.path.join(safety, SEPS_DIR)), exist_ok=True)
+            shutil.move(L(os.path.join(mods_dir, n)), L(os.path.join(safety, SEPS_DIR, i)))
+            aside_map[i] = n
+            _write_json(os.path.join(safety, SEPS_DIR, SEPS_MAP), aside_map)
+
+        def undo(n=n):
+            i = next(k for k, v in aside_map.items() if v == n)
+            shutil.move(L(os.path.join(safety, SEPS_DIR, i)), L(os.path.join(mods_dir, n)))
+        steps.append((TR("MM_StepSetAside", "set aside the separator {name}", name=n), do, undo))
+    for src, n in brought:
+        steps.append((TR("MM_StepBringBack", "bring back the separator {name}", name=n),
+                      lambda src=src, n=n: shutil.copytree(L(src), L(os.path.join(mods_dir, n))),
+                      lambda n=n: shutil.rmtree(L(os.path.join(mods_dir, n)))))
+    undone = []
+    for src, dst, rec, drop_optional in plugin_steps:
+        made, dropped = [], []
+
+        def do(src=src, dst=dst, rec=rec, made=made, dropped=dropped, drop_optional=drop_optional):
+            parent = os.path.dirname(dst)
+            if not os.path.isdir(L(parent)):
+                os.makedirs(L(parent))
+                made.append(parent)
+            shutil.move(L(src), L(dst))
+            undone.append(rec)
+            opt = os.path.dirname(src)          # the Optional ESPs folder the Apply made: gone again once empty
+            if drop_optional and os.path.isdir(L(opt)) and not os.listdir(L(opt)):
+                os.rmdir(L(opt))
+                dropped.append(opt)
+
+        def undo(src=src, dst=dst, rec=rec, made=made, dropped=dropped):
+            for p in dropped:
+                os.makedirs(L(p), exist_ok=True)
+            shutil.move(L(dst), L(src))
+            undone.remove(rec)
+            for p in made:
+                os.rmdir(L(p))                 # the Optional ESPs folder this step made, empty again
+        steps.append((TR("MM_StepPlugin", "move {plugin} back", plugin=rec["plugin"]), do, undo))
+
+    def put_back(f):                           # a profile file as it was before the restore (the safety copy)
+        if f in present:
+            shutil.copy2(L(os.path.join(safety, f)), L(os.path.join(prof, f)))
+        elif os.path.exists(L(os.path.join(prof, f))):
+            os.remove(L(os.path.join(prof, f)))
+    for f in lists:
+        steps.append((TR("MM_StepList", "write {file}", file=f),
+                      lambda f=f: shutil.copy2(L(os.path.join(backup_dir, f)), L(os.path.join(prof, f))),
+                      lambda f=f: put_back(f)))
+    if isinstance(old_rules, dict):
+        def do_rules():
+            ours, _ = load_rules(L(prof))
+            ours["auto_master_rules"] = old_rules.get("auto_master_rules", [])
+            # what that Apply recorded and learned (1.1.3): restoring the list from before it undoes what it learned too
+            for key_ in ("auto_placement", "learned_pins"):
+                if key_ in old_rules:
+                    ours[key_] = old_rules[key_]
+                else:
+                    ours.pop(key_, None)
+            save_rules(L(prof), ours)
+        steps.append((TR("MM_StepList", "write {file}", file=RULES_FILE), do_rules, lambda: put_back(RULES_FILE)))
+
+    def record():
+        # the state it replaced is an Apply-shaped backup of its own: restoring it undoes this restore
+        if undone:
+            _write_json(os.path.join(safety, "plugin-moves.json"), undone)
+        _write_json(os.path.join(safety, BACKUP_INFO),
+                    {"kind": "before-restore", "profile": profile, "stamp": stamp, "manager": __version__,
+                     "restored": os.path.basename(backup_dir), "created": [n for _s, n in brought],
+                     "retired": list(aside_map.values())})
+    steps.append((TR("MM_StepRecord", "record what the restore replaced"), record, None))
+
+    done = []
+    for k, (label, do, undo) in enumerate(steps, 1):
+        try:
+            if fail_at_step and k == int(fail_at_step):
+                raise OSError(5, "simulated failure (fail_at_step=%d, testing)" % k)
+            do()
+        except Exception as exc:  # noqa: BLE001 - whatever stopped it, the steps made so far are put back
+            left = []
+            for label2, _do2, undo2 in reversed(done):
+                if undo2 is None:
+                    continue
+                try:
+                    undo2()
+                except Exception as exc2:  # noqa: BLE001
+                    left.append(f"{label2}: {exc2}")
+            err = getattr(exc, "strerror", None) or str(exc)
+            if not left:
+                try:
+                    if os.path.isdir(L(safety)):
+                        shutil.rmtree(L(safety))     # this restore's own staging copy; the profile is as it was
+                except OSError:
+                    pass
+                msg = TR("MM_RestoreRolledBack", "Nothing was changed. The restore stopped at step {step} of {total} "
+                         "({what}: {err}), and every step before it was put back, so the profile is exactly as it was.",
+                         step=k, total=len(steps), what=label, err=err)
+                if log:
+                    log(f"restore of {os.path.basename(backup_dir)} rolled back at step {k}/{len(steps)} ({label}): {exc!r}")
+                raise RestoreFailed(msg) from exc
+            try:
+                record()
+            except Exception:  # noqa: BLE001
+                pass
+            msg = TR("MM_RestoreNotRolledBack", "The restore stopped at step {step} of {total} ({what}: {err}) and could not "
+                     "put everything back ({left}). What it replaced is kept in {safety}: restore that backup to go back.",
+                     step=k, total=len(steps), what=label, err=err, left="; ".join(left[:3]), safety=safety)
+            if log:
+                log(f"restore of {os.path.basename(backup_dir)} failed at step {k}/{len(steps)} ({label}): {exc!r}; "
+                    f"not put back: {left}")
+            raise RestoreFailed(msg, rolled_back=False, safety=safety) from exc
+        done.append((label, do, undo))
     if log:
-        log(f"restored {os.path.basename(backup_dir)} into {profile}: {len(set_aside)} separator(s) set aside, "
+        log(f"restored {os.path.basename(backup_dir)} into {profile}: {len(aside_map)} separator(s) set aside, "
             f"{len(brought)} brought back, {len(undone)} plugin move(s) undone; the replaced state is in {safety}")
-    return safety, set_aside, brought, undone
+    return safety, list(aside_map.values()), [n for _s, n in brought], undone
 
 
 # --- MO2 -------------------------------------------------------------------------------------------------------------------
@@ -5760,8 +6005,9 @@ if mobase is not None:
                 safety, aside, brought, undone = self._p.restore(os.path.join(self._p._cache_dir(), "backups", n))
             except Exception as exc:  # noqa: BLE001
                 self._p._log(f"restore failed: {exc!r}")
-                QMessageBox.critical(self, TR("MM_RestoreFailedTitle", "Restore failed"), TR("MM_RestoreFailedMsg", "Failed to restore the backup: {err}", err=exc))
-                self.status.setText(TR("MM_RestoreFailed", "Restore failed: {err}", err=exc))
+                msg = str(exc) if isinstance(exc, RestoreFailed) else TR("MM_RestoreFailedMsg", "Failed to restore the backup: {err}", err=exc)
+                QMessageBox.critical(self, TR("MM_RestoreFailedTitle", "Restore failed"), msg)
+                self.status.setText(TR("MM_RestoreFailed", "Restore failed: {err}", err=msg))
                 return
             self.status.setText(TR("MM_Restored", "Restored the backup of {when}: {aside} separator(s) set aside, {brought} brought back, "
                                    "{undone} plugin(s) moved back. MO2 has been refreshed. The state it replaced is in {safety}.",
@@ -5776,7 +6022,9 @@ if mobase is not None:
                 safety, aside, brought, undone = self._p.restore(self._last_backup)
             except Exception as exc:  # noqa: BLE001
                 self._p._log(f"undo failed: {exc!r}")
-                QMessageBox.critical(self, TR("MM_RestoreFailedTitle", "Restore failed"), TR("MM_RestoreFailedMsg", "Failed to restore the backup: {err}", err=exc))
+                msg = str(exc) if isinstance(exc, RestoreFailed) else TR("MM_RestoreFailedMsg", "Failed to restore the backup: {err}", err=exc)
+                QMessageBox.critical(self, TR("MM_RestoreFailedTitle", "Restore failed"), msg)
+                self.status.setText(TR("MM_RestoreFailed", "Restore failed: {err}", err=msg))
                 return
             self._last_backup = None
             self.b_undo.setVisible(False)
@@ -5802,7 +6050,7 @@ if mobase is not None:
                            "load them. {chain} of them only because a master of theirs is switched off too (a chain).\n\n"
                            "Nothing has been written yet. Check the list (Show Details) before you choose.",
                            n=len(lines), chain=n_chain))
-            box.setInformativeText("\n".join(lines[:12]) + ("\n..." if len(lines) > 12 else ""))
+            box.setInformativeText(left_pane_line(self._result) + "\n\n" + "\n".join(lines[:12]) + ("\n..." if len(lines) > 12 else ""))
             box.setDetailedText("\n".join(lines))
             b_all = box.addButton(TR("MM_SwitchOffYes", "Apply and switch them off"), QMessageBox.ButtonRole.AcceptRole)
             b_keep = box.addButton(TR("MM_SwitchOffKeep", "Apply, leave plugins as they are"), QMessageBox.ButtonRole.AcceptRole)
@@ -5883,10 +6131,12 @@ if mobase is not None:
               preview                     compute the plan (as opening the window does) and say what Apply would do
               apply  plugin_moves=bool     write the last preview; plugin_moves must be given when the plan would switch
                                            plugins off (the window asks the same question), else it defaults to True
-              undo                         restore the backup the last scripted Apply wrote
+              undo [fail_at_step=n]         restore the backup the last scripted Apply wrote; fail_at_step (testing)
+                                           makes step n fail as a real error would, to prove the roll-back
               backups                      the backups, newest first
-              restore  backup=<name> [other_profile=true]
-                                           restore one; a backup taken from another profile needs other_profile"""
+              restore  backup=<name> [other_profile=true] [fail_at_step=n]
+                                           restore one; a backup taken from another profile needs other_profile
+            A restore that did not happen returns {"restored"|"undone": false, "rolled_back": bool, "message": ...}."""
             args = args or {}
             org = self._organizer
             self._log(f"agent: {action} {json.dumps(args, ensure_ascii=False)}")
@@ -5897,7 +6147,10 @@ if mobase is not None:
                 ps = result.get("plugin_state", {})
                 return {"profile": org.profileName(), "summary": result.get("nexus"), "moves": len(result.get("moves", [])),
                         "plugins": len(result.get("plugins", [])), "activate": len(ps.get("activate", [])),
-                        "switch_off": lines, "switch_off_chain_links": n_chain}
+                        "switch_off": lines, "switch_off_chain_links": n_chain,
+                        "separators_created": len(result["facts"].get("created", ())),
+                        "separators_retired": len(result["facts"].get("retired", ())),
+                        "left_pane": left_pane_line(result)}
             if action == "apply":
                 if not self._agent_result:
                     raise ValueError("apply needs a preview first (mm preview), as the window computes before Apply")
@@ -5911,7 +6164,10 @@ if mobase is not None:
             if action == "undo":
                 if not self._agent_backup:
                     raise ValueError("nothing to undo: no scripted Apply in this MO2 session")
-                safety, aside, brought, undone = self.restore(self._agent_backup)
+                try:
+                    safety, aside, brought, undone = self.restore(self._agent_backup, args.get("fail_at_step"))
+                except RestoreFailed as exc:
+                    return {"undone": False, "rolled_back": exc.rolled_back, "message": str(exc), "safety": exc.safety}
                 self._agent_backup = None
                 return {"undone": True, "safety": safety, "set_aside": len(aside), "brought_back": len(brought), "plugins_moved_back": len(undone)}
             backups = list_backups(self._cache_dir(), self._instance())
@@ -5925,7 +6181,11 @@ if mobase is not None:
                 if hit[2] != org.profileName() and not args.get("other_profile"):
                     raise ValueError("backup %r was taken from profile %r, not %r - say other_profile=true to restore it here"
                                      % (want, hit[2], org.profileName()))
-                safety, aside, brought, undone = self.restore(os.path.join(self._cache_dir(), "backups", want))
+                try:
+                    safety, aside, brought, undone = self.restore(os.path.join(self._cache_dir(), "backups", want),
+                                                                  args.get("fail_at_step"))
+                except RestoreFailed as exc:
+                    return {"restored": False, "rolled_back": exc.rolled_back, "message": str(exc), "safety": exc.safety}
                 return {"restored": want, "safety": safety, "set_aside": len(aside), "brought_back": len(brought), "plugins_moved_back": len(undone)}
             raise ValueError("unknown action %r (preview, apply, undo, backups, restore)" % action)
 
@@ -6172,6 +6432,10 @@ if mobase is not None:
             # Manager's copy of the groups went down with them - 350 of 1,792 plugins were back in their old
             # groups after the 2026-09-22 Apply. With False the lists are re-read from the files just written.
             org.refresh(False)
+            if not plugin_moves:
+                # plugins left as they are: MO2 keeps the order it re-read from the untouched loadorder.txt (setting
+                # the plan's order here reordered plugins.txt behind the user's back - Main Agent, 2026-10-24)
+                return backup
             try:
                 org.pluginList().setLoadOrder(result["plugins"])
             except Exception as exc:  # noqa: BLE001
@@ -6179,9 +6443,15 @@ if mobase is not None:
             self._verify_groups_later(result)
             return backup
 
-        def restore(self, backup_dir):
+        def restore(self, backup_dir, fail_at_step=None):
             org = self._organizer
-            out = restore_backup(backup_dir, self._instance(), org.profileName(), self._cache_dir(), self._log)
+            try:
+                out = restore_backup(backup_dir, self._instance(), org.profileName(), self._cache_dir(), self._log,
+                                     fail_at_step=fail_at_step)
+            except RestoreFailed as exc:
+                if not exc.rolled_back:
+                    org.refresh(False)         # some files did change: MO2 shows them as they are, never saves over them
+                raise
             org.refresh(False)                 # re-read the restored files; never save the in-memory lists over them
             try:
                 lo = os.path.join(org.profilePath(), "loadorder.txt")
