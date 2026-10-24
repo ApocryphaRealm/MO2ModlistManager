@@ -5086,6 +5086,17 @@ BACKUP_LISTS = ("modlist.txt", "plugins.txt", "loadorder.txt", "plugingroups.txt
 _BACKUP_NAME = re.compile(r"^(\d{8})-(\d{6})(-before-restore)?$")
 
 
+def switch_off_lines(result):
+    """Every plugin and mod a plan would move, untick or switch off, with its reason, and how many of them are only links
+    of a chain - what the window lists before Apply writes anything (1.1.6), and what a scripted Apply must answer."""
+    ps, f = result.get("plugin_state", {}), result["facts"]
+    chain = ps.get("chain", {})
+    lines = [f"{p}  ({m}): {w}" for p, m, w in ps.get("to_optional", []) + ps.get("keep_off", [])]
+    lines += [f"{g}: " + TR("MM_SecondCopy", "a second copy of {k}: {a}", k=k, a=a) for g, k, a in f.get("redundant", [])]
+    lines += [f"{g}: {w}" for g, w in f.get("default_off", [])]
+    return lines, sum(1 for p, _m, _w in ps.get("to_optional", []) + ps.get("keep_off", []) if p in chain)
+
+
 def _modlist_names(path):
     try:
         return {ln.strip()[1:] for ln in open(path, encoding="utf-8-sig", errors="replace") if ln[:1] in "+-*"}
@@ -5777,13 +5788,7 @@ if mobase is not None:
         def switch_off_list(self):
             """Every plugin and mod the plan would move, untick or switch off, with its reason, and how many of them
             are only links of a chain - shown before Apply writes anything (1.1.6)."""
-            r = self._result
-            ps, f = r.get("plugin_state", {}), r["facts"]
-            chain = ps.get("chain", {})
-            lines = [f"{p}  ({m}): {w}" for p, m, w in ps.get("to_optional", []) + ps.get("keep_off", [])]
-            lines += [f"{g}: " + TR("MM_SecondCopy", "a second copy of {k}: {a}", k=k, a=a) for g, k, a in f.get("redundant", [])]
-            lines += [f"{g}: {w}" for g, w in f.get("default_off", [])]
-            return lines, sum(1 for p, _m, _w in ps.get("to_optional", []) + ps.get("keep_off", []) if p in chain)
+            return switch_off_lines(self._result)
 
         def confirm_switch_off(self):
             """None = cancel; True = apply with the plan's plugin changes; False = apply, leave plugins as they are."""
@@ -5854,7 +5859,75 @@ if mobase is not None:
             self._toolbar_timer.setInterval(500)
             self._toolbar_timer.timeout.connect(self._keep_toolbar_button)
             self._toolbar_timer.start()
+            # SCRIPTED ENTRY POINT (1.1.6, the owner 2026-10-24: "a mechanical interface for AI agents to operate MO2
+            # headlessly"): Preview / Apply / Undo / Restore without the window or its dialogs, called by the Apocrypha
+            # Agent Control plugin (mo2-ctl mm ...). Shared through one in-process registry module, so neither plugin
+            # imports the other; absent that plugin, nothing calls it.
+            self._agent_result = None
+            self._agent_backup = None
+            try:
+                import sys
+                import types
+                reg = sys.modules.get("apocrypha_agent_registry")
+                if reg is None:
+                    reg = types.ModuleType("apocrypha_agent_registry")
+                    reg.handlers = {}
+                    sys.modules["apocrypha_agent_registry"] = reg
+                reg.handlers["MO2ModlistManager"] = self.agent
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"agent entry point not registered: {exc!r}")
             return True
+
+        def agent(self, action, args=None):
+            """One scripted step, the same code paths as the window's buttons. Returns a JSON-able dict; raises on error.
+              preview                     compute the plan (as opening the window does) and say what Apply would do
+              apply  plugin_moves=bool     write the last preview; plugin_moves must be given when the plan would switch
+                                           plugins off (the window asks the same question), else it defaults to True
+              undo                         restore the backup the last scripted Apply wrote
+              backups                      the backups, newest first
+              restore  backup=<name> [other_profile=true]
+                                           restore one; a backup taken from another profile needs other_profile"""
+            args = args or {}
+            org = self._organizer
+            self._log(f"agent: {action} {json.dumps(args, ensure_ascii=False)}")
+            if action == "preview":
+                result = self.compute()
+                self._agent_result = result
+                lines, n_chain = switch_off_lines(result)
+                ps = result.get("plugin_state", {})
+                return {"profile": org.profileName(), "summary": result.get("nexus"), "moves": len(result.get("moves", [])),
+                        "plugins": len(result.get("plugins", [])), "activate": len(ps.get("activate", [])),
+                        "switch_off": lines, "switch_off_chain_links": n_chain}
+            if action == "apply":
+                if not self._agent_result:
+                    raise ValueError("apply needs a preview first (mm preview), as the window computes before Apply")
+                lines, _n = switch_off_lines(self._agent_result)
+                if lines and "plugin_moves" not in args:
+                    raise ValueError("the plan would switch %d plugin(s) or mod(s) off - say plugin_moves=true (switch them "
+                                     "off) or false (leave plugins as they are), as the window asks" % len(lines))
+                backup = self.apply(self._agent_result, plugin_moves=bool(args.get("plugin_moves", True)))
+                self._agent_backup, self._agent_result = backup, None
+                return {"applied": True, "backup": backup, "plugin_moves": bool(args.get("plugin_moves", True))}
+            if action == "undo":
+                if not self._agent_backup:
+                    raise ValueError("nothing to undo: no scripted Apply in this MO2 session")
+                safety, aside, brought, undone = self.restore(self._agent_backup)
+                self._agent_backup = None
+                return {"undone": True, "safety": safety, "set_aside": len(aside), "brought_back": len(brought), "plugins_moved_back": len(undone)}
+            backups = list_backups(self._cache_dir(), self._instance())
+            if action == "backups":
+                return {"backups": [{"name": n, "when": w, "profile": p, "profile_known": k, "kind": kind} for n, w, p, k, kind in backups]}
+            if action == "restore":
+                want = args.get("backup")
+                hit = next((b for b in backups if b[0] == want), None)
+                if hit is None:
+                    raise ValueError("no backup named %r (mm backups lists them)" % want)
+                if hit[2] != org.profileName() and not args.get("other_profile"):
+                    raise ValueError("backup %r was taken from profile %r, not %r - say other_profile=true to restore it here"
+                                     % (want, hit[2], org.profileName()))
+                safety, aside, brought, undone = self.restore(os.path.join(self._cache_dir(), "backups", want))
+                return {"restored": want, "safety": safety, "set_aside": len(aside), "brought_back": len(brought), "plugins_moved_back": len(undone)}
+            raise ValueError("unknown action %r (preview, apply, undo, backups, restore)" % action)
 
         def apply_language(self):
             """Settings > Language, else MO2's own language (ModOrganizer.ini). Read again each time the window opens."""

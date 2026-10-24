@@ -4,6 +4,16 @@ Every version, beside the code it describes. Status is the version ledger's word
 
 ## 1.1.6 - 2026-10-23 - untested
 
+### Added
+- **A scripted entry point: Preview, Apply, Undo, Restore without the window** (the owner, 2026-10-24: "a mechanical
+  interface for AI agents to operate MO2 headlessly"). The plugin registers `agent(action, args)` in a shared
+  in-process registry; the Apocrypha Agent Control plugin (our tooling, `mo2-ctl mm action=...`) calls it. It runs the
+  same code as the buttons: preview computes the plan and lists what Apply would switch off; apply needs a preview
+  first and, when the plan would switch plugins off, an explicit `plugin_moves` true/false - the question the window
+  asks; undo restores the backup the scripted Apply wrote; restore needs `other_profile` for a backup taken from
+  another profile, as the window warns. Every call is written to the plugin's log. Nothing changes for a player who
+  never installs Agent Control. The switch-off list the window shows moved to a module function both use.
+
 ### Fixed
 - **Apply no longer switches off plugins whose masters are in the game's Data folder or in Overwrite, nor everything
   built on them** (Nexus report, 2026-10-24: "It disabled half of the plugins out of 1080 ... a chain reaction").
