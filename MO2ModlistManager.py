@@ -914,7 +914,14 @@ def _records_vote(m):
     # Perks, Powers and Blessings; Adamant 427 perks / 546 magic, Paragon 277 / 537; Mysticism 26 / 1152 stays Magic)
     perk_all = new("PERK") + alt("PERK")
     perk_overhaul = perk_all >= 100 and 4 * perk_all >= magic
-    if perk_overhaul:
+    # R38 a shout overhaul: ten or more shout records, new or altered - the spells and effects are what the shouts do
+    # (2026-10-26: Stormcrown - A Shout Overhaul alters 26 of the vanilla shouts, adds 2 with 6 words, and its 195 new
+    # spells and effects are those shouts' levels; counted as plain magic they filed it under Spells)
+    shout_all = new("SHOU") + alt("SHOU")
+    shout_overhaul = shout_all >= 10
+    if shout_overhaul:
+        cands.append(("Shouts", 3 * (shout_all + new("WOOP")) + magic, f"{shout_all} shout records (new or altered) with {magic} spells and effects: a shout overhaul"))
+    elif perk_overhaul:
         cands.append(("Class, Perks, Powers and Blessings", perk_all + magic, f"{perk_all} perk records (new or altered) with {magic} spells and effects: a perk overhaul"))
     elif magic >= 50 and magic >= 5 * (armo + weap):
         cands.append(("Magic - Spells & Enchantments", magic, f"{magic} new spell/enchantment/effect records"))
@@ -926,7 +933,7 @@ def _records_vote(m):
         cands.append(("Weapons", weap, f"{weap} weapon/ammo records (new or altered)"))
     elif magic:
         cands.append(("Magic - Spells & Enchantments", magic, f"{magic} new spell/enchantment/effect records"))
-    if shouts:
+    if shouts and not shout_overhaul:
         cands.append(("Shouts", shouts * 3, f"{shouts} new shout/word records"))
     if npc >= 10:
         cands.append(("NPC - Appearance", npc, f"{npc} new NPC records"))
@@ -1326,6 +1333,17 @@ def decide(m, votes, nexus_cat=""):
             # the owner, 2026-09-27: "Sword of the First Ember equipment new weapon mod" - one quest and nobody new only
             # hands the gear over: delivery, not the subject (as a spell's tomes are)
             notes.append("new equipment placed in an existing place (a lone quest to get it is delivery): the equipment decides")
+    # R38 the places a shout overhaul touches are where its words are learnt - its word walls - never an overhaul of
+    # those places (2026-10-26: Stormcrown's six new walls and a cave read as a wilderness overhaul), as R31 reads
+    # where new equipment is put
+    if any(v[0] == "records" and v[1] == "Shouts" and "shout overhaul" in str(v[3]) for v in votes):
+        moved = False
+        for v in votes:
+            if place_vote(v) or (v[0] == "scope" and v[1] == "Locations - New"):
+                v[2] *= 0.3
+                moved = True
+        if moved:
+            notes.append("a shout overhaul's cells are its word walls: where the words are learnt, not a place it overhauls")
     # R36 an item's enchantment changed: enchantment records added or altered for existing gear, no new gear (the owner,
     # 2026-09-27: Chillrend Enchantment Tweak, Better Rueful Axe and A Better Gauldur Amulet all belong in Enchantments)
     if (rec.get("ENCH", 0) + rec.get("ENCH*", 0)) and not (rec.get("ARMO", 0) + rec.get("WEAP", 0)) \
