@@ -137,7 +137,18 @@ OUTPUT_TOOLS = re.compile(r"\b(dyndolod|texgen|xlodgen|occlusion|pgpatcher|paral
 #   P10 optional addons ([Addon], [Optional], [Ultrawide]) after the generated outputs, so switching one on wins
 TAXONOMY = [
     (0, "--- 0 BASE & ENGINE ---", [
-        ("Base Game", None), ("Unofficial Patches", None), ("Essential Engine Fixes", None), ("Frameworks", None),
+        ("Base Game", None), ("Unofficial Patches", None),
+        # R39 BASELINE MESH AND TEXTURE PACKS LOAD NEAR THE START (the owner, 2026-10-26: "HPP and SMIM are baseline
+        # texture and mesh fixers, which should be low in the load order and overwritten by most things"; earlier,
+        # 2026-09-27: SMIM "is a baseline mod that's supposed to be overridden by other mods"). The whole-game packs
+        # (BASELINE_ART: SMIM and its addons, High Poly Project, Cleaned Skyrim SE Textures) sit right after the
+        # unofficial patches, so every fix, character, world, object and content mod after them wins their files - the
+        # mesh and texture fixes of this tier included. There is NO general models and textures block ("there's no such
+        # thing as a general models and textures ... it's going to have something specific to go to"): only a baseline
+        # pack and its own fixes stay here, everything else goes to the block its art is for (place():
+        # _dissolve_general_art). Until 1.1.6 this block opened the world tier, below every tier 0-2 mod.
+        ("Mesh Improvements", None),
+        ("Essential Engine Fixes", None), ("Frameworks", None),
         ("Utilities", None), ("Bug Fixes", None),
         ("Debugging", None),   # the owner, 2026-09-27: "a new category separator called debugging, which goes directly after bug fixes"
         ("Script Fixes", None), ("SKSE Plugin Fixes", None),
@@ -148,13 +159,7 @@ TAXONOMY = [
     (2, "--- 2 CHARACTERS ---", [
         ("Body", None), ("Face", None), ("Hair", None), ("Races, Classes, and Birthsigns", None), ("Physics", None)]),
     (3, "--- 3 WORLD, VISUALS, SYSTEMS & ANIMATION ---", [
-        # the owner, 2026-09-27: SMIM "is a baseline mod that's supposed to be overridden by other mods" - the whole-game
-        # mesh and texture packs load FIRST in the world tier (the reference list's Mesh Improvements / Texture
-        # Foundations), so every environment, location and object mod after them wins. There is NO general models and
-        # textures block ("there's no such thing as a general models and textures ... it's going to have something
-        # specific to go to"): only a baseline pack stays here, everything else goes to the block its art is for
-        # (place(): _dissolve_general_art)
-        ("Mesh Improvements", None),
+        # the baseline mesh and texture packs (Mesh Improvements) moved to tier 0 in R39, right after the unofficial patches
         ("Presets - ENB and ReShade", None),
         ("Environment", ["Weather", "Landscape", "Water", "Architecture"]),
         # no "General" leaf anywhere (the owner, 2026-09-27: "nothing is ever actually general, it should be tied to
@@ -499,6 +504,13 @@ def tier_of(category):
     if k in HUB_LEAVES:
         return HUB_LEAVES[k][0]
     return INDEX_TIER.get(k, 3)
+
+
+def _engine_tier(category):
+    """A block of the base and interface tiers (0-1), whose mods are no patch's or bridge's target - except the baseline
+    mesh and texture packs (Mesh Improvements): R39 put them in tier 0, but patches are still made for them (Markarth
+    Fixed AF - UMF - SMIM QA [Patch] stays in Patches, after SMIM's Quality Addon and Markarth)."""
+    return tier_of(category) <= 1 and norm(category) != norm("Mesh Improvements")
 
 
 # --- evidence ---------------------------------------------------------------------------------------------------------
@@ -2819,7 +2831,7 @@ def _art_resource_packs(mods):
             # must load before them: it goes to the world tier's architecture block, not the later Models and Textures
             mine = {f.lower() for f, _ms, _e in m.plugins}
             pos, _h = category_order()
-            mt = pos.get(norm("Mesh Improvements"), (99, 99))
+            mt = (INDEX_TIER.get(norm("Environment - Weather"), 3), 0)    # the start of the world tier (R39 moved Mesh Improvements out of it)
             earlier = [o.name for o in mods if o is not m and o.enabled and o.category and not is_sep(o.name)
                        and pos.get(norm(o.category), (99, 99)) < mt
                        and any(x.lower() in mine for _f, ms, _e in o.plugins for x in ms)]
@@ -2951,7 +2963,7 @@ def _patch_home(mods):
         on = set()
         for mast in main[0][1]:
             o = by_plugin.get(mast.lower())
-            if mast.lower() in BASE_MASTERS or o is None or o is m or not o.category or tier_of(o.category) <= 1:
+            if mast.lower() in BASE_MASTERS or o is None or o is m or not o.category or _engine_tier(o.category):
                 continue
             on.add(o.name)
         homes = {norm(by_name[n].category) for n in on}
@@ -2971,11 +2983,11 @@ def _patch_home(mods):
                 o = by_plugin.get(k)
                 if k in BASE_MASTERS or k in own or o is None or o is m or not o.category:
                     continue
-                if tier_of(o.category) <= 1:
+                if _engine_tier(o.category):
                     continue
                 targets.add(o.name)
         if not every:
-            targets = {n for n in _named_mods(m, cores, initials) if by_name[n].category and tier_of(by_name[n].category) > 1}
+            targets = {n for n in _named_mods(m, cores, initials) if by_name[n].category and not _engine_tier(by_name[n].category)}
         # a patch whose only ENABLED targets are mods from its own Nexus page is part of that mod: the other target is
         # not in the list, so there is nothing for it to load after (the owner, 2026-09-27: "old holds cold welcome is
         # not a patch" - Cold Welcome's Sons of Skyrim patch sat in Patches, with Sons of Skyrim disabled)
