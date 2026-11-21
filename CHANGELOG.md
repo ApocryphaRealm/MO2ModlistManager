@@ -15,6 +15,8 @@ Every version, beside the code it describes. Status is the version ledger's word
   never installs Agent Control. The switch-off list the window shows moved to a module function both use.
 
 ### Fixed
+- After Apply and after Restore the mod list file is compared with what was written: if MO2 saved its older list over it during the refresh (possible when Apply is pressed straight after "Compute again"), the file is written again, MO2 re-reads it, and the log says so.
+- Undo (or Restore) pressed soon after Apply no longer makes MO2 show an Error window "failed to write mod list: invalid mod index". MO2 keeps a save of the mod list queued for a moment after every refresh, and its next refresh wrote that older list against the folders the Undo had just changed. Undo and Restore now let MO2 write what it has queued first, before a folder or a file changes. The restored files were correct even when the window appeared.
 - **The baseline mesh and texture packs load near the start, so nearly every mod overwrites them** (the owner,
   2026-10-26: "HPP and SMIM are baseline texture and mesh fixers, which should be low in the load order and overwritten
   by most things"). Cause: their block, Mesh Improvements, opened the world tier, so every base, interface and character

@@ -6455,13 +6455,57 @@ if mobase is not None:
                 pass
             return ""
 
+        # ---- MO2's own pending save of the mod list (1.1.6, MO2-REFERENCE.md "a refresh and the pending save") ----------
+        # MO2 saves modlist.txt late: after every refresh it QUEUES a save, written a moment later. And its refresh re-reads
+        # the mods folder FIRST and only then writes what is queued - from the order it held BEFORE the re-read. So a
+        # change of ours that lands while a save is queued (Undo pressed soon after Apply) had MO2 write its older list
+        # against the new folder: with fewer folders it stops with "failed to write mod list: invalid mod index" in an
+        # Error window; with as many or more it quietly puts the older order over the file just written.
+        def _mod_list_file(self):
+            return os.path.join(self._organizer.profilePath(), "modlist.txt")
+
+        def _read_mod_list(self):
+            try:
+                with open(_lp(self._mod_list_file()), "rb") as fh:
+                    return fh.read()
+            except OSError:
+                return None
+
+        def _let_mo2_save_first(self):
+            """Before a restore changes anything: have MO2 write whatever it has queued NOW, while what it holds and what
+            is on disk still agree (the same saving refresh compute() makes before it reads the pane)."""
+            try:
+                self._organizer.refresh(True)
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"MO2's queued save could not be flushed before the restore: {exc!r}")
+
+        def _refresh_keeping(self, written):
+            """Refresh WITHOUT saving, then make sure modlist.txt still holds `written` (its bytes straight after our
+            write): if MO2 saved an older list over it during the refresh, write ours back and refresh once more -
+            nothing is queued by then. Returns True when the file had to be put back."""
+            org = self._organizer
+            org.refresh(False)
+            if written is None or self._read_mod_list() == written:
+                return False
+            self._log("MO2 saved its older mod list over modlist.txt during the refresh (a save it had queued); "
+                      "the file was written again and MO2 re-read it")
+            path = _lp(self._mod_list_file())
+            with open(path + ".mm-tmp", "wb") as fh:
+                fh.write(written)
+            os.replace(path + ".mm-tmp", path)
+            org.refresh(False)
+            if self._read_mod_list() != written:
+                self._log("modlist.txt still differs from what was written after the second refresh - restart MO2 and "
+                          "check the mod order (the backup holds the lists as they were)")
+            return True
+
         def apply(self, result, plugin_moves=True):
             org = self._organizer
             backup = apply(result, self._instance(), org.profileName(), self._cache_dir(), self._log, plugin_moves=plugin_moves)
             # refresh WITHOUT saving: refresh(True) first writes MO2's in-memory lists to disk, and Bethesda Plugin
             # Manager's copy of the groups went down with them - 350 of 1,792 plugins were back in their old
             # groups after the 2026-09-22 Apply. With False the lists are re-read from the files just written.
-            org.refresh(False)
+            self._refresh_keeping(self._read_mod_list())
             if not plugin_moves:
                 # plugins left as they are: MO2 keeps the order it re-read from the untouched loadorder.txt (setting
                 # the plan's order here reordered plugins.txt behind the user's back - Main Agent, 2026-10-24)
@@ -6475,6 +6519,9 @@ if mobase is not None:
 
         def restore(self, backup_dir, fail_at_step=None):
             org = self._organizer
+            # Undo is pressed straight after Apply, when MO2 still has a save of the mod list queued: it is written
+            # first, before a folder or a file changes (see _let_mo2_save_first)
+            self._let_mo2_save_first()
             try:
                 out = restore_backup(backup_dir, self._instance(), org.profileName(), self._cache_dir(), self._log,
                                      fail_at_step=fail_at_step)
@@ -6482,7 +6529,8 @@ if mobase is not None:
                 if not exc.rolled_back:
                     org.refresh(False)         # some files did change: MO2 shows them as they are, never saves over them
                 raise
-            org.refresh(False)                 # re-read the restored files; never save the in-memory lists over them
+            # re-read the restored files; never save the in-memory lists over them
+            self._refresh_keeping(self._read_mod_list())
             try:
                 lo = os.path.join(org.profilePath(), "loadorder.txt")
                 order = [ln.strip() for ln in open(lo, encoding="utf-8-sig", errors="replace") if ln.strip() and not ln.startswith("#")]

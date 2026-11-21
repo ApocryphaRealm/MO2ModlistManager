@@ -55,6 +55,40 @@ release tag and follow its shape. Read 2026-09-26 for MO2 **2.5.2** (the version
 | a mod folder's files, and long paths (1.1.6) | the same answer as MO2's walker, through the Win32 form of its prefix: `_lp()` turns every path inside a mod folder into `\\?\D:\...` (`\\?\UNC\server\...`) before `os.walk`, `os.listdir`, `open`, `os.path.getsize` or `shutil.move` sees it, which lifts the limit in a process that is not long-path aware. A folder that cannot be listed is reported (`os.walk(onerror=...)`), never skipped in silence; a mod that still cannot be read in full is placed on what was read and named in the window, and a failed plan shows the list as it is with the reason |
 | toolbar | its own QAction inserted before Settings on the first QToolBar, re-inserted when MO2 rebuilds the toolbar (checked every 2 s); object names `MO2ModlistManagerAction` / `MO2ModlistManagerBtn`, so it is never mistaken for a `custom__` executable; the icon painted in the colour Qt's stylesheet style resolves for the button (palette ButtonText), repainted when it changes |
 
+## A refresh and the pending save of the mod list (read 2026-11-20 for 1.1.6)
+
+Sources: https://github.com/ModOrganizer2/modorganizer/blob/v2.5.2/src/organizercore.cpp (`OrganizerCore::refresh`,
+`refreshDirectoryStructure`, `refreshESPList`, `onDirectoryRefreshed`) and
+https://github.com/ModOrganizer2/modorganizer/blob/v2.5.2/src/profile.cpp (`Profile::refreshModStatus`,
+`doWriteModlist`, `writeModlist`, `writeModlistNow`).
+
+What MO2 does. It saves modlist.txt late, through a delayed writer: `writeModlist()` only QUEUES the save, and
+`writeModlistNow(true)` writes it at once if one is queued. `refresh(saveChanges)` runs, in this order: with
+saveChanges, `writeModlistNow(true)`; `updateModInfoFromDisc()`, which rebuilds the collection of mods from the mods
+folder (a mod is an index into it); `refreshModStatus()`, whose first statement is `writeModlistNow(true)` ("if there
+are pending changes write them first") and which then reads modlist.txt; `refreshDirectoryStructure()`, which does
+nothing while a directory refresh is already running, else writes a queued save and reads the folders on another
+thread. When that thread finishes, back in the event loop, `refreshESPList` queues a save again. `doWriteModlist`
+walks the profile's own priority map and asks the collection for each index; an index past the end throws, and the
+catch reports "failed to write mod list: invalid mod index: N" in an Error window, leaving the file as it was.
+
+What follows from it. For a short while after every refresh a save is queued. A change to the mods folder or to
+modlist.txt made in that while, followed by `refresh(False)`, has MO2 write the order it held BEFORE the change
+against the collection it has just re-read: fewer folders than before - the Error window; as many or more - its older
+order silently over the file just written.
+
+What the Modlist Manager does. Restore and Undo call `refresh(True)` first, before a folder or a file changes, so a
+queued save is written while MO2's memory and the disk still agree; nothing can queue another before the restore's own
+`refresh(False)`, because the queueing needs MO2's event loop and the restore does not return to it in between. After
+that refresh, Apply and Restore both compare modlist.txt with the bytes they wrote; if MO2 saved an older list over
+it, they write it again, refresh once more (nothing is queued by then) and say so in the log. Apply does not make the
+extra saving refresh: `compute()` made one when the preview was built, and the check afterwards covers an Apply pressed
+while that one's save is still queued. `tools/test_refresh_order.py` holds MO2's order as a stand-in and shows both
+faults with the old sequence and neither with the new.
+
+Not solved here, MO2's own: a refresh asked for while a directory refresh is still running re-reads the lists but not
+the folder tree, so MO2's Data view can lag one refresh behind after an Undo pressed during a long refresh.
+
 ## Departures
 
 
