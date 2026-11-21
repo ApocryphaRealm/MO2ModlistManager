@@ -2,7 +2,7 @@
 
 Every version, beside the code it describes. Status is the version ledger's word for the build.
 
-## 1.1.6 - 2026-10-23 - untested
+## 1.1.6 - 2026-10-23 - working
 
 ### Added
 - **A scripted entry point: Preview, Apply, Undo, Restore without the window** (the owner, 2026-10-24: "a mechanical
