@@ -4,6 +4,7 @@ through MO2 Agent Control 1.1.0 or newer (its mo2_ctl.py, the window commands).
 
     python tools\live_fast_undo.py --instance "<scratch MO2 folder>" --ctl "<path to mo2_ctl.py>"
            [--profile Default] [--rounds 3] [--pause 0] [--expect-error]
+           [--sweep 0.2,0.3,0.4 ...] [--reads]
 
 MO2 must be running on the instance with Modlist Manager and MO2 Agent Control installed, the profile in a state where
 Apply asks its "Plugins would be switched off" question. Each round: Apply -> answer (the two Apply answers in turn)
@@ -14,6 +15,12 @@ Apply asks its "Plugins would be switched off" question. Each round: Apply -> an
 Exit 0: no Error window, no new log line, files identical in every round. With --expect-error (the control, run on a
 build WITHOUT the fix, --pause 0): exit 0 when the Error window DID appear in every round - the fault is reproduced by
 timing alone. An Error window met along the way is answered OK so the run can go on, and is always reported.
+
+--sweep takes a list of pauses and runs one round at each (it replaces --rounds / --pause): the fault needs the Undo
+to land in the fifth of a second in which MO2 has a save of the mod list queued, and that moment comes only after its
+background folder read has finished - so one pause tests one point, a sweep finds the window. With --expect-error a
+sweep passes when AT LEAST ONE pause showed the window. --reads fills each pause with ui_tree requests, the way an
+agent that looks before it presses does (the run that first showed the fault did).
 """
 import argparse, hashlib, importlib.util, json, os, sys, time
 
@@ -31,6 +38,8 @@ def main(argv):
     p.add_argument("--rounds", type=int, default=3)
     p.add_argument("--pause", type=float, default=0.0, help="seconds between Apply's answer and the Undo press")
     p.add_argument("--expect-error", action="store_true")
+    p.add_argument("--sweep", default="", help="comma-separated pauses, one round each")
+    p.add_argument("--reads", action="store_true", help="fill each pause with ui_tree requests")
     a = p.parse_args(argv)
     low = os.path.normcase(os.path.abspath(a.instance))
     if "scratch" not in low and "_work" not in low:
@@ -85,7 +94,9 @@ def main(argv):
         return 1
     pre = digest()
     rounds, bad = [], 0
-    for i in range(a.rounds):
+    pauses = [float(x) for x in a.sweep.split(",") if x.strip()] if a.sweep else [a.pause] * a.rounds
+    hits = 0
+    for i, pause in enumerate(pauses):
         answer = ANSWERS[i % 2]
         before = log_errors()
         r = call("ui_click", text="Apply")
@@ -94,8 +105,11 @@ def main(argv):
             return 1
         r = call("ui_answer_modal", text=answer, expect=QUESTION)
         t_apply = time.time()
-        if a.pause:
-            time.sleep(a.pause)
+        while time.time() - t_apply < pause:
+            if a.reads:
+                call("ui_tree")
+            else:
+                time.sleep(min(0.02, max(0.0, pause - (time.time() - t_apply))))
         r = call("ui_click", text="Undo this Apply")
         gap = time.time() - t_apply
         if not r.get("ok"):                       # the button is not there yet: the Apply is still finishing
@@ -111,7 +125,8 @@ def main(argv):
         time.sleep(1.5)                           # MO2's own later save, if any, has been written by now
         new_lines = log_errors() - before
         same = digest() == pre
-        rounds.append({"round": i + 1, "answer": answer, "undo_after_s": round(gap, 2), "error_window": box,
+        hits += 1 if error_box else 0
+        rounds.append({"round": i + 1, "answer": answer, "pause": pause, "undo_after_s": round(gap, 2), "error_window": box,
                        "new_log_errors": new_lines, "files_identical": same})
         print(json.dumps(rounds[-1], ensure_ascii=False))
         clean = (not error_box) and new_lines == 0 and same
@@ -125,9 +140,15 @@ def main(argv):
     r = call("ui_click", text="Close")
     print("closed:", r.get("ok"), "| modal left:", modal_title(call("ui_tree")))
     final = digest() == pre
+    n = len(pauses)
+    if a.sweep and a.expect_error:
+        verdict = "PASS" if hits else "FAIL"
+        print(f"{verdict}: the Error window appeared in {hits}/{n} rounds, at pauses "
+              f"{[r['pause'] for r in rounds if r['error_window']]}; profile identical at the end: {final}")
+        return 0 if hits else 1
     verdict = "PASS" if not bad and (final or a.expect_error) else "FAIL"
     what = "the Error window was reproduced in every round" if a.expect_error else "no Error window, no log error, files identical"
-    print(f"{verdict}: {a.rounds - bad}/{a.rounds} rounds - {what}; profile identical at the end: {final}")
+    print(f"{verdict}: {n - bad}/{n} rounds - {what}; profile identical at the end: {final}")
     return 0 if verdict == "PASS" else 1
 
 
